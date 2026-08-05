@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { SessionRuntimeState } from './';
+import { SessionRuntimeState } from './session-runtime-state.ts';
 
 describe('SessionRuntimeState', () => {
   it('starts with unknown phase', () => {

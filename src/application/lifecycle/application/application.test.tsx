@@ -20,7 +20,7 @@ import type {
   ApplicationInitializerDeclaration,
 } from '../../config/application-configurator';
 
-import { Application } from './';
+import { Application } from './application.tsx';
 
 const createReactRouterViewMock = vi.hoisted(() => {
   return vi.fn(() => {

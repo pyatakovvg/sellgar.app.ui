@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseSearchParams, updateSearchParams } from './';
+import { parseSearchParams, updateSearchParams } from './search.utils.ts';
 
 describe('search utils', () => {
   describe('parseSearchParams', () => {

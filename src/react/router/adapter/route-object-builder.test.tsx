@@ -31,7 +31,7 @@ import {
   type RouteRuntimeFactory,
   type RouteRuntimeFactoryContext,
   type RouteRuntimeRegistry,
-} from './index.ts';
+} from './route-object-builder.tsx';
 
 describe('createRouteObjects', () => {
   it('creates module route objects with normalized path, loader and action', async () => {

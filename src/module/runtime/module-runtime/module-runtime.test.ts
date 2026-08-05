@@ -22,7 +22,7 @@ import {
 } from '../../../runtime/provider/runtime-provider';
 import { Module } from '../../declaration/module';
 
-import { ModuleRuntime } from './';
+import { ModuleRuntime } from './module-runtime.ts';
 
 interface Deferred<TValue> {
   readonly promise: Promise<TValue>;

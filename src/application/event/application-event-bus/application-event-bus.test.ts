@@ -9,7 +9,9 @@ import { RuntimeFailureReporterInterface, type RuntimeFailureReport } from '../.
 
 import { ApplicationEventHandlerInterface } from '../application-event';
 
-import { ApplicationEventBus, ApplicationEventBusBindings, ApplicationEventBusInterface } from './';
+import { ApplicationEventBusBindings } from './application-event-bus.bindings.ts';
+import { ApplicationEventBusInterface } from './application-event-bus.interface.ts';
+import { ApplicationEventBus } from './application-event-bus.ts';
 
 describe('ApplicationEventBus', () => {
   it('publishes abstract class events to function and class handlers', async () => {

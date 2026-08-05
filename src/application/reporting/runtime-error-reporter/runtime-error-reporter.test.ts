@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { NormalizedRuntimeErrorReport } from '../runtime-error-report';
 import { RuntimeErrorReporterSinkInterface } from '../runtime-error-reporter-sink';
 
-import { normalizeRuntimeErrorReport, RuntimeErrorReporter } from './';
+import { normalizeRuntimeErrorReport, RuntimeErrorReporter } from './runtime-error-reporter.ts';
 
 describe('RuntimeErrorReporter', () => {
   it('normalizes report severity and routing fields by code', () => {

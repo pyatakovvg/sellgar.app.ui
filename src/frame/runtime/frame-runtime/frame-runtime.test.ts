@@ -36,7 +36,7 @@ import {
 } from '../frame-controller';
 import { RevalidateServiceInterface } from '../../../revalidate/contract/revalidate-service';
 
-import { FrameRuntime } from './';
+import { FrameRuntime } from './frame-runtime.ts';
 
 describe('FrameRuntime', () => {
   beforeEach(() => {

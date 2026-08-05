@@ -16,7 +16,7 @@ import type { ModuleRuntime } from '../../../module/runtime/module-runtime';
 import type { DependencyToken } from '../../../di/token/dependency-token';
 import { ControllerRuntimeProvider } from '../controller-runtime-context';
 
-import { useSubmit, type ControllerSubmit } from './';
+import { useSubmit, type ControllerSubmit } from './use-controller-submit.hook.ts';
 
 const useFetcherMock = vi.hoisted(() => {
   return vi.fn<() => TestFetcher>();

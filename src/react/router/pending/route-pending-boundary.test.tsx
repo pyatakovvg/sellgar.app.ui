@@ -19,7 +19,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
   };
 });
 
-import { RoutePendingBoundary } from './';
+import { RoutePendingBoundary } from './route-pending-boundary.tsx';
 
 describe('RoutePendingBoundary', () => {
   afterEach(() => {

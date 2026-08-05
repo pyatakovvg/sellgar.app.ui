@@ -22,7 +22,7 @@ import type { WidgetControllerLoaderArgs } from '../../runtime/widget-controller
 import { useLoaderData } from '../../../controller/react/use-controller-loader-data';
 import { useWidgetProps } from '../use-widget-props';
 
-import { WidgetHost } from './';
+import { WidgetHost } from './widget-host.tsx';
 
 describe('WidgetHost', () => {
   it('keeps widget props typed from token', () => {

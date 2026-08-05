@@ -8,7 +8,11 @@ import { RouterRuntime } from '../../../router/runtime/router-runtime';
 import { RouterService } from '../../../router/service/router-service';
 import { ClassTransformerRouterParamsConverter } from '../../../router/params/class-transformer-router-params-converter';
 
-import { ActiveRouteRuntimeBoundary, RouterServiceLocationBoundary, SessionRevalidationBoundary } from './index.ts';
+import {
+  ActiveRouteRuntimeBoundary,
+  RouterServiceLocationBoundary,
+  SessionRevalidationBoundary,
+} from './react-router-adapter.tsx';
 
 const useMatchesMock = vi.hoisted(() => {
   return vi.fn<() => UIMatch[]>();

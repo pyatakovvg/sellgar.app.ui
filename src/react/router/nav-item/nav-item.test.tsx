@@ -13,7 +13,7 @@ import { RouterServiceControllerInterface } from '../../../router/service/router
 import { RuntimeScopeProvider } from '../../../runtime/react';
 import { ApplicationScope } from '../../../runtime/scope/kind';
 
-import { NavItem } from './';
+import { NavItem } from './nav-item.tsx';
 
 const routerMocks = vi.hoisted(() => {
   return {

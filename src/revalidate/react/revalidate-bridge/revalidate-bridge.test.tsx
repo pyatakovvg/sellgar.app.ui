@@ -9,7 +9,7 @@ import { RuntimeScopeProvider } from '../../../runtime/react';
 import { RevalidateServiceInterface } from '../../contract/revalidate-service';
 import type { RevalidateHandler, RevalidateKey } from '../../contract/revalidate-service';
 
-import { RevalidateBridge } from './';
+import { RevalidateBridge } from './revalidate-bridge.tsx';
 
 const useRevalidatorMock = vi.hoisted(() => {
   return vi.fn<() => TestRevalidator>();

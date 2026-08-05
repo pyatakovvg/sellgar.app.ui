@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createHashFromObject, parseHashToObject } from './';
+import { createHashFromObject, parseHashToObject } from './hash.utils.ts';
 
 describe('hash utils', () => {
   describe('createHashFromObject', () => {

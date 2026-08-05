@@ -10,7 +10,7 @@ import {
   createControllerActionErrorEnvelope,
   createControllerActionResultEnvelope,
   parseControllerActionRequest,
-} from './';
+} from './controller-action-request.ts';
 
 describe('controller action request', () => {
   it('creates and parses json controller action body', async () => {

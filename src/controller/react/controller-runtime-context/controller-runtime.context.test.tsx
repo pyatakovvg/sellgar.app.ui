@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DependencyToken } from '../../../di/token/dependency-token';
 import type { ModuleRuntime } from '../../../module/runtime/module-runtime';
 
-import { ControllerRuntimeProvider, useController } from './';
+import { ControllerRuntimeProvider, useController } from './controller-runtime.context.tsx';
 
 describe('useController', () => {
   it('returns controller from nearest runtime provider by token', () => {

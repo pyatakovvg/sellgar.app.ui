@@ -6,7 +6,7 @@ import { ControllerRuntimeProvider } from '../../../controller/react/controller-
 import type { DependencyToken } from '../../../di/token/dependency-token';
 import type { ModuleRuntime } from '../../../module/runtime/module-runtime';
 
-import { useRevalidate } from './';
+import { useRevalidate } from './use-revalidate.hook.ts';
 
 describe('useRevalidate', () => {
   it('exposes idle state by default', () => {

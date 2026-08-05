@@ -17,7 +17,7 @@ import { RuntimeScopeProvider } from '../../../runtime/react';
 
 import { useNavigate } from '../use-navigate';
 
-import { useLocation } from './';
+import { useLocation } from './use-location.hook.ts';
 
 describe('router access hooks', () => {
   it('returns reactive location snapshot with dto conversion helpers', () => {

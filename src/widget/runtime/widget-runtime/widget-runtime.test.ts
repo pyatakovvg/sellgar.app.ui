@@ -28,7 +28,7 @@ import {
   type WidgetControllerLoaderArgs,
 } from '../widget-controller';
 import { RevalidateServiceInterface } from '../../../revalidate/contract/revalidate-service';
-import { WidgetRuntime } from './';
+import { WidgetRuntime } from './widget-runtime.ts';
 
 describe('WidgetRuntime', () => {
   it('loads widget controllers and providers', async () => {

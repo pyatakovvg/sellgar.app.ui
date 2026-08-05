@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { createRuntimeRevisionGuard, executeRuntimeOperation, type RuntimeRevisionSource } from './';
+import {
+  createRuntimeRevisionGuard,
+  executeRuntimeOperation,
+  type RuntimeRevisionSource,
+} from './runtime-operation.ts';
 
 const TEST_SOURCE = {
   operation: 'test',

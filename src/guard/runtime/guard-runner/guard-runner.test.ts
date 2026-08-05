@@ -10,7 +10,7 @@ import { GuardFailure } from '../../contract/guard-failure-strategy';
 import type { BindingRegistryInterface } from '../../../di/binding/binding-registry';
 import { ApplicationScope } from '../../../runtime/scope/kind';
 
-import { GuardRunner } from './';
+import { GuardRunner } from './guard-runner.ts';
 
 describe('GuardRunner', () => {
   it('passes when all guards pass', async () => {

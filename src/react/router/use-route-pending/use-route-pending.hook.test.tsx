@@ -13,7 +13,7 @@ import { RouterServiceControllerInterface } from '../../../router/service/router
 import { RuntimeScopeProvider } from '../../../runtime/react';
 import { ApplicationScope } from '../../../runtime/scope/kind';
 
-import { useRoutePending } from './';
+import { useRoutePending } from './use-route-pending.hook.ts';
 
 const routerMocks = vi.hoisted(() => {
   return {

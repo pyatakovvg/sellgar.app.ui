@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { RuntimeFailureReporterInterface, type RuntimeFailureReport } from '../../../runtime/failure';
 
-import { RevalidateService } from './';
+import { RevalidateService } from './revalidate.service.ts';
 
 describe('RevalidateService', () => {
   it('runs registered keyed handlers by key', async () => {

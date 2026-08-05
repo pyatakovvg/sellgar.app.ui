@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { Expose, Type } from 'class-transformer';
 import { IsNumber, IsOptional, IsString } from 'class-validator';
 
-import { ClassTransformerRouterParamsConverter } from './';
+import { ClassTransformerRouterParamsConverter } from './class-transformer-router-params-converter.ts';
 
 describe('ClassTransformerRouterParamsConverter', () => {
   it('converts plain params to exposed dto shape', () => {

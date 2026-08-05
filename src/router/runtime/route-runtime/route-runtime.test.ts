@@ -47,7 +47,7 @@ import { RoutePolicyInterface } from '../route-policy';
 import { RouterRuntime } from '../router-runtime';
 import type { RoutePolicyDeclarations } from '../route-runtime-context';
 
-import { RouteRuntime } from './';
+import { RouteRuntime } from './route-runtime.ts';
 
 describe('RouteRuntime', () => {
   it('reports route provider setup errors with provider phase code', async () => {

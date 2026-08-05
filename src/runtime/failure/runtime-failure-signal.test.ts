@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { captureRuntimeFailure, throwRuntimeFailure } from './';
+import { captureRuntimeFailure, throwRuntimeFailure } from './runtime-failure-signal.ts';
 
 const OUTER_SOURCE = {
   operation: 'load',
