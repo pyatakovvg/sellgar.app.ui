@@ -4,18 +4,11 @@ import { redirect, replace } from 'react-router';
 
 import type { ApplicationControllerInterface } from '../../../application/lifecycle/application-lifecycle';
 import type { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
-import {
-  createControllerActionArgs,
-  createControllerActionErrorEnvelope,
-  createControllerActionResultEnvelope,
-  parseControllerActionRequest,
-  type ControllerActionRequest,
-} from '../../../controller/action/controller-action-request';
+import { MODULE_ACTION_ID_FIELD, ModuleRuntime } from '../../../module/runtime/module-runtime';
 import { FrameRuntime } from '../../../frame/runtime/frame-runtime';
 import { getFrameMetadata, type FrameConstructor } from '../../../frame/declaration/frame';
 import type { FrameSourceCloseHandler, FrameSourceContextInterface } from '../../../frame/source/frame-source';
 import { getLayoutMetadata, type LayoutConstructor } from '../../../layout/declaration/layout';
-import { ModuleRuntime } from '../../../module/runtime/module-runtime';
 import { PolicyRunner } from '../../../policy/runtime/policy-runner';
 import type { PolicyBoundaryDecision } from '../../../policy/contract/policy-boundary-decision';
 import { RouteScope } from '../../../runtime/scope/kind';
@@ -180,31 +173,26 @@ export class RouteRuntime {
 
   async action(args: ActionFunctionArgs): Promise<unknown> {
     const operationGuard = createRuntimeRevisionGuard(this.session);
-    let request: ControllerActionRequest | null = null;
+    const moduleRuntime = this.getModuleRuntime();
+    let actionId: string | null = null;
     const result = await executeRuntimeOperation({
       guard: operationGuard,
       operation: async () => {
+        actionId = await parseModuleActionId(args.request);
+
         await this.executePolicies('canMatch', args, this.actionPolicies);
-
-        const actionRequest = await parseControllerActionRequest(args.request);
-
-        request = actionRequest;
-        const moduleRuntime = this.getModuleRuntime();
-
         await this.executePolicies('canAction', args, this.actionPolicies);
 
-        const value = await moduleRuntime.actionActive(
-          actionRequest.controllerKey,
-          createControllerActionArgs(args.request, args.params, actionRequest.payload),
-        );
-
-        return createControllerActionResultEnvelope(actionRequest.submitId, value);
+        return await moduleRuntime.runAction(actionId, {
+          params: args.params,
+          request: args.request,
+        });
       },
       signal: args.request.signal,
       source: this.createRuntimeSource('action'),
     });
 
-    return await this.applyActionOperationResult(args, operationGuard.revision, request, result);
+    return await this.applyActionOperationResult(args, operationGuard.revision, moduleRuntime, actionId, result);
   }
 
   commit(): void {
@@ -473,22 +461,35 @@ export class RouteRuntime {
   private async applyActionOperationResult(
     args: ActionFunctionArgs,
     sessionRevision: number,
-    request: ControllerActionRequest | null,
+    moduleRuntime: ModuleRuntime,
+    actionId: string | null,
     result: RuntimeOperationResult<unknown>,
   ): Promise<unknown> {
     switch (result.type) {
       case 'completed':
-        return result.value;
+        moduleRuntime.completeAction(requireActionId(actionId), result.value);
+        return null;
       case 'interrupted':
         await this.handleActionSessionTransition(args, sessionRevision);
-        return createControllerActionResultEnvelope(request?.submitId ?? null, void 0);
+        interruptModuleAction(moduleRuntime, actionId);
+        return null;
       case 'rejected':
         await this.handleActionSessionTransition(args, sessionRevision);
-        return createControllerActionErrorEnvelope(request?.submitId ?? null, result.error);
+
+        if (!failModuleAction(moduleRuntime, actionId, result.error)) {
+          throw result.error;
+        }
+
+        return null;
       case 'failed':
         await this.handleActionSessionTransition(args, sessionRevision);
         await this.reportFailure(result.failure, 'action.failed', 'active');
-        return createControllerActionErrorEnvelope(request?.submitId ?? null, result.failure.cause);
+
+        if (!failModuleAction(moduleRuntime, actionId, result.failure.cause)) {
+          throw result.failure.cause;
+        }
+
+        return null;
     }
   }
 
@@ -635,6 +636,31 @@ export class RouteRuntime {
     throw shouldReplace ? replace(target) : redirect(target);
   }
 }
+
+const parseModuleActionId = async (request: Request): Promise<string> => {
+  const formData = await request.clone().formData();
+  const actionId = formData.get(MODULE_ACTION_ID_FIELD);
+
+  return requireActionId(actionId);
+};
+
+const requireActionId = (actionId: FormDataEntryValue | string | null): string => {
+  if (typeof actionId !== 'string' || actionId.length === 0) {
+    throw new Error('Идентификатор действия контроллера некорректен.');
+  }
+
+  return actionId;
+};
+
+const failModuleAction = (moduleRuntime: ModuleRuntime, actionId: string | null, error: unknown): boolean => {
+  return actionId === null ? false : moduleRuntime.failAction(actionId, error);
+};
+
+const interruptModuleAction = (moduleRuntime: ModuleRuntime, actionId: string | null): void => {
+  if (actionId !== null) {
+    moduleRuntime.interruptAction(actionId);
+  }
+};
 
 interface PreparedFrameRuntimeEntry<TProps extends object = object> {
   readonly close: FrameSourceCloseHandler;

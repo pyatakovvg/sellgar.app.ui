@@ -17,7 +17,6 @@ describe('useLoaderData', () => {
       <LoaderDataProbe onData={onData} />,
       createControllerLoaderData([
         {
-          actionKey: 'controller-action:1',
           controller: TestController,
           value: {
             name: 'Ada',

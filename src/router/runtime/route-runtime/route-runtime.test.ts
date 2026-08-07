@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import type { LoaderFunctionArgs } from 'react-router';
+import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router';
 import { describe, expect, it, vi, type MockInstance } from 'vitest';
 
 import { Controller } from '../../../controller/contract/controller';
@@ -14,7 +14,12 @@ import {
   type ApplicationLifecycleSnapshot,
 } from '../../../application/lifecycle/application-lifecycle';
 import { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
-import type { ControllerInterface, ControllerLoaderArgs } from '../../../controller/contract/controller';
+import type {
+  ControllerActionArgs,
+  ControllerInterface,
+  ControllerLoaderArgs,
+} from '../../../controller/contract/controller';
+import { MODULE_ACTION_ID_FIELD } from '../../../module/runtime/module-runtime';
 import { BindingModuleInterface } from '../../../di/binding/binding-module';
 import { Inject, Injectable } from '../../../di/injection/decorators';
 import { UseBindings } from '../../../di/composition/use-bindings';
@@ -50,6 +55,83 @@ import type { RoutePolicyDeclarations } from '../route-runtime-context';
 import { RouteRuntime } from './';
 
 describe('RouteRuntime', () => {
+  it('выполняет зарегистрированный module action через React Router request без передачи payload', async () => {
+    const file = new File(['image'], 'image.png', { type: 'image/png' });
+    const payload = { file, name: 'Товар' };
+    const actionResult = { uuid: 'product:1' };
+    const fixture = createRouteRuntimeFixture({
+      action: (args) => {
+        expect(args.payload).toBe(payload);
+        expect((args.payload as typeof payload).file).toBe(file);
+
+        return actionResult;
+      },
+    });
+
+    await fixture.runtime.loader(createLoaderArgs());
+    fixture.runtime.commit();
+
+    const moduleRuntime = fixture.runtime.getModuleRuntime();
+    const operation = moduleRuntime.startAction(fixture.controllerToken, payload);
+    const formData = new FormData();
+
+    formData.set(MODULE_ACTION_ID_FIELD, operation.id);
+
+    await expect(
+      fixture.runtime.action({
+        params: {},
+        request: new Request('https://tiyn-app.test/route', {
+          body: formData,
+          method: 'post',
+        }),
+      } as ActionFunctionArgs),
+    ).resolves.toBeNull();
+
+    expect(fixture.action).toHaveBeenCalledTimes(1);
+    expect(moduleRuntime.finishAction(operation)).toBe(actionResult);
+  });
+
+  it('сохраняет ошибку module action в runtime submit state', async () => {
+    const actionError = new Error('Action завершился с ошибкой.');
+    const fixture = createRouteRuntimeFixture({
+      action: () => {
+        throw actionError;
+      },
+    });
+
+    await fixture.runtime.loader(createLoaderArgs());
+    fixture.runtime.commit();
+
+    const moduleRuntime = fixture.runtime.getModuleRuntime();
+    const operation = moduleRuntime.startAction(fixture.controllerToken, { name: 'Товар' });
+    const formData = new FormData();
+
+    formData.set(MODULE_ACTION_ID_FIELD, operation.id);
+
+    await expect(
+      fixture.runtime.action({
+        params: {},
+        request: new Request('https://tiyn-app.test/route', {
+          body: formData,
+          method: 'post',
+        }),
+      } as ActionFunctionArgs),
+    ).resolves.toBeNull();
+
+    expect(() => moduleRuntime.finishAction(operation)).toThrow(actionError);
+    expect(moduleRuntime.getActionState(fixture.controllerToken)).toEqual({
+      data: undefined,
+      error: actionError,
+      inProcess: false,
+    });
+    expect(fixture.reportFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        disposition: 'action.failed',
+        failure: expect.objectContaining({ cause: actionError }),
+      }),
+    );
+  });
+
   it('reports route provider setup errors with provider phase code', async () => {
     const setupError = new Error('setup route-провайдера завершился с ошибкой.');
     const fixture = createRouteRuntimeFixture({
@@ -631,6 +713,7 @@ describe('RouteRuntime', () => {
 });
 
 interface RouteRuntimeFixtureOptions {
+  readonly action?: (args: ControllerActionArgs) => unknown | Promise<unknown>;
   readonly beforeRender?: (context: RuntimeProviderContextInterface) => void | Promise<void>;
   readonly dispose?: () => void | Promise<void>;
   readonly frameProviderBeforeRender?: (context: RuntimeProviderContextInterface) => void | Promise<void>;
@@ -658,13 +741,16 @@ interface RouteRuntimeFixtureOptions {
 }
 
 interface RouteRuntimeFixture {
+  readonly action: ReturnType<typeof vi.fn>;
   readonly applicationScope: ApplicationScope;
+  readonly controllerToken: DependencyToken<unknown>;
   readonly reportFailure: MockInstance;
   readonly routerRuntime: RouterRuntime;
   readonly runtime: RouteRuntime;
 }
 
 const createRouteRuntimeFixture = (options: RouteRuntimeFixtureOptions = {}): RouteRuntimeFixture => {
+  const action = vi.fn(options.action ?? (() => undefined));
   const beforeRender = vi.fn(options.beforeRender ?? (() => {}));
   const dispose = vi.fn(options.dispose ?? (() => {}));
   const setup = vi.fn(options.setup ?? (() => {}));
@@ -676,6 +762,8 @@ const createRouteRuntimeFixture = (options: RouteRuntimeFixtureOptions = {}): Ro
   TestRouteProvider.setupHandler = vi.fn(options.routeProviderSetup ?? (() => {}));
 
   abstract class TestControllerInterface implements ControllerInterface {
+    abstract action(args: ControllerActionArgs): unknown | Promise<unknown>;
+
     abstract loader(args: ControllerLoaderArgs): unknown | Promise<unknown>;
   }
 
@@ -686,6 +774,10 @@ const createRouteRuntimeFixture = (options: RouteRuntimeFixtureOptions = {}): Ro
       private readonly locationService: LocationServiceInterface,
     ) {
       super();
+    }
+
+    action(args: ControllerActionArgs): unknown | Promise<unknown> {
+      return action(args);
     }
 
     loader(args: ControllerLoaderArgs): unknown | Promise<unknown> {
@@ -758,7 +850,9 @@ const createRouteRuntimeFixture = (options: RouteRuntimeFixtureOptions = {}): Ro
   );
 
   return {
+    action,
     applicationScope,
+    controllerToken: TestControllerInterface,
     reportFailure,
     routerRuntime,
     runtime,

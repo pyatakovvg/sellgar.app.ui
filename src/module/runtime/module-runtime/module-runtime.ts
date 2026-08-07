@@ -4,7 +4,6 @@ import type {
   ControllerLoaderArgs,
 } from '../../../controller/contract/controller';
 import {
-  createControllerActionKey,
   createControllerLoaderData,
   getControllerLoaderData,
   mergeControllerLoaderData,
@@ -32,7 +31,6 @@ import { getModuleMetadata, type ModuleConstructor, type ModuleMetadata } from '
 import { resolveModuleExport } from '../../resolution/module-export-resolver';
 
 export interface ActiveModuleRuntime {
-  readonly actionControllers: Map<string, DependencyToken<unknown>>;
   readonly controllers: Map<DependencyToken<unknown>, ControllerInterface>;
   loaderData: ControllerLoaderData;
   loaderParams: Record<string, string | undefined>;
@@ -51,6 +49,33 @@ interface ModuleCleanupTask {
 export interface ModuleRuntimeRevalidateOptions {
   readonly controllerToken?: DependencyToken<unknown>;
   readonly signal?: AbortSignal;
+}
+
+export const MODULE_ACTION_ID_FIELD = '__sellgarAppActionId';
+
+export interface ModuleRuntimeActionReference {
+  readonly id: string;
+}
+
+export interface ModuleRuntimeActionState<TResult = unknown> {
+  readonly data: TResult | undefined;
+  readonly error: unknown;
+  readonly inProcess: boolean;
+}
+
+type ModuleRuntimeActionArgs = Pick<ControllerActionArgs, 'params' | 'request'>;
+
+type ModuleRuntimeActionStatus = 'registered' | 'executing' | 'completed' | 'failed' | 'interrupted' | 'finished';
+
+interface ModuleRuntimeActionOperation extends ModuleRuntimeActionReference {
+  readonly controllerToken: DependencyToken<unknown>;
+  readonly module: ActiveModuleRuntime;
+  readonly owner: ModuleRuntime;
+  readonly payload: unknown;
+  data?: unknown;
+  detached: boolean;
+  error?: unknown;
+  status: ModuleRuntimeActionStatus;
 }
 
 type ModuleRuntimeListener = () => void;
@@ -77,6 +102,9 @@ type ModuleRuntimeState =
     };
 
 export class ModuleRuntime {
+  private readonly actionOperationIds = new Map<DependencyToken<unknown>, string>();
+  private readonly actionOperations = new Map<string, ModuleRuntimeActionOperation>();
+  private readonly actionStates = new Map<DependencyToken<unknown>, ModuleRuntimeActionState>();
   private readonly cleanupTasks = new Set<ModuleCleanupTask>();
   private readonly disposedModules = new WeakSet<ActiveModuleRuntime>();
   private readonly listeners = new Set<ModuleRuntimeListener>();
@@ -219,6 +247,175 @@ export class ModuleRuntime {
     return getControllerLoaderData<TValue>(moduleRuntime.loaderData, controllerToken);
   }
 
+  getActionState<TResult = unknown>(controllerToken: DependencyToken<unknown>): ModuleRuntimeActionState<TResult> {
+    return (this.actionStates.get(controllerToken) ?? DEFAULT_ACTION_STATE) as ModuleRuntimeActionState<TResult>;
+  }
+
+  startAction<TPayload>(controllerToken: DependencyToken<unknown>, payload: TPayload): ModuleRuntimeActionReference {
+    const activeModule = this.getActiveModule();
+    const controller = activeModule.controllers.get(controllerToken);
+
+    if (!controller?.action) {
+      throw new Error('Действие контроллера недоступно.');
+    }
+
+    if (this.actionOperationIds.has(controllerToken)) {
+      throw new Error('Действие контроллера уже выполняется.');
+    }
+
+    const operation: ModuleRuntimeActionOperation = {
+      controllerToken,
+      detached: false,
+      id: globalThis.crypto.randomUUID(),
+      module: activeModule,
+      owner: this,
+      payload,
+      status: 'registered',
+    };
+
+    this.actionOperationIds.set(controllerToken, operation.id);
+    this.actionOperations.set(operation.id, operation);
+    this.setActionState(controllerToken, {
+      data: undefined,
+      error: undefined,
+      inProcess: true,
+    });
+
+    return operation;
+  }
+
+  async runAction(actionId: string, args: ModuleRuntimeActionArgs): Promise<unknown> {
+    const operation = this.getActionOperation(actionId);
+
+    if (operation.status !== 'registered') {
+      throw new Error('Действие контроллера уже было запущено.');
+    }
+
+    if (operation.module !== this.getActiveModule()) {
+      throw new Error('Действие контроллера не принадлежит активному модулю.');
+    }
+
+    const controller = operation.module.controllers.get(operation.controllerToken);
+
+    if (!controller?.action) {
+      throw new Error('Действие контроллера недоступно.');
+    }
+
+    operation.status = 'executing';
+
+    const actionArgs: ControllerActionArgs = {
+      params: args.params,
+      payload: operation.payload,
+      request: args.request,
+    };
+
+    return await executeRuntimeParticipant(
+      {
+        operation: 'action',
+        owner: createModuleOwner(operation.module),
+        participant: { kind: 'controller', token: operation.controllerToken },
+      },
+      () =>
+        executeGuardedMethod({
+          context: actionArgs,
+          execute: () => {
+            return controller.action?.(actionArgs);
+          },
+          method: 'action',
+          scope: operation.module.scope,
+          target: controller,
+          token: operation.controllerToken,
+        }),
+    );
+  }
+
+  completeAction(actionId: string, data: unknown): void {
+    const operation = this.getActionOperation(actionId);
+
+    if (operation.status !== 'executing') {
+      throw new Error('Нельзя завершить действие контроллера, которое не выполняется.');
+    }
+
+    operation.data = data;
+    operation.status = 'completed';
+  }
+
+  failAction(actionId: string, error: unknown): boolean {
+    const operation = this.actionOperations.get(actionId);
+
+    if (!operation || operation.status === 'finished' || operation.status === 'interrupted') {
+      return false;
+    }
+
+    operation.error = error;
+    operation.status = 'failed';
+
+    return true;
+  }
+
+  interruptAction(actionId: string): boolean {
+    const operation = this.actionOperations.get(actionId);
+
+    if (!operation || operation.status === 'finished') {
+      return false;
+    }
+
+    operation.status = 'interrupted';
+
+    return true;
+  }
+
+  finishAction<TResult = unknown>(reference: ModuleRuntimeActionReference): TResult | undefined {
+    const operation = this.readActionReference(reference);
+
+    if (operation.status === 'registered' || operation.status === 'executing') {
+      operation.error = new Error('React Router завершил submit до выполнения действия контроллера.');
+      operation.status = 'failed';
+    }
+
+    this.releaseAction(operation);
+
+    switch (operation.status) {
+      case 'completed':
+        operation.status = 'finished';
+
+        if (!operation.detached) {
+          this.setActionState(operation.controllerToken, {
+            data: operation.data,
+            error: undefined,
+            inProcess: false,
+          });
+        }
+
+        return operation.data as TResult;
+      case 'failed': {
+        const error = operation.error;
+
+        operation.status = 'finished';
+
+        if (!operation.detached) {
+          this.setActionState(operation.controllerToken, {
+            data: undefined,
+            error,
+            inProcess: false,
+          });
+        }
+
+        throw error;
+      }
+      case 'interrupted':
+        operation.status = 'finished';
+
+        if (!operation.detached) {
+          this.setActionState(operation.controllerToken, DEFAULT_ACTION_STATE);
+        }
+
+        return undefined;
+      case 'finished':
+        throw new Error('Действие контроллера уже завершено.');
+    }
+  }
+
   async load(args: ControllerLoaderArgs): Promise<unknown> {
     const moduleRuntime = await this.activate(args.request.signal);
 
@@ -351,45 +548,12 @@ export class ModuleRuntime {
     return loaderData;
   }
 
-  async actionActive(controllerKey: string, args: ControllerActionArgs): Promise<unknown> {
-    const activeModule = this.getActiveModule();
-    const controllerToken = activeModule.actionControllers.get(controllerKey);
-
-    if (!controllerToken) {
-      throw new Error('Действие контроллера не зарегистрировано в активном модуле.');
-    }
-
-    const controller = activeModule.controllers.get(controllerToken);
-
-    if (!controller?.action) {
-      throw new Error('Действие контроллера недоступно.');
-    }
-
-    return await executeRuntimeParticipant(
-      {
-        operation: 'action',
-        owner: createModuleOwner(activeModule),
-        participant: { kind: 'controller', token: controllerToken },
-      },
-      () =>
-        executeGuardedMethod({
-          context: args,
-          execute: () => {
-            return controller.action?.(args);
-          },
-          method: 'action',
-          scope: activeModule.scope,
-          target: controller,
-          token: controllerToken,
-        }),
-    );
-  }
-
   async dispose(): Promise<void> {
     const activeModule = this.getActiveModuleOrNull();
     const pendingModule = this.state.phase === 'pending' ? this.state.pending : null;
 
     this.state = { phase: 'empty' };
+    this.detachActions();
 
     if (pendingModule) {
       this.scheduleModuleDispose(pendingModule);
@@ -413,6 +577,52 @@ export class ModuleRuntime {
     this.state = activeModule ? { active: activeModule, phase: 'active' } : { phase: 'empty' };
 
     this.scheduleModuleDispose(pendingModule);
+  }
+
+  private detachActions(): void {
+    this.actionOperations.forEach((operation) => {
+      operation.detached = true;
+      operation.status = 'interrupted';
+    });
+    this.actionOperations.clear();
+    this.actionOperationIds.clear();
+    this.actionStates.clear();
+    this.emit();
+  }
+
+  private getActionOperation(actionId: string): ModuleRuntimeActionOperation {
+    const operation = this.actionOperations.get(actionId);
+
+    if (!operation) {
+      throw new Error('Действие контроллера не зарегистрировано в активном модуле.');
+    }
+
+    return operation;
+  }
+
+  private readActionReference(reference: ModuleRuntimeActionReference): ModuleRuntimeActionOperation {
+    const operation = reference as ModuleRuntimeActionOperation;
+
+    if (operation.owner !== this) {
+      throw new Error('Действие контроллера принадлежит другому runtime модуля.');
+    }
+
+    return operation;
+  }
+
+  private releaseAction(operation: ModuleRuntimeActionOperation): void {
+    if (this.actionOperations.get(operation.id) === operation) {
+      this.actionOperations.delete(operation.id);
+    }
+
+    if (this.actionOperationIds.get(operation.controllerToken) === operation.id) {
+      this.actionOperationIds.delete(operation.controllerToken);
+    }
+  }
+
+  private setActionState(controllerToken: DependencyToken<unknown>, state: ModuleRuntimeActionState): void {
+    this.actionStates.set(controllerToken, state);
+    this.emit();
   }
 
   private isSessionActive(sessionId: number): boolean {
@@ -506,10 +716,8 @@ export class ModuleRuntime {
         token: moduleConstructor,
       });
       const controllers = this.resolveControllers(moduleScope);
-      const actionControllers = this.createActionControllers(controllers);
 
       return {
-        actionControllers,
         controllers,
         loaderData: createControllerLoaderData([]),
         loaderParams: {},
@@ -533,24 +741,6 @@ export class ModuleRuntime {
     }
 
     return controllers;
-  }
-
-  private createActionControllers(
-    controllers: ReadonlyMap<DependencyToken<unknown>, ControllerInterface>,
-  ): Map<string, DependencyToken<unknown>> {
-    const actionControllers = new Map<string, DependencyToken<unknown>>();
-
-    for (const controllerToken of controllers.keys()) {
-      const actionKey = createControllerActionKey(controllerToken);
-
-      if (actionControllers.has(actionKey)) {
-        throw new Error(`Ключ действия контроллера дублируется: ${actionKey}.`);
-      }
-
-      actionControllers.set(actionKey, controllerToken);
-    }
-
-    return actionControllers;
   }
 
   private emit(): void {
@@ -593,7 +783,6 @@ export class ModuleRuntime {
           : void 0;
 
         return {
-          actionKey: createControllerActionKey(controllerToken),
           controller: controllerToken,
           value,
         };
@@ -657,6 +846,12 @@ const createProviderContext = (scope: ModuleScope, args: ControllerLoaderArgs): 
     scope,
     signal: args.request.signal,
   };
+};
+
+const DEFAULT_ACTION_STATE: ModuleRuntimeActionState = {
+  data: undefined,
+  error: undefined,
+  inProcess: false,
 };
 
 const getControllerEntries = <TController>(

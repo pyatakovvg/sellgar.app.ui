@@ -1,5 +1,4 @@
 import {
-  createControllerActionKey,
   createControllerLoaderData,
   getControllerLoaderData,
   mergeControllerLoaderData,
@@ -677,7 +676,6 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
               );
 
         return {
-          actionKey: createControllerActionKey(controllerToken),
           controller: controllerToken,
           value,
         };

@@ -114,7 +114,7 @@ export interface ControllerInterface {
 
 - загрузить данные для view;
 - выполнить action из view;
-- связать React Router loader/action transport с application/domain service;
+- связать React Router loader/action lifecycle с application/domain service;
 - получить route params или request signal.
 
 Не используй controller как long-lived store. Если данные должны жить на уровне
@@ -254,6 +254,12 @@ Submit state общий для активного runtime scope и controller to
 Один controller token в одном runtime scope может держать только один pending
 submit. Повторный вызов из любого hook instance во время active submit вернет
 rejected promise.
+
+Для module controller исходный `payload` хранится в `ModuleRuntime` и передаётся
+в controller action без сериализации. React Router `useFetcher` получает только
+одноразовый action id: он управляет route action lifecycle, cancellation и
+revalidation, но не является транспортом объектной модели. `File`, `Blob`,
+экземпляры классов и вложенные объекты сохраняют исходную ссылку.
 
 Публичные action args используют `payload`:
 

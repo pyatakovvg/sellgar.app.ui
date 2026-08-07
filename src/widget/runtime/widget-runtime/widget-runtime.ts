@@ -1,6 +1,5 @@
 import type { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
 import {
-  createControllerActionKey,
   createControllerLoaderData,
   getControllerLoaderData,
   mergeControllerLoaderData,
@@ -644,7 +643,6 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
               );
 
         return {
-          actionKey: createControllerActionKey(controllerToken),
           controller: controllerToken,
           value,
         };

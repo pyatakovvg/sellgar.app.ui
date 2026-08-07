@@ -1,7 +1,5 @@
 export {
   createControllerLoaderData,
-  createControllerActionKey,
-  getControllerActionKey,
   getControllerLoaderData,
   mergeControllerLoaderData,
   type ControllerLoaderDataEntry,

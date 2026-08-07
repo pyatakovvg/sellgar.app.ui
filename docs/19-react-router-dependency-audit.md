@@ -223,34 +223,33 @@ params и `Request`, хотя уже имеют отдельный `AbortSignal`
 - [`runtime-provider.interface.ts`](../src/runtime/provider/runtime-provider/runtime-provider.interface.ts);
 - [`frame-controller.interface.ts`](../src/frame/runtime/frame-controller/frame-controller.interface.ts).
 
-## Module Action Использует React Router Как Message Bus
+## Module Action Использует React Router Как Lifecycle Adapter
 
 Для module controller `useSubmit()` вызывает RR `useFetcher()`:
 
-1. controller token и payload сериализуются в JSON;
-2. добавляются поля `__tiynAppController`, `__tiynAppSubmitId` и
-   `__tiynAppPayload`;
-3. `fetcher.submit()` направляет запрос в route action;
-4. `RouteRuntime.action()` снова разбирает `Request`;
-5. результат или ошибка помещаются в envelope;
-6. hook сопоставляет ответ с submit ID.
+1. `ModuleRuntime` регистрирует controller token и исходную ссылку на payload;
+2. `fetcher.submit()` передаёт route action только одноразовый action id;
+3. `RouteRuntime.action()` выполняет route policies и session revision guard;
+4. `ModuleRuntime` находит операцию и вызывает controller с исходным payload;
+5. submit ожидает завершения fetcher lifecycle и React Router revalidation;
+6. результат, ошибка и `inProcess` читаются из `ModuleRuntime`.
 
-Этот HTTP-подобный transport является внутренним вызовом controller, а не
-реальной сетевой границей.
+`Request` не является транспортом объектной модели. Payload не сериализуется,
+поэтому `File`, `Blob`, экземпляры классов и вложенные объекты не теряют тип и
+ссылочную идентичность. Решение опирается на клиентский `createBrowserRouter`:
+при переносе route actions на сервер потребуется явный сетевой контракт.
 
-Frame и widget runtime уже используют более нейтральную схему:
+Frame и widget runtime используют прямую схему:
 
 ```text
 useSubmit -> runtime.action(controllerToken, payload)
 ```
 
-Их action state хранится самим runtime. Этот механизм является готовым образцом
-для module actions.
+Action state module, frame и widget хранится владеющим runtime.
 
 См.:
 
 - [`use-controller-submit.hook.ts`](../src/controller/react/use-controller-submit/use-controller-submit.hook.ts);
-- [`controller-action-request.ts`](../src/controller/action/controller-action-request/controller-action-request.ts);
 - [`module-runtime.ts`](../src/module/runtime/module-runtime/module-runtime.ts).
 
 ## Revalidation Разделена Не До Конца
@@ -569,8 +568,8 @@ Feature должен явно зависеть от нужной capability. О�
    Router единственной реализацией.
 3. Вынести RR-типы из `RouteRuntime`: собственный activation context, outcomes и
    явный `AbortSignal`.
-4. Перевести module actions на прямой `ModuleRuntime.action()` по образцу
-   frame/widget runtime.
+4. Выполнено: payload и action state перенесены в `ModuleRuntime`, а React Router
+   оставлен lifecycle adapter для module route action.
 5. Сделать module revalidate непосредственной операцией runtime; RR revalidate
    оставить механизмом URL adapter.
 6. Разделить общий compiler runtime declarations и RR `RouteObject` builder.

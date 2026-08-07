@@ -4,7 +4,11 @@ import { describe, expect, it, vi, type MockInstance } from 'vitest';
 
 import { Controller } from '../../../controller/contract/controller';
 
-import type { ControllerInterface, ControllerLoaderArgs } from '../../../controller/contract/controller';
+import type {
+  ControllerActionArgs,
+  ControllerInterface,
+  ControllerLoaderArgs,
+} from '../../../controller/contract/controller';
 import { BindingModuleInterface } from '../../../di/binding/binding-module';
 import { Injectable } from '../../../di/injection/decorators';
 import { UseBindings } from '../../../di/composition/use-bindings';
@@ -61,6 +65,67 @@ const waitForMicrotask = async (): Promise<void> => {
 };
 
 describe('ModuleRuntime', () => {
+  it('передаёт в action исходный payload с File без сериализации', async () => {
+    const file = new File(['image'], 'image.png', { type: 'image/png' });
+    const payload = {
+      images: [{ file }],
+      name: 'Товар',
+    };
+    const result = { uuid: 'product:1' };
+    const fixture = createModuleRuntimeFixture({
+      action: (args) => {
+        expect(args.payload).toBe(payload);
+        expect((args.payload as typeof payload).images[0]?.file).toBe(file);
+
+        return result;
+      },
+    });
+
+    fixture.moduleDeferred.resolve(fixture.moduleExports);
+    await fixture.runtime.load(createLoaderArgs());
+    fixture.runtime.commit();
+
+    const operation = fixture.runtime.startAction(fixture.controllerToken, payload);
+
+    expect(fixture.runtime.getActionState(fixture.controllerToken)).toEqual({
+      data: undefined,
+      error: undefined,
+      inProcess: true,
+    });
+
+    const actionResult = await fixture.runtime.runAction(operation.id, {
+      params: {},
+      request: new Request('https://tiyn-app.test/route', { method: 'post' }),
+    });
+
+    fixture.runtime.completeAction(operation.id, actionResult);
+
+    expect(fixture.runtime.finishAction(operation)).toBe(result);
+    expect(fixture.runtime.getActionState(fixture.controllerToken)).toEqual({
+      data: result,
+      error: undefined,
+      inProcess: false,
+    });
+    expect(fixture.action).toHaveBeenCalledTimes(1);
+  });
+
+  it('не запускает второй action того же controller token', async () => {
+    const fixture = createModuleRuntimeFixture();
+
+    fixture.moduleDeferred.resolve(fixture.moduleExports);
+    await fixture.runtime.load(createLoaderArgs());
+    fixture.runtime.commit();
+
+    const operation = fixture.runtime.startAction(fixture.controllerToken, { name: 'Первый' });
+
+    expect(() => fixture.runtime.startAction(fixture.controllerToken, { name: 'Второй' })).toThrow(
+      'Действие контроллера уже выполняется.',
+    );
+
+    fixture.runtime.interruptAction(operation.id);
+    expect(fixture.runtime.finishAction(operation)).toBeUndefined();
+  });
+
   it('moves successful navigation from loading to pending and then active', async () => {
     const fixture = createModuleRuntimeFixture();
     const resultPromise = fixture.runtime.load(createLoaderArgs());
@@ -72,7 +137,6 @@ describe('ModuleRuntime', () => {
     const result = await resultPromise;
 
     expect(result).toEqual({
-      actionKeys: expect.any(Map),
       values: expect.any(Map),
     });
     expect(fixture.runtime.getActiveModuleOrNull()).toBeNull();
@@ -483,6 +547,7 @@ describe('ModuleRuntime', () => {
 });
 
 interface ModuleRuntimeFixtureOptions {
+  readonly action?: (args: ControllerActionArgs) => unknown | Promise<unknown>;
   readonly beforeLoad?: (
     context: RuntimeProviderContextInterface,
   ) => RuntimeProviderResult | Promise<RuntimeProviderResult>;
@@ -497,6 +562,7 @@ interface ModuleRuntimeFixtureOptions {
 }
 
 interface ModuleRuntimeFixture {
+  readonly action: ReturnType<typeof vi.fn>;
   readonly beforeLoad: ReturnType<typeof vi.fn>;
   readonly beforeRender: ReturnType<typeof vi.fn>;
   readonly controllerToken: DependencyToken<unknown>;
@@ -513,6 +579,7 @@ interface ModuleRuntimeFixture {
 }
 
 const createModuleRuntimeFixture = (options: ModuleRuntimeFixtureOptions = {}): ModuleRuntimeFixture => {
+  const action = vi.fn(options.action ?? (() => undefined));
   const beforeLoad = vi.fn(options.beforeLoad ?? (() => {}));
   const beforeRender = vi.fn(options.beforeRender ?? (() => {}));
   const dispose = vi.fn(options.dispose ?? (() => {}));
@@ -522,6 +589,8 @@ const createModuleRuntimeFixture = (options: ModuleRuntimeFixtureOptions = {}): 
   const setup = vi.fn(options.setup ?? (() => {}));
 
   abstract class TestControllerInterface implements ControllerInterface {
+    abstract action(args: ControllerActionArgs): unknown | Promise<unknown>;
+
     abstract dispose(): void | Promise<void>;
 
     abstract loader(args: ControllerLoaderArgs): unknown | Promise<unknown>;
@@ -538,6 +607,10 @@ const createModuleRuntimeFixture = (options: ModuleRuntimeFixtureOptions = {}): 
 
   @Controller()
   class TestController extends TestControllerInterface {
+    action(args: ControllerActionArgs): unknown | Promise<unknown> {
+      return action(args);
+    }
+
     dispose(): void | Promise<void> {
       return dispose();
     }
@@ -591,6 +664,7 @@ const createModuleRuntimeFixture = (options: ModuleRuntimeFixtureOptions = {}): 
   const runtime = new ModuleRuntime(applicationScope, loadModule, { id: '/test', kind: 'route' });
 
   return {
+    action,
     beforeLoad,
     beforeRender,
     controllerToken: TestControllerInterface,
