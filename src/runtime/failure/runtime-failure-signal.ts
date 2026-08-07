@@ -38,12 +38,10 @@ export const throwRuntimeOperationError = (error: unknown, source: RuntimeFailur
     throw error;
   }
 
-  const signal: RuntimeOperationSignal = {
+  throw {
     [RUNTIME_OPERATION_SIGNAL]: true,
     failure: createRuntimeFailure(error, source),
   };
-
-  throw signal;
 };
 
 export const getRuntimeFailureCause = (failure: RuntimeFailure): unknown => {
