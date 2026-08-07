@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '../../../di/injection/decorators';
 import type { DependencyToken } from '../../../di/token/dependency-token';
-import { captureRuntimeFailure, reportRuntimeFailure, RuntimeFailureReporterInterface } from '../../../runtime/failure';
+import { reportRuntimeFailure, RuntimeFailureReporterInterface } from '../../../runtime/failure';
+import { executeRuntimeOperation } from '../../../runtime/operation';
 
 import {
   RevalidateServiceInterface,
@@ -38,16 +39,17 @@ export class RevalidateService extends RevalidateServiceInterface {
 
   async revalidate(keyOrOptions?: RevalidateKey | RevalidateOptions, _options?: RevalidateOptions): Promise<void> {
     const key = isRevalidateOptions(keyOrOptions) ? undefined : keyOrOptions;
+    const options = isRevalidateOptions(keyOrOptions) ? keyOrOptions : _options;
 
     if (key !== undefined) {
       const handlers = this.handlers.get(key);
 
       if (handlers && handlers.size > 0) {
-        await this.runHandlers(handlers);
+        await this.runHandlers(handlers, options?.signal);
         return;
       }
 
-      await this.runHandlers(this.fallbackHandlers);
+      await this.runHandlers(this.fallbackHandlers, options?.signal);
       return;
     }
 
@@ -60,11 +62,11 @@ export class RevalidateService extends RevalidateServiceInterface {
     });
 
     if (handlers.size > 0) {
-      await this.runHandlers(handlers);
+      await this.runHandlers(handlers, options?.signal);
       return;
     }
 
-    await this.runHandlers(this.fallbackHandlers);
+    await this.runHandlers(this.fallbackHandlers, options?.signal);
   }
 
   unregister(key: RevalidateKey, handler: RevalidateHandler): void {
@@ -85,34 +87,47 @@ export class RevalidateService extends RevalidateServiceInterface {
     this.fallbackHandlers.delete(handler);
   }
 
-  private async runHandlers(handlers: Iterable<RevalidateHandler>): Promise<void> {
+  private async runHandlers(handlers: Iterable<RevalidateHandler>, signal?: AbortSignal): Promise<void> {
     const handlerList = Array.from(handlers);
-    const results = await Promise.allSettled(
-      handlerList.map((handler) => {
-        return Promise.resolve().then(handler);
-      }),
+    const results = await Promise.all(
+      handlerList.map((handler) =>
+        executeRuntimeOperation({
+          guard: null,
+          operation: async () => {
+            throwIfAborted(signal);
+            await Promise.resolve().then(handler);
+            throwIfAborted(signal);
+          },
+          signal,
+          source: {
+            operation: 'revalidate',
+            owner: { kind: 'application' },
+            participant: {
+              kind: 'revalidate-handler',
+              token: getRevalidateHandlerToken(handler),
+            },
+          },
+        }),
+      ),
     );
 
-    for (const [index, result] of results.entries()) {
-      if (result.status === 'rejected') {
+    for (const result of results) {
+      if (result.type === 'failed') {
         const owner = { kind: 'application' } as const;
-        const failure = captureRuntimeFailure(result.reason, {
-          operation: 'revalidate',
-          owner,
-          participant: {
-            kind: 'revalidate-handler',
-            token: getRevalidateHandlerToken(handlerList[index]),
-          },
-        });
-
-        await reportRuntimeFailure(this.reporter, failure, owner, 'revalidate.failed', 'ready');
+        await reportRuntimeFailure(this.reporter, result.failure, owner, 'revalidate.failed', 'ready');
       }
     }
   }
 }
 
 const isRevalidateOptions = (value: RevalidateKey | RevalidateOptions | undefined): value is RevalidateOptions => {
-  return typeof value === 'object' && value !== null && 'signal' in value;
+  return typeof value === 'object' && value !== null;
+};
+
+const throwIfAborted = (signal: AbortSignal | undefined): void => {
+  if (signal?.aborted) {
+    throw new Error('Revalidate был прерван.');
+  }
 };
 
 const getRevalidateHandlerToken = (handler: RevalidateHandler | undefined): DependencyToken<unknown> => {

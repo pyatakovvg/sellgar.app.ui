@@ -204,15 +204,14 @@ interface ApplicationInitializerContextInterface {
 
 ```ts
 execute(context: ApplicationInitializerContextInterface): void {
-  context.disposables.add(
-    requestExecutor.onStatus(401, () => context.session.setAnonymous()),
-  );
+  context.disposables.add(runtimeConfig.subscribe(() => this.applyConfig()));
 }
 ```
 
 Initializer не получает глобальную подписку на runtime failures. Ошибка его
 `execute()` относится к application activation и переводит application в
-`failed`; штатные request/session outcomes обрабатывает владеющий ими сервис.
+`failed`; штатные HTTP/session outcomes маршрутизирует application-scoped
+`RequestExecutorInterface`.
 
 ## Порядок Инициализаторов
 

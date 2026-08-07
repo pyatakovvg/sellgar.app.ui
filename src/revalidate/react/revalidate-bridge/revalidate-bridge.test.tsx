@@ -9,14 +9,14 @@ import { RuntimeScopeProvider } from '../../../runtime/react';
 import { RevalidateServiceInterface } from '../../contract/revalidate-service';
 import type { RevalidateHandler, RevalidateKey } from '../../contract/revalidate-service';
 
-import { RevalidateBridge } from './revalidate-bridge.tsx';
+import { RevalidateBridge } from './';
 
 const useRevalidatorMock = vi.hoisted(() => {
   return vi.fn<() => TestRevalidator>();
 });
 
-vi.mock('react-router-dom', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react-router-dom')>();
+vi.mock('react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router')>();
 
   return {
     ...actual,

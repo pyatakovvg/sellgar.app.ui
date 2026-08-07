@@ -370,15 +370,19 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
     this.loadAbortController = abortController;
     this.emit();
 
-    const widgetRuntime = this.createWidgetRuntime();
+    let widgetRuntime: ActiveWidgetRuntime<TProps> | null = null;
 
-    this.currentWidgetRuntime = widgetRuntime;
     this.loadPromise = executeRuntimeOperation({
       guard: this.createOperationGuard(),
       operation: async () => {
+        this.throwIfAborted(abortController.signal);
+        widgetRuntime = this.createWidgetRuntime();
+        this.currentWidgetRuntime = widgetRuntime;
         await this.loadWidgetRuntime(widgetRuntime, abortController.signal);
 
         this.throwIfAborted(abortController.signal);
+
+        return widgetRuntime;
       },
       signal: abortController.signal,
       source: this.createRuntimeSource('load'),
@@ -403,6 +407,16 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
           }
 
           throw result.failure.cause;
+        }
+
+        if (result.type === 'rejected') {
+          if (this.stateMachine.toFailed(sessionId, result.error)) {
+            this.currentWidgetRuntime = null;
+            this.emit();
+            await this.disposeWidgetRuntime(widgetRuntime);
+          }
+
+          throw result.error;
         }
 
         this.throwIfAborted(abortController.signal);
@@ -713,6 +727,8 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
         return result.value;
       case 'interrupted':
         return void 0;
+      case 'rejected':
+        throw result.error;
       case 'failed':
         await this.reportFailure(result.failure, 'action.failed', 'active');
         throw result.failure.cause;
@@ -736,6 +752,8 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
         return;
       case 'interrupted':
         return;
+      case 'rejected':
+        throw result.error;
       case 'failed':
         await this.reportFailure(result.failure, 'revalidate.failed', 'active');
         throw result.failure.cause;

@@ -1,0 +1,21 @@
+export {
+  BadGatewayException,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  GatewayTimeoutException,
+  HttpException,
+  InternalServerErrorException,
+  isHttpException,
+  LockoutException,
+  MethodNotAllowedException,
+  NotFoundException,
+  RequestTimeoutException,
+  ServiceUnavailableException,
+  TooManyRequestsException,
+  UnauthorizedException,
+  UnprocessableEntityException,
+  type HttpExceptionOptions,
+  type HttpRequestSource,
+} from './http-exception.ts';
+export { NetworkError, TransportTimeoutError, type TransportErrorOptions } from './transport-error.ts';

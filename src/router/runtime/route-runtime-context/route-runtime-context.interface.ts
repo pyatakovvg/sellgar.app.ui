@@ -1,4 +1,4 @@
-import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router-dom';
+import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router';
 
 import type { PolicyDeclaration } from '../../../policy/declaration/policy-declaration';
 import type { RuntimeContextInterface } from '../../../runtime/context';

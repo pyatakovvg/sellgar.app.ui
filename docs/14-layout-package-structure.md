@@ -99,7 +99,7 @@ export { AuthLayout } from './auth.layout.tsx';
 Пример:
 
 ```tsx
-import { Layout } from '@sellgar/app';
+import { Layout } from '@tiyn/app';
 
 import { LayoutView } from './view';
 
@@ -256,7 +256,7 @@ File names use kebab-case. Class names use PascalCase.
 - Внутренние импорты package используют локальные directory indexes, если они есть.
 - Deep imports в `view/*`, `components/*`, `hooks/*` из других packages
   запрещены.
-- Импорты `@sellgar/app` остаются в declaration и view files, которые действительно
+- Импорты `@tiyn/app` остаются в declaration и view files, которые действительно
   используют layout API.
 
 ## Migration Checklist

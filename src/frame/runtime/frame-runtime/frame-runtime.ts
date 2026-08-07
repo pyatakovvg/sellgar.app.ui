@@ -436,6 +436,16 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
           throw result.failure.cause;
         }
 
+        if (result.type === 'rejected') {
+          if (result.error instanceof Error && 'status' in result.error && result.error.status === 403) {
+            this.setSnapshot({ error: null, phase: 'forbidden' });
+            return;
+          }
+
+          this.setSnapshot({ error: result.error, phase: 'failed' });
+          throw result.error;
+        }
+
         this.throwIfAborted(abortController.signal);
         this.setSnapshot({
           error: null,
@@ -825,6 +835,8 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
         return result.value;
       case 'interrupted':
         return void 0;
+      case 'rejected':
+        throw result.error;
       case 'failed':
         await this.reportFailure(result.failure, 'action.failed', 'active');
         throw result.failure.cause;
@@ -848,6 +860,8 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
         return;
       case 'interrupted':
         return;
+      case 'rejected':
+        throw result.error;
       case 'failed':
         await this.reportFailure(result.failure, 'revalidate.failed', 'active');
         throw result.failure.cause;

@@ -1,7 +1,7 @@
 # Структура Файлов И Public API
 
 Этот раздел фиксирует практические правила организации feature packages для
-`@sellgar/app`.
+`@tiyn/app`.
 
 Цель структуры - быстро понимать, где declaration, где runtime implementation,
 где bindings, где DTO/entities и что является публичным API package.

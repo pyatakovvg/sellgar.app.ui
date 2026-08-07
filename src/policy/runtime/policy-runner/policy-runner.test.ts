@@ -17,7 +17,7 @@ import {
 import type { PolicyBoundaryDecision } from '../../contract/policy-boundary-decision';
 import type { PolicyResult } from '../../contract/policy-result';
 
-import { PolicyRunner } from './policy-runner.ts';
+import { PolicyRunner } from './';
 
 describe('PolicyRunner', () => {
   it('continues when every policy passes', async () => {

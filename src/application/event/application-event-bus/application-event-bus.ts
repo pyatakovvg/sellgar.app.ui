@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '../../../di/injection/decorators';
 import type { DependencyToken } from '../../../di/token/dependency-token';
-import { captureRuntimeFailure, reportRuntimeFailure, RuntimeFailureReporterInterface } from '../../../runtime/failure';
+import { reportRuntimeFailure, RuntimeFailureReporterInterface } from '../../../runtime/failure';
+import { executeRuntimeOperation } from '../../../runtime/operation';
 
 import type {
   ApplicationEventHandlerDeclaration,
@@ -41,20 +42,22 @@ export class ApplicationEventBus extends ApplicationEventBusInterface {
 
     await Promise.all(
       [...subscriptions].map(async (handler) => {
-        try {
-          await executeHandler(handler as ApplicationEventHandlerDeclaration<TEvent>, event);
-        } catch (error) {
-          const owner = { kind: 'application' } as const;
-          const failure = captureRuntimeFailure(error, {
+        const owner = { kind: 'application' } as const;
+        const result = await executeRuntimeOperation({
+          guard: null,
+          operation: () => executeHandler(handler as ApplicationEventHandlerDeclaration<TEvent>, event),
+          source: {
             operation: 'handle',
             owner,
             participant: {
               kind: 'event-handler',
               token: getEventHandlerToken(handler),
             },
-          });
+          },
+        });
 
-          await reportRuntimeFailure(this.reporter, failure, owner, 'event-handler.contained', 'ready');
+        if (result.type === 'failed') {
+          await reportRuntimeFailure(this.reporter, result.failure, owner, 'event-handler.contained', 'ready');
         }
       }),
     );

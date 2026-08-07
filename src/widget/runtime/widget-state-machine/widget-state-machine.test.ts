@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { WidgetStateMachine } from './widget-state-machine.ts';
+import { WidgetStateMachine } from './';
 
 describe('WidgetStateMachine', () => {
   it('moves through loading and ready phases', () => {

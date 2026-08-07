@@ -84,7 +84,7 @@ URL
 ### На Экране
 
 ```ts
-import { Controller, Frame, Inject, Module, Provider, Widget } from '@sellgar/app';
+import { Controller, Frame, Inject, Module, Provider, Widget } from '@tiyn/app';
 ```
 
 ```text
@@ -92,7 +92,7 @@ import { Controller, Frame, Inject, Module, Provider, Widget } from '@sellgar/ap
 - inversify
 - react-router internals
 - mobx
-- private src/* файлы @sellgar/app
+- private src/* файлы @tiyn/app
 ```
 
 ### Заметки Ведущего
@@ -183,7 +183,7 @@ Private controllers, bindings, view components и provider implementations не
 - hidden button без guarded action
 - subscription без owner cleanup
 - profile внутри session state
-- deep import из @sellgar/app/src
+- deep import из @tiyn/app/src
 ```
 
 ### Заметки Ведущего

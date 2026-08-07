@@ -67,25 +67,24 @@ Source создаётся framework в точке вызова. Feature-код �
 
 ---
 
-## Слайд 4. Recovery Принадлежит Request/Session Owner
+## Слайд 4. Recovery Принадлежит Application Request Boundary
 
 ### На Экране
 
-```ts
-execute(context): void {
-  context.disposables.add(
-    requestExecutor.onStatus(401, () => {
-      context.session.setAnonymous();
-    }),
-  );
-}
+```text
+authenticated 401 -> one awaited recovery -> terminal request containment
+anonymous 401     -> local rejected result
+HTTP 4xx          -> rejected, no RuntimeFailure
+HTTP 5xx/network  -> failed with source
 ```
 
 ### Заметки Ведущего
 
-Framework не знает бизнес-смысл 401. Request/session pipeline сообщает outcome
-владельцу recovery. Для конкурентных 401 recovery нужно coalesce одной общей
-Promise; runtime failure bus для этого не используется.
+Application-scoped `RequestExecutorInterface` coalesce конкурентные 401 одной
+recovery Promise и не возвращает protected 401 в controller stack. Session
+revision завершает owner operation как interruption. Приложение подключает только presentation-port
+`SessionExpirationNotifierInterface`; внешней status subscription и runtime
+failure bus нет.
 
 ---
 

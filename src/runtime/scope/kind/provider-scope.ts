@@ -5,7 +5,7 @@ import {
   captureRuntimeFailure,
   reportRuntimeFailure,
   RuntimeFailureReporterInterface,
-  throwRuntimeFailure,
+  throwRuntimeOperationError,
   type RuntimeFailureSource,
 } from '../../failure';
 
@@ -225,7 +225,7 @@ export class ProviderScope extends RuntimeScope {
             lease.active = false;
           }
 
-          throwRuntimeFailure(error, source);
+          throwRuntimeOperationError(error, source);
         }
 
         entry.cleanup = this.retainSingletonProviderResult(result, source);

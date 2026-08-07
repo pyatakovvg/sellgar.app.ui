@@ -2,7 +2,7 @@ import { normalizeGuardDeclarations } from '../guard-declaration';
 
 import type { GuardDeclaration, GuardDeclarations } from '../guard-declaration';
 
-const USE_GUARDS_METADATA_KEY = Symbol.for('@sellgar/app/use-guards');
+const USE_GUARDS_METADATA_KEY = Symbol.for('@tiyn/app/use-guards');
 
 export const UseGuards = <TContext = unknown>(
   ...declarations: readonly GuardDeclarations<TContext>[]

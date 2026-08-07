@@ -1,4 +1,4 @@
-# Аудит Публичного API `@sellgar/app`
+# Аудит Публичного API `@tiyn/app`
 
 Дата сверки: 2026-07-28.
 
@@ -48,7 +48,7 @@
 Код фич должен импортировать framework API из корня пакета:
 
 ```ts
-import { Application, Module, Route, Router } from '@sellgar/app';
+import { Application, Module, Route, Router } from '@tiyn/app';
 ```
 
 Не считать стабильным публичным контрактом:

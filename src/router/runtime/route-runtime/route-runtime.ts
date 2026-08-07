@@ -1,6 +1,6 @@
 import type React from 'react';
-import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router-dom';
-import { redirect, replace } from 'react-router-dom';
+import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router';
+import { redirect, replace } from 'react-router';
 
 import type { ApplicationControllerInterface } from '../../../application/lifecycle/application-lifecycle';
 import type { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
@@ -45,6 +45,7 @@ import { NavigationContinuationServiceInterface } from '../../service/navigation
 import { RouterServiceControllerInterface } from '../../service/router-service-controller';
 import type { RouterLocationSnapshot } from '../../service/location-service';
 import { parseHashToObject } from '../../utils/hash-utils';
+import { createRoutePathname } from '../../utils/route-pathname';
 import { parseSearchParams } from '../../utils/search-utils';
 import { RouterRuntime } from '../router-runtime';
 import { FrameRuntimeRegistry } from '../frame-runtime-registry';
@@ -459,6 +460,9 @@ export class RouteRuntime {
       case 'interrupted':
         await this.handleLoaderSessionTransition(args, sessionRevision);
         return null;
+      case 'rejected':
+        await this.handleLoaderSessionTransition(args, sessionRevision);
+        throw result.error;
       case 'failed':
         await this.handleLoaderSessionTransition(args, sessionRevision);
         await this.reportLoaderFailure(result.failure);
@@ -478,6 +482,9 @@ export class RouteRuntime {
       case 'interrupted':
         await this.handleActionSessionTransition(args, sessionRevision);
         return createControllerActionResultEnvelope(request?.submitId ?? null, void 0);
+      case 'rejected':
+        await this.handleActionSessionTransition(args, sessionRevision);
+        return createControllerActionErrorEnvelope(request?.submitId ?? null, result.error);
       case 'failed':
         await this.handleActionSessionTransition(args, sessionRevision);
         await this.reportFailure(result.failure, 'action.failed', 'active');
@@ -667,18 +674,6 @@ const normalizePathname = (pathname: string): string => {
   const normalizedPathname = `/${pathname}`.replace(/\/+/g, '/').replace(/\/$/, '');
 
   return normalizedPathname === '' ? '/' : normalizedPathname;
-};
-
-const createRoutePathname = (parentPathname: string, path: string | undefined): string => {
-  if (path === undefined) {
-    return normalizePathname(parentPathname);
-  }
-
-  if (path.startsWith('/')) {
-    return normalizePathname(path);
-  }
-
-  return normalizePathname(`${parentPathname}/${path}`);
 };
 
 const isFirstAvailableRouteTarget = (route: Route): boolean => {

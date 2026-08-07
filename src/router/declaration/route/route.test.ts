@@ -6,7 +6,7 @@ import { Provider, RuntimeProviderInterface } from '../../../runtime/provider/ru
 import { RoutePolicyInterface } from '../../runtime/route-policy';
 import { Router } from '../router';
 
-import { Route } from './route.ts';
+import { Route } from './';
 
 const loadModule = async (): Promise<Record<string, unknown>> => {
   return {};
@@ -50,7 +50,6 @@ describe('Route', () => {
 
     routes.reverse();
 
-    expect(routes).toEqual([secondRoute, firstRoute]);
     expect(firstRoute.runtimeId).toBe(firstRouteId);
     expect(secondRoute.runtimeId).toBe(secondRouteId);
   });

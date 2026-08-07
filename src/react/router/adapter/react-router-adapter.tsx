@@ -1,5 +1,6 @@
 import React from 'react';
-import { createBrowserRouter, Outlet, RouterProvider, useLocation, useMatches, useNavigation } from 'react-router-dom';
+import { createBrowserRouter, Outlet, useLocation, useMatches, useNavigation } from 'react-router';
+import { RouterProvider } from 'react-router/dom';
 
 import { ApplicationComponentsProvider } from '../../../application/react/application-components-context';
 import { FrameLayer } from '../../../frame/react/frame-layer';

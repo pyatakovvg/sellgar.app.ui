@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { RuntimeFailureReporterInterface, type RuntimeFailureReport } from '../../../runtime/failure';
 
-import { RevalidateService } from './revalidate.service.ts';
+import { RevalidateService } from './';
 
 describe('RevalidateService', () => {
   it('runs registered keyed handlers by key', async () => {
@@ -108,6 +108,20 @@ describe('RevalidateService', () => {
         ownerState: 'ready',
       }),
     );
+  });
+
+  it('does not start handlers when revalidate is already aborted', async () => {
+    const fixture = createFixture();
+    const handler = vi.fn();
+    const controller = new AbortController();
+
+    fixture.service.register(ProfileController, handler);
+    controller.abort();
+
+    await fixture.service.revalidate(ProfileController, { signal: controller.signal });
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(fixture.reporter.reportMock).not.toHaveBeenCalled();
   });
 });
 

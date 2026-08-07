@@ -8,7 +8,7 @@ adapter.
 
 ## Границы
 
-- Внешний код использует DI facade из `@sellgar/app`, а не Inversify напрямую.
+- Внешний код использует DI facade из `@tiyn/app`, а не Inversify напрямую.
 - Binding modules описывают framework/application bindings, не business wiring.
 - `UseBindings` связывает declarations с binding modules.
 - Не расширять DI facade ради локального workaround без runtime-сценария.

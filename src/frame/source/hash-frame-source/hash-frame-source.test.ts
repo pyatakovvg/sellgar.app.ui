@@ -8,7 +8,7 @@ import type {
   RouterParamsObjectOptions,
 } from '../../../router/params/router-params-converter';
 
-import { HashFrameSource } from './hash-frame-source.ts';
+import { HashFrameSource } from './';
 
 interface TestFrameProps {
   readonly id: string;

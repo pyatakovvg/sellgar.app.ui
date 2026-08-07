@@ -15,7 +15,7 @@ import { HashFrameSource } from '../../source/hash-frame-source';
 
 import { FrameContextProvider } from '../frame-context';
 
-import { useFrame } from './use-frame.hook.ts';
+import { useFrame } from './';
 
 interface TestFrameProps {
   readonly id: string;

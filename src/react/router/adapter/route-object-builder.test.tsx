@@ -1,12 +1,12 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { matchRoutes } from 'react-router-dom';
+import { matchRoutes } from 'react-router';
 import type {
   ActionFunctionArgs,
   LoaderFunctionArgs,
   RouteObject,
   ShouldRevalidateFunctionArgs,
-} from 'react-router-dom';
+} from 'react-router';
 
 import { Layout } from '../../../layout/declaration/layout';
 import { Route } from '../../../router/declaration/route';
@@ -31,7 +31,7 @@ import {
   type RouteRuntimeFactory,
   type RouteRuntimeFactoryContext,
   type RouteRuntimeRegistry,
-} from './route-object-builder.tsx';
+} from './index.ts';
 
 describe('createRouteObjects', () => {
   it('creates module route objects with normalized path, loader and action', async () => {
@@ -261,6 +261,28 @@ describe('createRouteObjects', () => {
       basePath: '/terminals-management',
       routePathname: '/terminals',
     });
+  });
+
+  it('composes canonical pathnames for routes at any nesting depth', () => {
+    const fixture = createBuilderFixture();
+    const detailsRoute = new Route({
+      load: loadModule,
+      path: '/details',
+    });
+    const registrationsRoute = new Route({
+      path: '/registrations',
+      routes: [detailsRoute],
+    });
+    const terminalsRoute = new Route({
+      path: '/terminals',
+      routes: [registrationsRoute],
+    });
+
+    fixture.createRouteObjects([terminalsRoute]);
+
+    expect(fixture.getFactoryContext(terminalsRoute).routePathname).toBe('/terminals');
+    expect(fixture.getFactoryContext(registrationsRoute).routePathname).toBe('/terminals/registrations');
+    expect(fixture.getFactoryContext(detailsRoute).routePathname).toBe('/terminals/registrations/details');
   });
 
   it('creates internal index match for default route groups', () => {

@@ -5,7 +5,7 @@ import {
   type LoaderFunctionArgs,
   type RouteObject,
   type ShouldRevalidateFunctionArgs,
-} from 'react-router-dom';
+} from 'react-router';
 
 import { getLayoutMetadata } from '../../../layout/declaration/layout';
 import { renderLayouts } from '../../../layout/rendering/layout-renderer';
@@ -17,6 +17,7 @@ import type { Route } from '../../../router/declaration/route';
 import { RouteRuntime } from '../../../router/runtime/route-runtime';
 import type { RoutePolicyDeclarations } from '../../../router/runtime/route-runtime-context';
 import type { RouteRuntimeHandle } from '../../../router/runtime/router-runtime';
+import { createRoutePathname } from '../../../router/utils/route-pathname';
 import { RuntimeScopeProvider } from '../../../runtime/react';
 import type { ApplicationScope } from '../../../runtime/scope/kind';
 import type { RuntimeScope } from '../../../runtime/scope/base';
@@ -354,18 +355,6 @@ const isHashOnlyNavigation = (currentUrl: URL, nextUrl: URL): boolean => {
 
 const normalizeRoutePath = (path: string | undefined): string | undefined => {
   return path?.replace(/^\//, '');
-};
-
-const createRoutePathname = (parentPathname: string | undefined, path: string | undefined): string => {
-  if (path === undefined) {
-    return normalizePathname(parentPathname ?? '/');
-  }
-
-  if (path.startsWith('/')) {
-    return normalizePathname(path);
-  }
-
-  return normalizePathname(`${parentPathname ?? '/'}/${path}`);
 };
 
 const normalizePathname = (pathname: string): string => {

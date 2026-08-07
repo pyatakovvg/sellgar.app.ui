@@ -102,7 +102,7 @@ frames/order-details/
 работают с token, а DI binding связывает token с implementation.
 
 ```ts
-import { ControllerInterface } from '@sellgar/app';
+import { ControllerInterface } from '@tiyn/app';
 
 import type { OrdersLoaderData } from '../../dto';
 
@@ -112,7 +112,7 @@ export abstract class OrdersControllerInterface implements ControllerInterface {
 ```
 
 ```ts
-import { ControllerInterface, type ControllerActionArgs } from '@sellgar/app';
+import { ControllerInterface, type ControllerActionArgs } from '@tiyn/app';
 
 import type { UpdateOrderFilterPayload } from '../../dto';
 
@@ -124,7 +124,7 @@ export abstract class UpdateOrderFilterControllerInterface implements Controller
 ## 2. Controller Implementations
 
 ```ts
-import { Controller, Inject, type ControllerLoaderArgs } from '@sellgar/app';
+import { Controller, Inject, type ControllerLoaderArgs } from '@tiyn/app';
 
 import { OrdersServiceInterface } from '@domain/orders';
 
@@ -151,7 +151,7 @@ export class OrdersController extends OrdersControllerInterface {
 ```
 
 ```ts
-import { Controller, Inject, NavigateServiceInterface, type ControllerActionArgs } from '@sellgar/app';
+import { Controller, Inject, NavigateServiceInterface, type ControllerActionArgs } from '@tiyn/app';
 
 import { UpdateOrderFilterControllerInterface } from './update-order-filter-controller.interface';
 import type { UpdateOrderFilterPayload } from '../../dto';
@@ -198,7 +198,7 @@ export interface UpdateOrderFilterPayload {
 ## 4. Bindings
 
 ```ts
-import { BindingModuleInterface, type BindingRegistryInterface } from '@sellgar/app';
+import { BindingModuleInterface, type BindingRegistryInterface } from '@tiyn/app';
 
 import {
   OrdersController,
@@ -218,7 +218,7 @@ export class OrdersBindings extends BindingModuleInterface {
 ## 5. Module Declaration
 
 ```tsx
-import { Module, UseBindings } from '@sellgar/app';
+import { Module, UseBindings } from '@tiyn/app';
 
 import { OrdersSummaryWidgetPreloadProvider } from '@widget/orders-summary';
 
@@ -241,7 +241,7 @@ export class OrdersModule {}
 ```tsx
 import React from 'react';
 
-import { useFrame, useLoaderData, useSubmit, WidgetHost } from '@sellgar/app';
+import { useFrame, useLoaderData, useSubmit, WidgetHost } from '@tiyn/app';
 
 import { OrderDetailsFrame } from '@frame/order-details';
 import { OrdersSummaryWidget } from '@widget/orders-summary';
@@ -286,7 +286,7 @@ View не резолвит controllers через DI. Loader data читаетс
 ## 7. Widget Declaration
 
 ```tsx
-import { UseBindings, Widget, WidgetDefinition } from '@sellgar/app';
+import { UseBindings, Widget, WidgetDefinition } from '@tiyn/app';
 
 import { OrdersSummaryWidgetBindings } from './classes';
 import { OrdersSummaryWidgetControllerInterface } from './classes/controller';
@@ -314,7 +314,7 @@ export interface OrdersSummaryWidgetData {
 ## 8. Widget Controller
 
 ```ts
-import { Controller, Inject, WidgetControllerInterface, type WidgetControllerLoaderArgs } from '@sellgar/app';
+import { Controller, Inject, WidgetControllerInterface, type WidgetControllerLoaderArgs } from '@tiyn/app';
 
 import { OrdersServiceInterface } from '@domain/orders';
 
@@ -345,7 +345,7 @@ export class OrdersSummaryWidgetController extends OrdersSummaryWidgetController
 ```tsx
 import React from 'react';
 
-import { useLoaderData, useWidgetProps } from '@sellgar/app';
+import { useLoaderData, useWidgetProps } from '@tiyn/app';
 
 import { OrdersSummaryWidgetControllerInterface } from '../classes/controller';
 import type { OrdersSummaryWidgetProps } from '../classes/dto';
@@ -373,7 +373,7 @@ import {
   WidgetRuntimeFactoryInterface,
   type RuntimeProviderContextInterface,
   type RuntimeProviderResult,
-} from '@sellgar/app';
+} from '@tiyn/app';
 
 import { OrdersSummaryWidget } from '../../orders-summary.widget.tsx';
 
@@ -411,7 +411,7 @@ export class OrderDetailsFrameParams {
 ```
 
 ```tsx
-import { Frame, FrameDefinition, HashFrameSource, UseBindings } from '@sellgar/app';
+import { Frame, FrameDefinition, HashFrameSource, UseBindings } from '@tiyn/app';
 
 import { OrderDetailsBindings } from './classes/classes.bindings.ts';
 import { OrderDetailsControllerInterface } from './classes/controller/order-details';
@@ -432,7 +432,7 @@ export class OrderDetailsFrame extends FrameDefinition<OrderDetailsFrameParams> 
 ## 12. Frame Controller
 
 ```ts
-import { FrameControllerInterface, type FrameControllerActionArgs, type FrameControllerLoaderArgs } from '@sellgar/app';
+import { FrameControllerInterface, type FrameControllerActionArgs, type FrameControllerLoaderArgs } from '@tiyn/app';
 
 import type { OrderDetailsFrameParams } from '../params';
 
@@ -459,7 +459,7 @@ export abstract class OrderDetailsControllerInterface extends FrameControllerInt
 ```
 
 ```ts
-import { Controller } from '@sellgar/app';
+import { Controller } from '@tiyn/app';
 
 @Controller()
 export class OrderDetailsController extends OrderDetailsControllerInterface {
@@ -493,7 +493,7 @@ export class OrderDetailsBindings extends BindingModuleInterface {
 ## 13. Frame View
 
 ```tsx
-import { useLoaderData, useSubmit } from '@sellgar/app';
+import { useLoaderData, useSubmit } from '@tiyn/app';
 
 import { OrderDetailsControllerInterface } from '../classes/controller/order-details';
 
@@ -517,7 +517,7 @@ export const FrameView: React.FC = () => {
 ```tsx
 import React from 'react';
 
-import { FrameShellInterface, Injectable, type FrameShellContextInterface } from '@sellgar/app';
+import { FrameShellInterface, Injectable, type FrameShellContextInterface } from '@tiyn/app';
 
 @Injectable()
 export class OrderDetailsFrameShell extends FrameShellInterface {
@@ -567,4 +567,4 @@ Frame объявлен на parent route, поэтому он доступен �
 - Frame добавлен в route `frames`.
 - Frame controller data читается через `useLoaderData(token)`.
 - Frame action запускается через `useSubmit(token)`.
-- Feature code импортирует framework API только из `@sellgar/app`.
+- Feature code импортирует framework API только из `@tiyn/app`.

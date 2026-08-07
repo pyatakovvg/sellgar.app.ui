@@ -1,7 +1,7 @@
 # Фреймы
 
 Frame - presentation runtime, активируемый через source. Типичный сценарий:
-hash-driven drawer или modal. При этом `@sellgar/app` не вводит отдельные runtime
+hash-driven drawer или modal. При этом `@tiyn/app` не вводит отдельные runtime
 понятия drawer/modal, а описывает их как frame + shell.
 
 ```text
@@ -205,7 +205,7 @@ stale и очищается. В этом случае frame работает к�
 ## Shell
 
 Shell определяет визуальное представление: drawer, modal, dialog, fullscreen и
-любой другой контейнер. `@sellgar/app` не зависит от конкретного UI kit.
+любой другой контейнер. `@tiyn/app` не зависит от конкретного UI kit.
 
 ```tsx
 @Injectable()
@@ -279,7 +279,7 @@ export interface ConfirmOrderResult {
 ```
 
 ```ts
-import { FrameControllerInterface, type FrameControllerActionArgs, type FrameControllerLoaderArgs } from '@sellgar/app';
+import { FrameControllerInterface, type FrameControllerActionArgs, type FrameControllerLoaderArgs } from '@tiyn/app';
 
 export abstract class OrderDetailsControllerInterface extends FrameControllerInterface<OrderDetailsFrameParams> {
   abstract loader(args: FrameControllerLoaderArgs<OrderDetailsFrameParams>): Promise<OrderDetailsFrameData>;
@@ -291,7 +291,7 @@ export abstract class OrderDetailsControllerInterface extends FrameControllerInt
 ```
 
 ```ts
-import { Controller } from '@sellgar/app';
+import { Controller } from '@tiyn/app';
 
 @Controller()
 export class OrderDetailsController extends OrderDetailsControllerInterface {
@@ -551,9 +551,14 @@ Provider может подготовить вложенный widget через
 /orders#order-details(id='100')
 -> route branch matches
 -> available frames собираются из matched route branch
--> active frame runtime может быть подготовлен во время route loader flow
+-> active frame runtime подготавливается во время loader flow текущего leaf route
 -> FrameLayer renders prepared frame
 ```
+
+Это правило действует на любой глубине route tree и с настроенным `baseUrl`:
+canonical pathname дочернего route включает все parent segments, поэтому
+providers и controller loaders активного frame завершаются до разрешения route
+loader и скрытия startup splash.
 
 Активация только через hash после render страницы:
 

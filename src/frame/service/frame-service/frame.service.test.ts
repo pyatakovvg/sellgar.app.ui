@@ -14,8 +14,7 @@ import type { FrameConstructor } from '../../declaration/frame';
 import { readFrameNavigationState, writeFrameNavigationState } from '../../navigation/frame-navigation-state';
 import { HashFrameSource } from '../../source/hash-frame-source';
 
-import { FrameBindings } from './frame-service.bindings.ts';
-import { FrameServiceInterface } from './frame-service.interface.ts';
+import { FrameBindings, FrameServiceInterface } from './';
 
 interface TestFrameProps {
   readonly id: string;

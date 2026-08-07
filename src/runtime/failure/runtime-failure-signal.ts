@@ -1,16 +1,16 @@
 import type { RuntimeFailure, RuntimeFailureSource } from './runtime-failure.ts';
 import { createRuntimeFailure } from './runtime-failure.ts';
 
-const RUNTIME_FAILURE_SIGNAL = Symbol('RuntimeFailureSignal');
+const RUNTIME_OPERATION_SIGNAL = Symbol('RuntimeOperationSignal');
 const failures = new WeakMap<object, RuntimeFailure>();
 
-interface RuntimeFailureSignal {
-  readonly [RUNTIME_FAILURE_SIGNAL]: true;
+interface RuntimeOperationSignal {
+  readonly [RUNTIME_OPERATION_SIGNAL]: true;
   readonly failure: RuntimeFailure;
 }
 
 export const captureRuntimeFailure = (error: unknown, source: RuntimeFailureSource): RuntimeFailure => {
-  if (isRuntimeFailureSignal(error)) {
+  if (isRuntimeOperationSignal(error)) {
     return error.failure;
   }
 
@@ -25,8 +25,8 @@ export const captureRuntimeFailure = (error: unknown, source: RuntimeFailureSour
   return createRuntimeFailure(error, source);
 };
 
-export const throwRuntimeFailure = (error: unknown, source: RuntimeFailureSource): never => {
-  if (isRuntimeFailureSignal(error)) {
+export const throwRuntimeOperationError = (error: unknown, source: RuntimeFailureSource): never => {
+  if (isRuntimeOperationSignal(error)) {
     throw error;
   }
 
@@ -38,8 +38,8 @@ export const throwRuntimeFailure = (error: unknown, source: RuntimeFailureSource
     throw error;
   }
 
-  const signal: RuntimeFailureSignal = {
-    [RUNTIME_FAILURE_SIGNAL]: true,
+  const signal: RuntimeOperationSignal = {
+    [RUNTIME_OPERATION_SIGNAL]: true,
     failure: createRuntimeFailure(error, source),
   };
 
@@ -50,12 +50,40 @@ export const getRuntimeFailureCause = (failure: RuntimeFailure): unknown => {
   return failure.cause;
 };
 
-const isRuntimeFailureSignal = (value: unknown): value is RuntimeFailureSignal => {
+export const getRuntimeOperationError = (
+  error: unknown,
+  fallbackSource: RuntimeFailureSource,
+): { readonly cause: unknown; readonly source: RuntimeFailureSource } => {
+  if (isRuntimeOperationSignal(error)) {
+    return {
+      cause: error.failure.cause,
+      source: error.failure.source,
+    };
+  }
+
+  if (isObject(error)) {
+    const failure = failures.get(error);
+
+    if (failure) {
+      return {
+        cause: failure.cause,
+        source: failure.source,
+      };
+    }
+  }
+
+  return {
+    cause: error,
+    source: fallbackSource,
+  };
+};
+
+const isRuntimeOperationSignal = (value: unknown): value is RuntimeOperationSignal => {
   return (
     typeof value === 'object' &&
     value !== null &&
-    RUNTIME_FAILURE_SIGNAL in value &&
-    Reflect.get(value, RUNTIME_FAILURE_SIGNAL) === true
+    RUNTIME_OPERATION_SIGNAL in value &&
+    Reflect.get(value, RUNTIME_OPERATION_SIGNAL) === true
   );
 };
 

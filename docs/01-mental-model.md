@@ -1,6 +1,6 @@
 # Ментальная Модель
 
-`@sellgar/app` строит приложение как набор runtime-единиц. У каждой единицы есть
+`@tiyn/app` строит приложение как набор runtime-единиц. У каждой единицы есть
 понятный владелец lifecycle, DI scope и cleanup.
 
 Главная идея: React не управляет framework lifecycle. React показывает view и
@@ -255,7 +255,7 @@ or RevalidateServiceInterface
 
 ## Инварианты
 
-- Feature code импортирует API из `@sellgar/app`.
+- Feature code импортирует API из `@tiyn/app`.
 - Public declarations используют class tokens.
 - View читает runtime data через hooks.
 - Runtime-классы получают зависимости через DI.

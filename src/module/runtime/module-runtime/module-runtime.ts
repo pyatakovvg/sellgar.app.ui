@@ -24,7 +24,7 @@ import {
   RuntimeFailureReporterInterface,
   type RuntimeOwner,
 } from '../../../runtime/failure';
-import { executeRuntimeParticipant } from '../../../runtime/operation';
+import { executeRuntimeOperation, executeRuntimeParticipant } from '../../../runtime/operation';
 import { RevalidateServiceInterface } from '../../../revalidate/contract/revalidate-service';
 import { RuntimeRevalidateService } from '../../../revalidate/runtime/revalidate-service';
 
@@ -255,33 +255,41 @@ export class ModuleRuntime {
     };
 
     try {
-      const loaderData = await this.loadModuleRuntime(moduleRuntime, args, options.controllerToken);
-
-      moduleRuntime.loaderData =
-        options.controllerToken === undefined
-          ? loaderData
-          : mergeControllerLoaderData(moduleRuntime.loaderData, loaderData);
-      this.emit();
-    } catch (error) {
-      if (abortController.signal.aborted) {
-        return;
-      }
-
       const owner = createModuleOwner(moduleRuntime);
-      const failure = captureRuntimeFailure(error, {
+      const source = {
         operation: 'revalidate',
         owner,
-        participant: { kind: 'runtime' },
+        participant: { kind: 'runtime' as const },
+      };
+      const result = await executeRuntimeOperation({
+        guard: null,
+        operation: () => this.loadModuleRuntime(moduleRuntime, args, options.controllerToken),
+        signal: abortController.signal,
+        source,
       });
 
-      await reportRuntimeFailure(
-        this.ownerScope.get(RuntimeFailureReporterInterface),
-        failure,
-        owner,
-        'revalidate.failed',
-        'active',
-      );
-      throw failure.cause;
+      switch (result.type) {
+        case 'completed':
+          moduleRuntime.loaderData =
+            options.controllerToken === undefined
+              ? result.value
+              : mergeControllerLoaderData(moduleRuntime.loaderData, result.value);
+          this.emit();
+          return;
+        case 'interrupted':
+          return;
+        case 'rejected':
+          throw result.error;
+        case 'failed':
+          await reportRuntimeFailure(
+            this.ownerScope.get(RuntimeFailureReporterInterface),
+            result.failure,
+            owner,
+            'revalidate.failed',
+            'active',
+          );
+          throw result.failure.cause;
+      }
     } finally {
       externalSignal?.removeEventListener('abort', abortRevalidate);
     }

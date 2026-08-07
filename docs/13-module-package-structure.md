@@ -520,7 +520,7 @@ File names use kebab-case. Class names use PascalCase.
 - Внутренние импорты package используют локальные directory indexes, если они есть.
 - Deep imports в `classes/controller/*`, `view/*`, `providers/*` из других
   packages запрещены.
-- Импорты `@sellgar/app` остаются в declaration, controller, provider и view files,
+- Импорты `@tiyn/app` остаются в declaration, controller, provider и view files,
   которые действительно используют runtime API.
 
 ## Migration Checklist

@@ -2,7 +2,7 @@ import type { RuntimeContextInterface } from '../../../runtime/context';
 import type { RuntimeScope } from '../../../runtime/scope/base';
 import type { DependencyConstructor } from '../../../di/binding/binding-builder';
 import type { DependencyToken } from '../../../di/token/dependency-token';
-import { throwRuntimeFailure, type RuntimeOwner } from '../../../runtime/failure';
+import { throwRuntimeOperationError, type RuntimeOwner } from '../../../runtime/failure';
 
 import {
   isPolicyDescriptor,
@@ -139,7 +139,7 @@ export class PolicyRunner<TContext extends RuntimeContextInterface = RuntimeCont
       );
 
       if (decision.type === 'error') {
-        throwRuntimeFailure(decision.error, {
+        throwRuntimeOperationError(decision.error, {
           operation: 'execute',
           owner: this.owner,
           participant: {
@@ -151,7 +151,7 @@ export class PolicyRunner<TContext extends RuntimeContextInterface = RuntimeCont
 
       return decision;
     } catch (handlerError) {
-      return throwRuntimeFailure(handlerError, {
+      return throwRuntimeOperationError(handlerError, {
         operation: 'handle-error',
         owner: this.owner,
         participant: {

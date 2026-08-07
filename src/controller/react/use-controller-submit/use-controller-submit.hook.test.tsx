@@ -16,14 +16,14 @@ import type { ModuleRuntime } from '../../../module/runtime/module-runtime';
 import type { DependencyToken } from '../../../di/token/dependency-token';
 import { ControllerRuntimeProvider } from '../controller-runtime-context';
 
-import { useSubmit, type ControllerSubmit } from './use-controller-submit.hook.ts';
+import { useSubmit, type ControllerSubmit } from './';
 
 const useFetcherMock = vi.hoisted(() => {
   return vi.fn<() => TestFetcher>();
 });
 
-vi.mock('react-router-dom', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react-router-dom')>();
+vi.mock('react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router')>();
 
   return {
     ...actual,

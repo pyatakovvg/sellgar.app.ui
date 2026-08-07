@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import type { LoaderFunctionArgs } from 'react-router-dom';
+import type { LoaderFunctionArgs } from 'react-router';
 import { describe, expect, it, vi, type MockInstance } from 'vitest';
 
 import { Controller } from '../../../controller/contract/controller';
@@ -47,7 +47,7 @@ import { RoutePolicyInterface } from '../route-policy';
 import { RouterRuntime } from '../router-runtime';
 import type { RoutePolicyDeclarations } from '../route-runtime-context';
 
-import { RouteRuntime } from './route-runtime.ts';
+import { RouteRuntime } from './';
 
 describe('RouteRuntime', () => {
   it('reports route provider setup errors with provider phase code', async () => {
@@ -168,6 +168,37 @@ describe('RouteRuntime', () => {
     const loaderPromise = fixture.runtime.loader(createLoaderArgs('#test-frame')).then(() => {
       isResolved = true;
     });
+
+    await vi.waitFor(() => {
+      expect(frameProviderBeforeRender).toHaveBeenCalledTimes(1);
+    });
+    expect(isResolved).toBe(false);
+
+    frameProviderDeferred.resolve();
+    await loaderPromise;
+
+    expect(fixture.routerRuntime.getPreparedFrameRuntime(TestFrame, 'test-frame:"null"')?.getSnapshot().phase).toBe(
+      'ready',
+    );
+  });
+
+  it('loads an active frame before a deeply nested route loader resolves', async () => {
+    const frameProviderDeferred = createDeferred<void>();
+    const frameProviderBeforeRender = vi.fn(async () => {
+      await frameProviderDeferred.promise;
+    });
+    const fixture = createRouteRuntimeFixture({
+      basePath: '/terminals-management',
+      frameProviderBeforeRender,
+      frames: [TestFrame],
+      routePathname: '/terminals/registrations/archive',
+    });
+    let isResolved = false;
+    const loaderPromise = fixture.runtime
+      .loader(createLoaderArgs('/terminals-management/terminals/registrations/archive#test-frame'))
+      .then(() => {
+        isResolved = true;
+      });
 
     await vi.waitFor(() => {
       expect(frameProviderBeforeRender).toHaveBeenCalledTimes(1);
@@ -431,6 +462,25 @@ describe('RouteRuntime', () => {
     expect(error.headers.get('Location')).toBe('/employees');
     expect(deniedPolicy).toHaveBeenCalledTimes(1);
     expect(allowedPolicy).toHaveBeenCalledTimes(1);
+  });
+
+  it('redirects a nested first available route relative to its group pathname', async () => {
+    const fixture = createRouteRuntimeFixture({
+      route: new Route({
+        defaultTo: Router.firstAvailable(),
+        routes: [
+          new Route({
+            load: async () => ({}),
+            path: '/registrations',
+          }),
+        ],
+      }),
+      routePathname: '/terminals',
+    });
+
+    const error = await catchRedirect(fixture.runtime.loader(createLoaderArgs('/terminals')));
+
+    expect(error.headers.get('Location')).toBe('/terminals/registrations');
   });
 
   it('returns forbidden when first available default route cannot find a matching child', async () => {

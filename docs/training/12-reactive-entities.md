@@ -115,7 +115,7 @@ export const OrderStatus = reactive(function OrderStatus({ order }) {
 
 ### Заметки Ведущего
 
-Feature code импортирует `reactive` из `@sellgar/app`, а не MobX. Reaction
+Feature code импортирует `reactive` из `@tiyn/app`, а не MobX. Reaction
 запоминает реально прочитанные поля: компонент, читающий только `number`, не
 обязан обновляться при смене `status`.
 

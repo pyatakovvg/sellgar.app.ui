@@ -3,7 +3,7 @@
 Этот документ фиксирует целевую структуру для application host package:
 `clients/{host-name}`.
 
-Host package - это composition root приложения. Он связывает `@sellgar/app`,
+Host package - это composition root приложения. Он связывает `@tiyn/app`,
 feature packages, shared libraries, runtime config и deployment boundary.
 
 Документ описывает структуру package, а не runtime-контракты framework.

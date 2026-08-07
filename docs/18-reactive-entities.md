@@ -6,7 +6,7 @@
 ## Декларация
 
 ```ts
-import { Entity } from '@sellgar/app';
+import { Entity } from '@tiyn/app';
 
 @Entity()
 export class TerminalEntity {
@@ -70,7 +70,7 @@ registration. Мёртвые weak references также очищаются во 
 ## Обновление
 
 ```ts
-import { updateEntity } from '@sellgar/app';
+import { updateEntity } from '@tiyn/app';
 
 updateEntity(TerminalEntity, {
   id: 'terminal-42',
@@ -93,7 +93,7 @@ Identity обновлением не изменяется. Неизвестно�
 instances:
 
 ```ts
-import { Entity, EntityCollection } from '@sellgar/app';
+import { Entity, EntityCollection } from '@tiyn/app';
 
 @Entity()
 export class IncidentEntity {
@@ -116,7 +116,7 @@ reactive layer в cache.
 loader result или экземпляр коллекции.
 
 ```ts
-import { insertEntity, removeEntity } from '@sellgar/app';
+import { insertEntity, removeEntity } from '@tiyn/app';
 
 insertEntity(IncidentEntity, incident, { position: 'start' });
 removeEntity(IncidentEntity, { id: incidentId });
@@ -189,7 +189,7 @@ class-декораторов не влияет на поведение.
 View использует framework bridge и не импортирует MobX:
 
 ```tsx
-import { reactive } from '@sellgar/app';
+import { reactive } from '@tiyn/app';
 
 export const TerminalStatus = reactive(function TerminalStatus() {
   const { data: terminal } = useCellData<TerminalEntity>();

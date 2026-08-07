@@ -1,10 +1,10 @@
-# Руководство Разработчика `@sellgar/app`
+# Руководство Разработчика `@tiyn/app`
 
-Эта папка описывает внешнее API `@sellgar/app`: как объявлять приложение,
+Эта папка описывает внешнее API `@tiyn/app`: как объявлять приложение,
 маршруты, модули, контроллеры, провайдеры, виджеты и фреймы.
 
 Документация фиксирует только реализованные контракты. Если идея есть в
-архитектурном драфте, но отсутствует в текущем API `@sellgar/app`, она здесь
+архитектурном драфте, но отсутствует в текущем API `@tiyn/app`, она здесь
 не описывается как рабочий механизм.
 
 Документы размещены внутри пакета `library/tiyn-app` и сверены с текущим
@@ -13,7 +13,7 @@
 
 ## Для Кого Этот Документ
 
-Документ нужен разработчику, который пишет код фич поверх `@sellgar/app`:
+Документ нужен разработчику, который пишет код фич поверх `@tiyn/app`:
 
 - добавляет route module;
 - подключает controller loader/action;
@@ -26,7 +26,7 @@
 
 ## Как Читать
 
-Если ты впервые работаешь с `@sellgar/app`, начни с первых двух разделов. Они
+Если ты впервые работаешь с `@tiyn/app`, начни с первых двух разделов. Они
 объясняют владение runtime и порядок запуска. Остальные разделы можно читать по
 задаче.
 
@@ -89,6 +89,7 @@
 ### Routing И Экранные Modules
 
 - [Router и навигация](./03-router-and-navigation.md)
+- [Аудит зависимости от React Router](./19-react-router-dependency-audit.md)
 - [Route](./03-router-and-navigation.md#route)
 - [Наследование route](./03-router-and-navigation.md#наследование-route)
 - [Layouts](./03-router-and-navigation.md#layouts)
@@ -190,12 +191,12 @@
 Application code импортирует framework API через фасад:
 
 ```ts
-import { Application, BindingModuleInterface, Inject, Injectable, Module, Route, Router, UseBindings } from '@sellgar/app';
+import { Application, BindingModuleInterface, Inject, Injectable, Module, Route, Router, UseBindings } from '@tiyn/app';
 ```
 
 Не импортируй Inversify, React Router internals или файлы
 internal source files из feature/application packages. Публичная граница -
-только `@sellgar/app`.
+только `@tiyn/app`.
 
 ## Что Уже Реализовано
 

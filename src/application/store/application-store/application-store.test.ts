@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ApplicationStore } from './application-store.ts';
+import { ApplicationStore } from './';
 
 describe('ApplicationStore', () => {
   it('stores and reads typed single values by class key', () => {

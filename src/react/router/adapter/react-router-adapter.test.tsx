@@ -1,18 +1,14 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Location, UIMatch } from 'react-router-dom';
+import type { Location, UIMatch } from 'react-router';
 
 import { SessionRuntimeState } from '../../../application/session/session-runtime-state';
 import { RouterRuntime } from '../../../router/runtime/router-runtime';
 import { RouterService } from '../../../router/service/router-service';
 import { ClassTransformerRouterParamsConverter } from '../../../router/params/class-transformer-router-params-converter';
 
-import {
-  ActiveRouteRuntimeBoundary,
-  RouterServiceLocationBoundary,
-  SessionRevalidationBoundary,
-} from './react-router-adapter.tsx';
+import { ActiveRouteRuntimeBoundary, RouterServiceLocationBoundary, SessionRevalidationBoundary } from './index.ts';
 
 const useMatchesMock = vi.hoisted(() => {
   return vi.fn<() => UIMatch[]>();
@@ -21,8 +17,8 @@ const useLocationMock = vi.hoisted(() => {
   return vi.fn<() => Location>();
 });
 
-vi.mock('react-router-dom', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react-router-dom')>();
+vi.mock('react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router')>();
 
   return {
     ...actual,

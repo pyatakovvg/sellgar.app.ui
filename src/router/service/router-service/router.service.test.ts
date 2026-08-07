@@ -15,8 +15,7 @@ import { LocationServiceInterface } from '../location-service';
 import { NavigateServiceInterface } from '../navigate-service';
 import { RouterServiceControllerInterface } from '../router-service-controller';
 
-import { RouterServiceBindings } from './router-service.bindings.ts';
-import { RouterService } from './router.service.ts';
+import { RouterService, RouterServiceBindings } from './';
 
 describe('RouterService', () => {
   it('stores location snapshots and notifies subscribers', () => {

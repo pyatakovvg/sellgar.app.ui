@@ -13,7 +13,7 @@ import { RouterServiceControllerInterface } from '../../../router/service/router
 import { RuntimeScopeProvider } from '../../../runtime/react';
 import { ApplicationScope } from '../../../runtime/scope/kind';
 
-import { NavItem } from './nav-item.tsx';
+import { NavItem } from './';
 
 const routerMocks = vi.hoisted(() => {
   return {
@@ -22,8 +22,8 @@ const routerMocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('react-router-dom', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react-router-dom')>();
+vi.mock('react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router')>();
 
   return {
     ...actual,

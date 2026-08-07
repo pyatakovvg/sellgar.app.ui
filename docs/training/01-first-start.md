@@ -1,4 +1,4 @@
-# Занятие 1. Первый Запуск: От React К `Hello, @sellgar/app!`
+# Занятие 1. Первый Запуск: От React К `Hello, @tiyn/app!`
 
 - Статус документа: current
 - Формат: 35–50 минут
@@ -53,7 +53,7 @@ modules/hello/
 ```text
 URL: /
 
-Hello, @sellgar/app!
+Hello, @tiyn/app!
 ```
 
 Пять сущностей, один работающий экран, ни одного controller-а.
@@ -98,7 +98,7 @@ Application -> Router -> Route -> Module -> View
 
 ```tsx
 const HelloView: React.FC = () => {
-  return <h1>Hello, @sellgar/app!</h1>;
+  return <h1>Hello, @tiyn/app!</h1>;
 };
 ```
 
@@ -121,10 +121,10 @@ TypeScript check, если стенд уже настроен, и подчерк
 ### На Экране
 
 ```tsx
-import { Module } from '@sellgar/app';
+import { Module } from '@tiyn/app';
 
 const HelloView: React.FC = () => {
-  return <h1>Hello, @sellgar/app!</h1>;
+  return <h1>Hello, @tiyn/app!</h1>;
 };
 
 @Module({
@@ -198,7 +198,7 @@ import {
   Route,
   Router,
   type ApplicationConfiguratorInterface,
-} from '@sellgar/app';
+} from '@tiyn/app';
 
 export class OrdersTrainingApplication extends Application {
   protected configure(app: ApplicationConfiguratorInterface): void {
@@ -267,7 +267,7 @@ import './bootstrap';
 
 ### Live Coding
 
-Запустите приложение. Сначала покажите `Hello, @sellgar/app!`, затем измените текст
+Запустите приложение. Сначала покажите `Hello, @tiyn/app!`, затем измените текст
 во view и убедитесь, что обновился только React-код, а composition осталась
 прежней.
 
@@ -338,7 +338,7 @@ Module
 ### Критерии Готовности
 
 - приложение открывается по `/`;
-- feature code импортирует API только из `@sellgar/app`;
+- feature code импортирует API только из `@tiyn/app`;
 - route использует public package import;
 - module class не создаётся через `new`;
 - во view нет navigation, data loading или DI «на будущее».

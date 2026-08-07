@@ -9,8 +9,10 @@ import { BindingModuleInterface } from '../../../di/binding/binding-module';
 import { Injectable } from '../../../di/injection/decorators';
 import { UseBindings } from '../../../di/composition/use-bindings';
 import type { BindingRegistryInterface } from '../../../di/binding/binding-registry';
+import type { DependencyToken } from '../../../di/token/dependency-token';
 import { GuardInterface } from '../../../guard/contract/guard';
 import { GuardRejectedException } from '../../../guard/contract/guard-rejected-exception';
+import { ConflictException } from '../../../http';
 import { UseGuards } from '../../../guard/declaration/use-guards';
 import { ApplicationScope, ModuleScope } from '../../../runtime/scope/kind';
 import { captureRuntimeFailure, RuntimeFailureReporterInterface } from '../../../runtime/failure';
@@ -22,7 +24,7 @@ import {
 } from '../../../runtime/provider/runtime-provider';
 import { Module } from '../../declaration/module';
 
-import { ModuleRuntime } from './module-runtime.ts';
+import { ModuleRuntime } from './';
 
 interface Deferred<TValue> {
   readonly promise: Promise<TValue>;
@@ -324,6 +326,31 @@ describe('ModuleRuntime', () => {
     expect(fixture.beforeRender).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps committed data and does not report RuntimeFailure when revalidation receives HTTP 4xx', async () => {
+    const error = new ConflictException({ title: 'Conflict' });
+    let attempt = 0;
+    const fixture = createModuleRuntimeFixture({
+      loader: () => {
+        attempt++;
+
+        if (attempt > 1) {
+          throw error;
+        }
+
+        return 'committed';
+      },
+    });
+
+    fixture.moduleDeferred.resolve(fixture.moduleExports);
+    await fixture.runtime.load(createLoaderArgs());
+    fixture.runtime.commit();
+
+    await expect(fixture.runtime.revalidate()).rejects.toBe(error);
+
+    expect(fixture.runtime.getLoaderData(fixture.controllerToken)).toBe('committed');
+    expect(fixture.reportFailure).not.toHaveBeenCalled();
+  });
+
   it('disposes controllers, providers and then module scope', async () => {
     const order: string[] = [];
     const disposeScope = vi.spyOn(ModuleScope.prototype, 'dispose').mockImplementation(() => {
@@ -472,6 +499,7 @@ interface ModuleRuntimeFixtureOptions {
 interface ModuleRuntimeFixture {
   readonly beforeLoad: ReturnType<typeof vi.fn>;
   readonly beforeRender: ReturnType<typeof vi.fn>;
+  readonly controllerToken: DependencyToken<unknown>;
   readonly dispose: ReturnType<typeof vi.fn>;
   readonly guard: ReturnType<typeof vi.fn>;
   readonly loader: ReturnType<typeof vi.fn>;
@@ -565,6 +593,7 @@ const createModuleRuntimeFixture = (options: ModuleRuntimeFixtureOptions = {}): 
   return {
     beforeLoad,
     beforeRender,
+    controllerToken: TestControllerInterface,
     dispose,
     guard,
     loader,

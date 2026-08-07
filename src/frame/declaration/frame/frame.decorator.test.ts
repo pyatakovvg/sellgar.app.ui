@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { Frame, FrameDefinition, getFrameMetadata, isFrameConstructor } from './frame.decorator.ts';
+import { Frame, FrameDefinition, getFrameMetadata, isFrameConstructor } from './';
 
 interface TestFrameProps {
   readonly id: string;

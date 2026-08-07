@@ -1,5 +1,5 @@
 import React from 'react';
-import { useFetcher } from 'react-router-dom';
+import { useFetcher } from 'react-router';
 
 import type { DependencyToken } from '../../../di/token/dependency-token';
 import { useRuntimeScope } from '../../../runtime/react';

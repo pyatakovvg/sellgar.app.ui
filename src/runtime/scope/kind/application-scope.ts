@@ -1,4 +1,5 @@
 import { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
+import { RequestExecutor, RequestExecutorInterface } from '../../../application/request';
 import { ConsoleRuntimeFailureSink } from '../../../application/reporting/console-runtime-failure-sink';
 import { RuntimeFailureReporter } from '../../../application/reporting/runtime-failure-reporter';
 import { RouterFrameAvailabilityInterface } from '../../../router/runtime/router-frame-availability';
@@ -21,6 +22,7 @@ export class ApplicationScope extends RuntimeScope {
       registry.bind(ProviderScope).toConstantValue(this.providerScope);
       registry.bind(RuntimeFailureReporterInterface).to(RuntimeFailureReporter).inSingletonScope();
       registry.bind(RuntimeFailureSinkInterface).to(ConsoleRuntimeFailureSink).inSingletonScope();
+      registry.bind(RequestExecutorInterface).to(RequestExecutor).inSingletonScope();
     });
   }
 

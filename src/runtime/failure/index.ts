@@ -14,4 +14,9 @@ export {
   type RuntimeOwner,
   type RuntimeParticipant,
 } from './runtime-failure.ts';
-export { captureRuntimeFailure, getRuntimeFailureCause, throwRuntimeFailure } from './runtime-failure-signal.ts';
+export {
+  captureRuntimeFailure,
+  getRuntimeFailureCause,
+  getRuntimeOperationError,
+  throwRuntimeOperationError,
+} from './runtime-failure-signal.ts';

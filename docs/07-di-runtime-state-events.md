@@ -5,10 +5,10 @@
 
 ## DI Facade
 
-Feature code использует DI API из `@sellgar/app`:
+Feature code использует DI API из `@tiyn/app`:
 
 ```ts
-import { BindingModuleInterface, Inject, Injectable, Optional, UseBindings } from '@sellgar/app';
+import { BindingModuleInterface, Inject, Injectable, Optional, UseBindings } from '@tiyn/app';
 ```
 
 Не импортируй decorators напрямую из `inversify`. Framework facade нужен, чтобы

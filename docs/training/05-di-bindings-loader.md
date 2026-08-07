@@ -159,7 +159,7 @@ export class OrdersModule {}
 
 `@UseBindings` только записывает metadata. `ModuleScope` активирует bindings при
 создании module runtime и освобождает их вместе с ним. Feature code импортирует
-DI facade из `@sellgar/app`, а не Inversify.
+DI facade из `@tiyn/app`, а не Inversify.
 
 ### Контрольная Точка
 

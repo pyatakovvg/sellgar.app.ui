@@ -7,7 +7,7 @@ import type { ModuleRuntime } from '../../../module/runtime/module-runtime';
 import { createControllerLoaderData, type ControllerLoaderData } from '../../data/controller-loader-data';
 import { ControllerRuntimeProvider } from '../controller-runtime-context';
 
-import { useLoaderData } from './use-controller-loader-data.hook.ts';
+import { useLoaderData } from './';
 
 describe('useLoaderData', () => {
   it('returns loader data for requested controller from nearest runtime entity', () => {

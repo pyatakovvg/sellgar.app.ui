@@ -1,4 +1,4 @@
-import { useHref, useNavigation } from 'react-router-dom';
+import { useHref, useNavigation } from 'react-router';
 
 import type { RouteMatchOptions } from '../../../router/utils/path-match';
 import { matchPathname } from '../../../router/utils/path-match';

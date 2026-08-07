@@ -28,7 +28,7 @@ import {
   type WidgetControllerLoaderArgs,
 } from '../widget-controller';
 import { RevalidateServiceInterface } from '../../../revalidate/contract/revalidate-service';
-import { WidgetRuntime } from './widget-runtime.ts';
+import { WidgetRuntime } from './';
 
 describe('WidgetRuntime', () => {
   it('loads widget controllers and providers', async () => {
@@ -264,6 +264,20 @@ describe('WidgetRuntime', () => {
     expect(runtime.getSnapshot().error).toBeInstanceOf(Error);
   });
 
+  it('moves to failed when widget runtime creation rejects', async () => {
+    resetWidgetTestState();
+
+    TestWidgetController.constructorError = new Error('Создание runtime виджета завершилось с ошибкой.');
+
+    const runtime = createWidgetRuntime({ value: 'ready' });
+
+    await expect(runtime.load()).rejects.toBe(TestWidgetController.constructorError);
+    expect(runtime.getSnapshot()).toEqual({
+      error: TestWidgetController.constructorError,
+      phase: 'failed',
+    });
+  });
+
   it('keeps a render failure terminal when load is requested afterwards', async () => {
     resetWidgetTestState();
 
@@ -315,6 +329,7 @@ const createWidgetRuntime = (
 
 const resetWidgetTestState = (): void => {
   TestWidgetController.actionHandler = null;
+  TestWidgetController.constructorError = null;
   TestWidgetController.deferred = null;
   TestWidgetController.disposeCount = 0;
   TestWidgetController.loaderHandler = null;
@@ -350,6 +365,7 @@ class TestWidgetActionGuard extends TestWidgetActionGuardInterface {
 @Controller()
 class TestWidgetController extends WidgetControllerInterface<TestWidgetProps> {
   static actionHandler: (() => void) | null = null;
+  static constructorError: Error | null = null;
   static deferred: Deferred<void> | null = null;
   static disposeCount = 0;
   static loaderHandler: (() => void) | null = null;
@@ -359,6 +375,10 @@ class TestWidgetController extends WidgetControllerInterface<TestWidgetProps> {
     private readonly revalidateService: RevalidateServiceInterface,
   ) {
     super();
+
+    if (TestWidgetController.constructorError) {
+      throw TestWidgetController.constructorError;
+    }
   }
 
   async loader(args: WidgetControllerLoaderArgs<TestWidgetProps>): Promise<string> {

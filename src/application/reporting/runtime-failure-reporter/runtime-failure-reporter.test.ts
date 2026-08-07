@@ -7,7 +7,7 @@ import {
   type RuntimeFailureReport,
 } from '../../../runtime/failure';
 
-import { RuntimeFailureReporter } from './runtime-failure-reporter.ts';
+import { RuntimeFailureReporter } from './';
 
 describe('RuntimeFailureReporter', () => {
   it('fans out one structured report to every sink', async () => {

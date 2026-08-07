@@ -9,7 +9,7 @@ import type { NavigateServiceInterface } from '../../service/navigate-service';
 import type { RouterLocationSnapshot } from '../../service/location-service';
 import { parseHashToObject } from '../../utils/hash-utils';
 
-import { RouterRuntime, type RouteRuntimeHandle } from './router-runtime.ts';
+import { RouterRuntime, type RouteRuntimeHandle } from './';
 
 describe('RouterRuntime', () => {
   it('commits newly active routes', () => {

@@ -4,8 +4,7 @@
 
 - policies управляют доступом к route boundary;
 - revalidate обновляет active data;
-- runtime operation flow отделяет lifecycle interruption от exception;
-- runtime errors публикуют ошибки runtime/view operations для host-обработчиков;
+- runtime operation flow отделяет lifecycle interruption, HTTP rejection и failure;
 - runtime reporter фиксирует ошибки runtime-слоя.
 
 ## Policies
@@ -129,7 +128,10 @@ failed
   операция упала, lifecycle не изменился
 
 interrupted
-  операция упала после смены runtime revision
+  операция устарела после смены runtime revision или session recovery
+
+rejected
+  transport получил ожидаемый HTTP 4xx result
 ```
 
 Runtime revision сейчас даёт `SessionRuntimeStateInterface.revision`.
@@ -154,6 +156,10 @@ interrupted
   не показывать exception UI для старого runtime flow
   не записывать stale loader data
   не переводить widget/frame в failed из-за ожидаемого session transition
+
+rejected
+  не создавать RuntimeFailure и не отправлять failure report
+  передать HTTP result ближайшему owner для локального представления
 ```
 
 Route runtime при `interrupted` повторно применяет policies к текущему session
@@ -200,56 +206,48 @@ Abort, смена session revision и dispose являются interruption и �
 failure report. `Response`, обработанный router/request contract, также не
 превращается в runtime failure.
 
-## Unauthorized Recovery
+## HTTP Exceptions И Unauthorized Recovery
 
-`401 Unauthorized` является доменной ошибкой request pipeline. Framework не
-знает бизнес-смысл 401 и не содержит auth-specific recovery.
-
-Application composition root подключает recovery через initializer:
+`HttpException<TResponse>` и стандартные status exceptions принадлежат
+`@tiyn/app`. Domain transport adapter контролирует только преобразование
+backend-specific payload в `TResponse`:
 
 ```ts
-@Initializer()
-export class RegisterUnauthorizedRecoveryInitializer implements ApplicationInitializerInterface {
-  private recoveryInProgress: Promise<void> | null = null;
+class TerminalConflictException extends ConflictException<TerminalErrorEntity> {}
+```
 
-  constructor(
-    @Inject(RequestExecutorInterface)
-    private readonly requestExecutor: RequestExecutorInterface,
-    @Inject(SessionRuntimeStateInterface)
-    private readonly session: SessionRuntimeStateInterface,
-    @Inject(UserRequestServiceInterface)
-    private readonly userRequestService: UserRequestServiceInterface,
-  ) {}
+Все HTTP-вызовы выполняются через application-scoped `RequestExecutorInterface`.
+Для authenticated session первый `401` запускает single-flight recovery; другие
+одновременные `401` ожидают тот же Promise. Composition root при необходимости
+подключает только presentation-port:
 
-  execute(context: ApplicationInitializerContextInterface): void {
-    context.disposables.add(
-      this.requestExecutor.onStatus(401, () => {
-        if (!this.recoveryInProgress) {
-          this.recoveryInProgress = this.recover(context)
-            .catch((error) => console.error({ error, sessionRecoveryFailed: true }))
-            .finally(() => {
-              this.recoveryInProgress = null;
-            });
-        }
-      }),
-    );
+```ts
+@Injectable()
+class SessionExpirationNotifier extends SessionExpirationNotifierInterface {
+  constructor(@Inject(UserRequestServiceInterface) private readonly requests: UserRequestServiceInterface) {
+    super();
   }
 
-  private async recover(context: ApplicationInitializerContextInterface): Promise<void> {
-    try {
-      if (!context.signal.aborted && this.session.phase === 'authenticated') {
-        await this.userRequestService.alert({
-          title: 'Сессия завершена',
-          description: 'Срок действия авторизации истёк. Выполните вход снова.',
-          applyText: 'Ок',
-        });
-      }
-    } finally {
-      this.session.setAnonymous();
-    }
+  notify(): Promise<void> {
+    return this.requests.alert({
+      title: 'Сессия завершена',
+      description: 'Срок действия авторизации истёк. Выполните вход снова.',
+      applyText: 'Ок',
+    });
   }
 }
 ```
+
+После уведомления framework терминально останавливает запросы, начатые в
+protected session, и переводит session в `anonymous`. Их promises намеренно не
+возвращают rejection в feature/controller stack: значит широкий локальный
+`catch` не увидит ни `UnauthorizedException`, ни служебную cancellation.
+
+Session revision guard подписан на изменение state и завершает всё ещё pending
+owner operation как `interrupted`. Initial load поэтому не показывает exception,
+revalidate сохраняет ранее committed data, action не запускает локальную ветку
+ошибки контроллера. Для anonymous session `401` не запускает recovery и остаётся
+локальной ожидаемой ошибкой, например неверным логином.
 
 Сохранение и восстановление текущего URL также принадлежит route policy
 handlers:

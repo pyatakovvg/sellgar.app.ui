@@ -109,7 +109,7 @@ async action({ payload }) {
 
 Сначала выполняется business operation, затем событие о состоявшемся факте.
 Event bus — integration layer, а не command bus; command bus не является
-готовым API `@sellgar/app`.
+готовым API `@tiyn/app`.
 
 ---
 

@@ -182,7 +182,7 @@ Layout - class token с metadata `@Layout(...)`.
 
 ```tsx
 // src/auth.layout.tsx
-import { Layout } from '@sellgar/app';
+import { Layout } from '@tiyn/app';
 
 import { LayoutView } from './view';
 
@@ -210,6 +210,11 @@ export const LayoutView: React.FC<LayoutViewProps> = ({ children }) => {
 
 Route layouts композируются вокруг active module view в порядке parent ->
 child.
+
+`Route.path` всегда разрешается относительно parent route в дереве. Ведущий
+`/` используется в декларациях для единообразия и не превращает дочерний route
+в абсолютный. Например, `/terminals` -> `/registrations` имеет canonical
+pathname `/terminals/registrations` на всех runtime boundaries.
 
 Layout может объявить `providers`, если layout владеет runtime-процессом,
 например preload widget-а, который рендерится в самом layout. Layout providers

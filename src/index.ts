@@ -40,6 +40,40 @@ export {
   type SessionRuntimeStateListener,
 } from './application/session/session-runtime-state';
 export {
+  SessionExpirationNotifierInterface,
+  type SessionExpirationNotificationContext,
+} from './application/session/session-expiration-notifier';
+export {
+  RequestExecutorInterface,
+  type RequestExecutionContext,
+  type RequestExecutionOptions,
+  type RequestMode,
+  type RequestOperation,
+} from './application/request';
+export {
+  BadGatewayException,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  GatewayTimeoutException,
+  HttpException,
+  InternalServerErrorException,
+  isHttpException,
+  LockoutException,
+  MethodNotAllowedException,
+  NetworkError,
+  NotFoundException,
+  RequestTimeoutException,
+  ServiceUnavailableException,
+  TooManyRequestsException,
+  TransportTimeoutError,
+  UnauthorizedException,
+  UnprocessableEntityException,
+  type HttpExceptionOptions,
+  type HttpRequestSource,
+  type TransportErrorOptions,
+} from './http';
+export {
   DisposableRegistryInterface,
   type Disposable,
   type DisposableLike,

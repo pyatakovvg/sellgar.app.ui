@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { captureRuntimeFailure, throwRuntimeFailure } from './runtime-failure-signal.ts';
+import { captureRuntimeFailure, throwRuntimeOperationError, type RuntimeFailureSource } from './';
 
 const OUTER_SOURCE = {
   operation: 'load',
@@ -19,7 +19,7 @@ describe('runtime failure signal', () => {
     let thrown: unknown;
 
     try {
-      throwRuntimeFailure(error, providerSource);
+      throwRuntimeOperationError(error, providerSource);
     } catch (cause) {
       thrown = cause;
     }
@@ -39,15 +39,19 @@ describe('runtime failure signal', () => {
       participant: { kind: 'singleton-provider' as const, token: TestProvider },
     };
 
-    try {
-      throwRuntimeFailure(error, source);
-    } catch {
-      // The object itself carries the failure identity through the private WeakMap.
-    }
+    const thrown = captureThrown(error, source);
 
-    expect(captureRuntimeFailure(error, OUTER_SOURCE).id).toBe(captureRuntimeFailure(error, OUTER_SOURCE).id);
+    expect(captureRuntimeFailure(thrown, OUTER_SOURCE).id).toBe(captureRuntimeFailure(thrown, OUTER_SOURCE).id);
   });
 });
+
+const captureThrown = (error: unknown, source: RuntimeFailureSource): unknown => {
+  try {
+    throwRuntimeOperationError(error, source);
+  } catch (cause) {
+    return cause;
+  }
+};
 
 class TestModule {}
 

@@ -1,7 +1,7 @@
-# Граница Публичного API `@sellgar/app`
+# Граница Публичного API `@tiyn/app`
 
 Документ определяет, что feature-код может считать публичным контрактом
-`@sellgar/app`.
+`@tiyn/app`.
 
 ## Источники Истины
 
@@ -35,10 +35,10 @@
 Feature-код импортирует framework API из корня пакета:
 
 ```ts
-import { Application, Module, Route, Router } from '@sellgar/app';
+import { Application, Module, Route, Router } from '@tiyn/app';
 ```
 
-Deep imports из `@sellgar/app/src/*`, runtime implementation folders и generated
+Deep imports из `@tiyn/app/src/*`, runtime implementation folders и generated
 `types` запрещены.
 
 ## Внутренние Детали

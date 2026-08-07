@@ -3,7 +3,7 @@ import {
   captureRuntimeFailure,
   reportRuntimeFailure,
   RuntimeFailureReporterInterface,
-  throwRuntimeFailure,
+  throwRuntimeOperationError,
   type RuntimeFailureSource,
   type RuntimeOwner,
 } from '../../failure';
@@ -133,7 +133,7 @@ export class RuntimeProviderPipeline<TProps extends object = object> {
       try {
         this.retainProviderResult(await method.call(provider, providerContext), source);
       } catch (error) {
-        throwRuntimeFailure(error, source);
+        throwRuntimeOperationError(error, source);
       }
     }
   }

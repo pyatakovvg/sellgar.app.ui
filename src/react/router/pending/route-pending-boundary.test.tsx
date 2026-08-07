@@ -9,8 +9,8 @@ const routerMocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('react-router-dom', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react-router-dom')>();
+vi.mock('react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router')>();
 
   return {
     ...actual,
@@ -19,7 +19,7 @@ vi.mock('react-router-dom', async (importOriginal) => {
   };
 });
 
-import { RoutePendingBoundary } from './route-pending-boundary.tsx';
+import { RoutePendingBoundary } from './';
 
 describe('RoutePendingBoundary', () => {
   afterEach(() => {

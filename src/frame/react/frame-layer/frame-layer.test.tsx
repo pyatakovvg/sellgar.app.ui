@@ -46,7 +46,7 @@ import { WidgetHost } from '../../../widget/react/widget-host';
 import { useFrame } from '../use-frame';
 import { useLoaderData } from '../../../controller/react/use-controller-loader-data';
 
-import { FrameLayer } from './frame-layer.tsx';
+import { FrameLayer } from './';
 
 describe('FrameLayer', () => {
   beforeEach(() => {

@@ -375,7 +375,7 @@ Context-free integration, которая изменяет глобальный r
 отдельным provider contract:
 
 ```ts
-import { SingletonProvider, SingletonProviderInterface, type RuntimeProviderResult } from '@sellgar/app';
+import { SingletonProvider, SingletonProviderInterface, type RuntimeProviderResult } from '@tiyn/app';
 
 @SingletonProvider()
 export class OrdersUpdatesProvider implements SingletonProviderInterface {

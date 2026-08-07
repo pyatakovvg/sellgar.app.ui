@@ -14,7 +14,7 @@ import { GuardInterface } from '../../contract/guard';
 
 import { useGuard } from '../use-guard';
 
-import { Guarded } from './guarded.tsx';
+import { Guarded } from './';
 
 describe('Guarded', () => {
   it('renders children when all guards pass', async () => {

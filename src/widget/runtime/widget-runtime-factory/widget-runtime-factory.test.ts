@@ -17,7 +17,7 @@ import type {
 import { Widget, WidgetDefinition } from '../../declaration/widget';
 
 import { WidgetControllerInterface, type WidgetControllerLoaderArgs } from '../widget-controller';
-import { WidgetRuntimeFactory } from './widget-runtime-factory.ts';
+import { WidgetRuntimeFactory } from './';
 
 describe('WidgetRuntimeFactory', () => {
   it('preloads widget runtime and returns cleanup', async () => {

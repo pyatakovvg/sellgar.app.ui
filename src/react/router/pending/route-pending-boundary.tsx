@@ -1,5 +1,5 @@
 import React from 'react';
-import { useLocation, useNavigation } from 'react-router-dom';
+import { useLocation, useNavigation } from 'react-router';
 
 import type { ApplicationComponents } from '../../../application/config/application-configurator';
 

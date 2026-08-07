@@ -11,9 +11,14 @@ import {
   captureRuntimeFailure,
   reportRuntimeFailure,
   RuntimeFailureReporterInterface,
+  throwRuntimeOperationError,
   type RuntimeFailureSource,
 } from '../../../runtime/failure';
-import { executeRuntimeParticipant } from '../../../runtime/operation';
+import {
+  createRuntimeRevisionGuard,
+  executeRuntimeOperation,
+  executeRuntimeParticipant,
+} from '../../../runtime/operation';
 import { ApplicationScope } from '../../../runtime/scope/kind';
 import { WidgetRuntimeFactoryBindings } from '../../../widget/runtime/widget-runtime-factory';
 import type { DependencyConstructor } from '../../../di/binding/binding-builder';
@@ -21,7 +26,7 @@ import type { DependencyToken } from '../../../di/token/dependency-token';
 import { ApplicationConfig } from '../../config/application-config';
 import { ApplicationEventBusBindings } from '../../event/application-event-bus';
 import { ApplicationStoreBindings } from '../../store/application-store';
-import { SessionRuntimeState } from '../../session/session-runtime-state';
+import { SessionRuntimeState, SessionRuntimeStateInterface } from '../../session/session-runtime-state';
 import {
   type ApplicationInitializerToken,
   type ApplicationInitializerContextInterface,
@@ -30,6 +35,7 @@ import {
 } from '../../initializer/application-initializer';
 import { ApplicationInitializerGroup } from '../../initializer/application-initializer-group';
 import { DisposableRegistry } from '../../disposable/disposable-registry';
+import { RequestExecutorInterface } from '../../request';
 import type {
   ApplicationConfiguratorInterface,
   ApplicationInitializerDeclaration,
@@ -141,6 +147,9 @@ export abstract class Application extends ApplicationControllerInterface {
 
     this.setState('disposing');
     this.initializerAbortController?.abort();
+    if (this.scope.has(SessionRuntimeStateInterface)) {
+      this.scope.get(RequestExecutorInterface).cancelAll();
+    }
     await this.routerRuntime.dispose();
     await this.disposables.dispose((error) => {
       const failure = captureRuntimeFailure(error, {
@@ -224,6 +233,11 @@ export abstract class Application extends ApplicationControllerInterface {
         return;
       }
 
+      if (error instanceof ApplicationInitializerRejected) {
+        this.fail(error.cause);
+        throw error.cause;
+      }
+
       const failure = captureRuntimeFailure(error, createApplicationRuntimeSource('initialize'));
 
       await reportRuntimeFailure(
@@ -263,17 +277,33 @@ export abstract class Application extends ApplicationControllerInterface {
       signal,
     };
 
-    await executeRuntimeParticipant(
-      {
-        operation: 'execute',
-        owner: { kind: 'application' },
-        participant: {
-          kind: 'initializer',
-          token: initializerToken,
-        },
-      },
-      () => initializer.execute(context),
-    );
+    const result = await executeRuntimeOperation({
+      guard: createRuntimeRevisionGuard(this.session),
+      operation: () =>
+        executeRuntimeParticipant(
+          {
+            operation: 'execute',
+            owner: { kind: 'application' },
+            participant: {
+              kind: 'initializer',
+              token: initializerToken,
+            },
+          },
+          () => initializer.execute(context),
+        ),
+      signal,
+      source: createApplicationRuntimeSource('initialize'),
+    });
+
+    switch (result.type) {
+      case 'completed':
+      case 'interrupted':
+        return;
+      case 'rejected':
+        throw new ApplicationInitializerRejected(result.error);
+      case 'failed':
+        return throwRuntimeOperationError(result.failure.cause, result.failure.source);
+    }
   }
 
   private resolveInitializer(initializerToken: ApplicationInitializerToken): ApplicationInitializerInterface {
@@ -351,6 +381,12 @@ const createApplicationRuntimeSource = (operation: string): RuntimeFailureSource
     participant: { kind: 'runtime' },
   };
 };
+
+class ApplicationInitializerRejected extends Error {
+  constructor(readonly cause: unknown) {
+    super('Application initializer was rejected by an expected operation result.', { cause });
+  }
+}
 
 const isAutoBindableApplicationScope = (
   scope: ApplicationScope,

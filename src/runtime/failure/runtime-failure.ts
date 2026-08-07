@@ -23,6 +23,7 @@ export type RuntimeParticipant =
   | { readonly kind: 'singleton-provider'; readonly token: DependencyToken<unknown> }
   | { readonly kind: 'event-handler'; readonly token: DependencyToken<unknown> }
   | { readonly kind: 'revalidate-handler'; readonly token: DependencyToken<unknown> }
+  | { readonly kind: 'session-expiration-notifier' }
   | { readonly kind: 'disposable' }
   | { readonly kind: 'runtime' };
 
@@ -41,6 +42,7 @@ export type RuntimeFailureDisposition =
   | 'action.failed'
   | 'revalidate.failed'
   | 'event-handler.contained'
+  | 'session-recovery.contained'
   | 'cleanup.contained';
 
 export interface RuntimeFailureHop {

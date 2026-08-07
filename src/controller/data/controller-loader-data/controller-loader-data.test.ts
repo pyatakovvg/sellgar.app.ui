@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  createControllerLoaderData,
-  getControllerActionKey,
-  getControllerLoaderData,
-} from './controller-loader-data.ts';
+import { createControllerLoaderData, getControllerActionKey, getControllerLoaderData } from './';
 
 describe('controller loader data', () => {
   it('stores stable action keys and loader values by controller token', () => {
