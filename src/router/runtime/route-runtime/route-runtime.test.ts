@@ -13,7 +13,7 @@ import {
   ApplicationControllerInterface,
   type ApplicationLifecycleSnapshot,
 } from '../../../application/lifecycle/application-lifecycle';
-import { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
+import { SessionRuntimeState, SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
 import type {
   ControllerActionArgs,
   ControllerInterface,
@@ -130,6 +130,43 @@ describe('RouteRuntime', () => {
         failure: expect.objectContaining({ cause: actionError }),
       }),
     );
+  });
+
+  it('прерывает module action до policy redirect при изменении session', async () => {
+    const session = new SessionRuntimeState();
+    const fixture = createRouteRuntimeFixture({
+      action: () => {
+        session.setAuthenticated();
+      },
+      routeCanMatch: () =>
+        session.phase === 'anonymous' ? { type: 'pass' } : { reason: 'authenticated', type: 'fail' },
+      actionPolicyOnFail: Router.redirectTo('/', { replace: true }),
+      session,
+    });
+
+    session.setAnonymous();
+
+    await fixture.runtime.loader(createLoaderArgs());
+    fixture.runtime.commit();
+
+    const moduleRuntime = fixture.runtime.getModuleRuntime();
+    const operation = moduleRuntime.startAction(fixture.controllerToken, {});
+    const formData = new FormData();
+
+    formData.set(MODULE_ACTION_ID_FIELD, operation.id);
+
+    const redirect = await catchRedirect(
+      fixture.runtime.action({
+        params: {},
+        request: new Request('https://tiyn-app.test/sign-in', {
+          body: formData,
+          method: 'post',
+        }),
+      } as ActionFunctionArgs),
+    );
+
+    expect(redirect.headers.get('Location')).toBe('/');
+    expect(moduleRuntime.finishAction(operation)).toBeUndefined();
   });
 
   it('reports route provider setup errors with provider phase code', async () => {
@@ -714,6 +751,7 @@ describe('RouteRuntime', () => {
 
 interface RouteRuntimeFixtureOptions {
   readonly action?: (args: ControllerActionArgs) => unknown | Promise<unknown>;
+  readonly actionPolicyOnFail?: ReturnType<typeof Router.redirectTo>;
   readonly beforeRender?: (context: RuntimeProviderContextInterface) => void | Promise<void>;
   readonly dispose?: () => void | Promise<void>;
   readonly frameProviderBeforeRender?: (context: RuntimeProviderContextInterface) => void | Promise<void>;
@@ -736,7 +774,7 @@ interface RouteRuntimeFixtureOptions {
     context: RuntimeProviderContextInterface,
   ) => RuntimeProviderResult | Promise<RuntimeProviderResult>;
   readonly routeProviders?: readonly DependencyToken<RuntimeProviderInterface>[];
-  readonly session?: TestSessionRuntimeState;
+  readonly session?: SessionRuntimeStateInterface;
   readonly setup?: (context: RuntimeProviderContextInterface) => void | Promise<void>;
 }
 
@@ -831,6 +869,18 @@ const createRouteRuntimeFixture = (options: RouteRuntimeFixtureOptions = {}): Ro
             },
           ],
         };
+  const actionPolicies: RoutePolicyDeclarations =
+    options.actionPolicyOnFail === undefined
+      ? EMPTY_ROUTE_POLICY_DECLARATIONS
+      : {
+          ...EMPTY_ROUTE_POLICY_DECLARATIONS,
+          canMatch: [
+            {
+              onFail: options.actionPolicyOnFail,
+              use: TestRoutePolicy,
+            },
+          ],
+        };
 
   const routerRuntime = new RouterRuntime();
 
@@ -843,7 +893,7 @@ const createRouteRuntimeFixture = (options: RouteRuntimeFixtureOptions = {}): Ro
     options.session ?? new TestSessionRuntimeState(),
     applicationScope,
     loaderPolicies,
-    EMPTY_ROUTE_POLICY_DECLARATIONS,
+    actionPolicies,
     options.frames,
     options.routePathname,
     options.basePath,

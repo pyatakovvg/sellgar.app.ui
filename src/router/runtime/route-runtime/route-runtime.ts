@@ -470,8 +470,8 @@ export class RouteRuntime {
         moduleRuntime.completeAction(requireActionId(actionId), result.value);
         return null;
       case 'interrupted':
-        await this.handleActionSessionTransition(args, sessionRevision);
         interruptModuleAction(moduleRuntime, actionId);
+        await this.handleActionSessionTransition(args, sessionRevision);
         return null;
       case 'rejected':
         await this.handleActionSessionTransition(args, sessionRevision);
