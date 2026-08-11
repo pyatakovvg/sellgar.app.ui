@@ -63,7 +63,7 @@ export const executeRuntimeOperation = async <TValue>(
   options: RuntimeOperationOptions<TValue>,
 ): Promise<RuntimeOperationResult<TValue>> => {
   const operationPromise = executeRuntimeOperationBody(options);
-  const guardInterruption = createGuardInterruption(options.guard);
+  const guardInterruption = createGuardInterruption<TValue>(options.guard);
 
   try {
     return await Promise.race([operationPromise, guardInterruption.promise]);
