@@ -10,13 +10,14 @@ import { ApplicationScope, FrameScope, ModuleScope, ProviderScope, WidgetScope }
 import {
   Provider,
   RuntimeProviderInterface,
+  getRuntimeProviderScope,
   type RuntimeProviderContextInterface,
   type RuntimeProviderResult,
 } from '../runtime-provider';
 import { SingletonProvider, SingletonProviderInterface } from '../singleton-provider';
 import { captureRuntimeFailure, type RuntimeOwner } from '../../failure';
 
-import { RuntimeProviderPipeline } from './runtime-provider-pipeline';
+import { RuntimeProviderPipeline, type RuntimeProviderPipelineContext } from './runtime-provider-pipeline';
 
 const TEST_OWNER = { kind: 'application' as const };
 
@@ -85,12 +86,13 @@ describe('RuntimeProviderPipeline', () => {
     expect(TestProvider.constructorDependencies).toHaveLength(2);
     expect(OtherProvider.constructorDependencies).toHaveLength(1);
     expect(new Set([...TestProvider.constructorDependencies, ...OtherProvider.constructorDependencies]).size).toBe(1);
-    expect([...TestProvider.contexts, ...OtherProvider.contexts].map(({ scope }) => scope)).toEqual([
+    expect([...TestProvider.contexts, ...OtherProvider.contexts].map(getRuntimeProviderScope)).toEqual([
       moduleScope,
       frameScope,
       widgetScope,
     ]);
-    expect(TestPreloadService.contexts.map(({ scope }) => scope)).toEqual([moduleScope, frameScope, widgetScope]);
+    expect(TestPreloadService.contexts.map(getRuntimeProviderScope)).toEqual([moduleScope, frameScope, widgetScope]);
+    expect([...TestProvider.contexts, ...OtherProvider.contexts].every((context) => !('scope' in context))).toBe(true);
 
     await modulePipeline.dispose();
     expect(providerScope.has(ProviderDependencyInterface)).toBe(true);
@@ -258,11 +260,9 @@ describe('RuntimeProviderPipeline', () => {
   });
 });
 
-const createContext = (scope: ModuleScope | FrameScope | WidgetScope): RuntimeProviderContextInterface => ({
+const createContext = (scope: ModuleScope | FrameScope | WidgetScope): RuntimeProviderPipelineContext => ({
   params: {},
-  phase: 'beforeRender',
   props: {},
-  request: new Request('https://tiyn-app.test/runtime'),
   scope,
   signal: new AbortController().signal,
 });
@@ -278,14 +278,14 @@ const createApplicationScope = (): ApplicationScope => {
 abstract class ProviderDependencyInterface {}
 
 @Injectable()
-class ProviderDependency extends ProviderDependencyInterface {}
+class ProviderDependency implements ProviderDependencyInterface {}
 
 abstract class TestPreloadServiceInterface {
   abstract preload(context: RuntimeProviderContextInterface): void;
 }
 
 @Injectable()
-class TestPreloadService extends TestPreloadServiceInterface {
+class TestPreloadService implements TestPreloadServiceInterface {
   static contexts: RuntimeProviderContextInterface[] = [];
 
   preload(context: RuntimeProviderContextInterface): void {
@@ -293,7 +293,7 @@ class TestPreloadService extends TestPreloadServiceInterface {
   }
 }
 
-class TestApplicationBindings extends BindingModuleInterface {
+class TestApplicationBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(TestPreloadServiceInterface).to(TestPreloadService).inSingletonScope();
   }
@@ -309,13 +309,13 @@ class TestFrameOwner {}
 class TestWidgetOwner {}
 
 @Provider()
-class FailingHookProvider extends RuntimeProviderInterface {
+class FailingHookProvider implements RuntimeProviderInterface {
   beforeLoad(): never {
     throw new Error('Blocking provider failed.');
   }
 }
 
-class ProviderBindings extends BindingModuleInterface {
+class ProviderBindings implements BindingModuleInterface {
   static registerCount = 0;
 
   register(registry: BindingRegistryInterface): void {
@@ -324,7 +324,7 @@ class ProviderBindings extends BindingModuleInterface {
   }
 }
 
-abstract class RecordingProvider extends RuntimeProviderInterface {
+abstract class RecordingProvider implements RuntimeProviderInterface {
   abstract readonly dependency: ProviderDependencyInterface;
   abstract readonly preloadService: TestPreloadServiceInterface;
 
@@ -406,9 +406,8 @@ class OtherProvider extends RecordingProvider {
 
 @UseBindings(ProviderBindings)
 @Provider()
-class FailingProvider extends RuntimeProviderInterface {
+class FailingProvider implements RuntimeProviderInterface {
   constructor(@Inject(ProviderDependencyInterface) dependency: ProviderDependencyInterface) {
-    super();
     void dependency;
 
     throw new Error('Provider construction failed.');
@@ -416,7 +415,7 @@ class FailingProvider extends RuntimeProviderInterface {
 }
 
 @Provider()
-class TestSetupProvider extends RuntimeProviderInterface {
+class TestSetupProvider implements RuntimeProviderInterface {
   static cleanupCount = 0;
   static setupCount = 0;
 

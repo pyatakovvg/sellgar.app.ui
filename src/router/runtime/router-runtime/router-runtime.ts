@@ -1,15 +1,9 @@
-import type React from 'react';
-
-import { RouterFrameAvailabilityInterface } from '../router-frame-availability';
-import { getFrameMetadata } from '../../../frame/declaration/frame';
-import { FrameRuntime } from '../../../frame/runtime/frame-runtime';
-import { clearFrameNavigationState } from '../../../frame/navigation/frame-navigation-state';
-import { getUseBindingsMetadata } from '../../../di/composition/use-bindings';
-
-import type { FrameConstructor, FrameMetadata } from '../../../frame/declaration/frame';
-import type { FrameSourceCloseHandler, FrameSourceContextInterface } from '../../../frame/source/frame-source';
+import type { FrameRouter } from '../../../frame/router/declaration';
+import { matchFrameRouter, type FrameRouterMatch } from '../../../frame/router/matching';
+import { FrameRouterRuntime } from '../../../frame/router/runtime';
+import type { FrameRouterRuntimeLoadOptions } from '../../../frame/router/runtime';
+import { FrameRouterRuntimeRegistry } from '../../../frame/router/runtime/frame-router-runtime-registry/frame-router-runtime-registry';
 import type { RuntimeScope } from '../../../runtime/scope/base';
-import { FrameRuntimeRegistry } from '../frame-runtime-registry';
 
 export type RouteRuntimeId = string;
 
@@ -17,69 +11,43 @@ export interface RouteRuntimeHandle {
   commit(): void;
   discardPending(): void;
   dispose(): Promise<void>;
-  getPreparedFrameRuntime<TProps extends object>(
-    frame: FrameConstructor<TProps>,
-    runtimeKey: string | undefined,
-  ): FrameRuntime<TProps> | null;
-  prepareFrameRuntime<TProps extends object>(
-    frame: FrameConstructor<TProps>,
-    runtimeKey: string | undefined,
-    props: TProps,
-    ownerScope: RuntimeScope,
-  ): FrameRuntime<TProps>;
-  getRuntimeScope(): RuntimeScope;
+  getRouteScope(): RuntimeScope;
 }
 
 export interface RouteRuntimeRegistrationOptions {
-  readonly exception?: React.ReactNode;
-  readonly forbidden?: React.ReactNode;
-  readonly frames?: readonly FrameConstructor[];
-  readonly resolveException?: () => React.ReactNode;
+  readonly frames?: readonly FrameRouter[];
 }
 
-export interface ActiveFrameRuntime<TProps extends object = object> {
-  readonly back: FrameSourceCloseHandler;
-  readonly close: FrameSourceCloseHandler;
-  readonly exception?: React.ReactNode;
-  readonly forbidden?: React.ReactNode;
-  readonly frame: FrameConstructor<TProps>;
+interface RouteActivationTracker {
+  activate(): void;
+  complete(): void;
+}
+
+export interface ActiveFrameRouterRuntime {
+  readonly kind: 'router';
+  readonly match: FrameRouterMatch;
   readonly ownerScope: RuntimeScope;
-  readonly preparedRuntime: FrameRuntime<TProps> | null;
-  readonly props: TProps;
-  readonly runtimeKey?: string;
+  readonly preparedRuntime: FrameRouterRuntime;
+  readonly runtimeKey: RouteRuntimeId;
 }
 
-interface ResolvedActiveFrameRuntime<TProps extends object = object> extends Omit<
-  ActiveFrameRuntime<TProps>,
-  'preparedRuntime'
-> {
-  readonly metadata: FrameMetadata<TProps>;
-  readonly routeRuntime: RouteRuntimeHandle;
+export interface MatchedFrameRoute {
+  readonly match: FrameRouterMatch;
+  readonly routeId: RouteRuntimeId;
 }
 
-const shouldUseFrameRuntime = (frame: FrameConstructor, metadata: FrameMetadata): boolean => {
-  return (
-    (metadata.canActivate?.length ?? 0) > 0 ||
-    getUseBindingsMetadata(frame).length > 0 ||
-    (metadata.layouts?.length ?? 0) > 0 ||
-    (metadata.providers?.length ?? 0) > 0
-  );
-};
+interface ResolvedActiveFrameRouterRuntime extends Omit<ActiveFrameRouterRuntime, 'preparedRuntime'> {}
 
 export type RouterRuntimeListener = () => void;
 
-export class RouterRuntime extends RouterFrameAvailabilityInterface {
-  private readonly frameRuntimes = new FrameRuntimeRegistry();
-  private readonly routeExceptions = new Map<RouteRuntimeId, React.ReactNode>();
-  private readonly routeExceptionResolvers = new Map<RouteRuntimeId, () => React.ReactNode>();
-  private readonly routeForbidden = new Map<RouteRuntimeId, React.ReactNode>();
-  private readonly routeFrames = new Map<RouteRuntimeId, readonly FrameConstructor[]>();
-  private readonly routeRuntimes = new Map<RouteRuntimeId, RouteRuntimeHandle>();
+export class RouterRuntime {
   private readonly activeRouteIds = new Set<RouteRuntimeId>();
+  private readonly frameRouterRuntimes = new FrameRouterRuntimeRegistry();
   private readonly invalidatedRouteIds = new Set<RouteRuntimeId>();
   private readonly listeners = new Set<RouterRuntimeListener>();
-  private routeLoadingCounter = 0;
-  private frameNavigationScope: string | undefined;
+  private readonly routeFrames = new Map<RouteRuntimeId, readonly FrameRouter[]>();
+  private readonly routeRuntimes = new Map<RouteRuntimeId, RouteRuntimeHandle>();
+  private readonly routeActivationWaves = new Map<string, Map<RouteRuntimeId, RouteActivationBarrier>>();
 
   get(routeId: RouteRuntimeId): RouteRuntimeHandle {
     const routeRuntime = this.routeRuntimes.get(routeId);
@@ -91,147 +59,85 @@ export class RouterRuntime extends RouterFrameAvailabilityInterface {
     return routeRuntime;
   }
 
-  getPreparedFrameRuntime<TProps extends object>(
-    frame: FrameConstructor<TProps>,
-    runtimeKey: string | undefined,
-  ): FrameRuntime<TProps> | null {
-    return this.frameRuntimes.getPrepared(frame, runtimeKey);
-  }
+  matchFrameRoute(routeIds: readonly RouteRuntimeId[], hash: string): MatchedFrameRoute | null {
+    let activeFrameRoute: MatchedFrameRoute | null = null;
 
-  prepareFrameRuntime<TProps extends object>(
-    frame: FrameConstructor<TProps>,
-    runtimeKey: string | undefined,
-    props: TProps,
-    ownerScope: RuntimeScope,
-  ): FrameRuntime<TProps> {
-    return this.frameRuntimes.prepare(frame, runtimeKey, props, ownerScope);
-  }
+    for (const routeId of routeIds) {
+      for (const frameRouter of this.routeFrames.get(routeId) ?? []) {
+        const match = matchFrameRouter(frameRouter, hash);
 
-  getActiveFrames(): readonly FrameConstructor[] {
-    const activeFrames = new Set<FrameConstructor>();
-
-    for (const routeId of this.activeRouteIds) {
-      const routeFrames = this.routeFrames.get(routeId) ?? [];
-
-      for (const frame of routeFrames) {
-        activeFrames.add(frame);
-      }
-    }
-
-    return [...activeFrames];
-  }
-
-  getFrameNavigationScope(): string | undefined {
-    return this.frameNavigationScope;
-  }
-
-  setFrameNavigationScope(scope: string | undefined): void {
-    this.frameNavigationScope = scope;
-  }
-
-  hasActiveFrame(frame: FrameConstructor): boolean {
-    for (const routeId of this.activeRouteIds) {
-      const routeFrames = this.routeFrames.get(routeId) ?? [];
-
-      if (routeFrames.includes(frame)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  isRouteLoading(): boolean {
-    return this.routeLoadingCounter > 0;
-  }
-
-  resolveActiveFrames(context: FrameSourceContextInterface): readonly ActiveFrameRuntime[] {
-    let activeFrame: ResolvedActiveFrameRuntime | null = null;
-
-    for (const routeId of this.activeRouteIds) {
-      const routeFrames = this.routeFrames.get(routeId) ?? [];
-      const routeRuntime = this.get(routeId);
-      const ownerScope = routeRuntime.getRuntimeScope();
-
-      for (const frame of routeFrames) {
-        const metadata = getFrameMetadata(frame);
-        const source = metadata.source;
-
-        if (!source) {
-          continue;
+        if (match) {
+          activeFrameRoute = {
+            match,
+            routeId,
+          };
         }
-
-        const result = source.resolve(context);
-
-        if (!result.active) {
-          continue;
-        }
-
-        activeFrame = {
-          back: result.close,
-          close: () => {
-            clearFrameNavigationState(this.frameNavigationScope);
-            return result.close();
-          },
-          exception: this.resolveRouteException(routeId),
-          forbidden: this.routeForbidden.get(routeId),
-          frame,
-          ownerScope,
-          metadata,
-          routeRuntime,
-          props: result.props,
-          runtimeKey: result.runtimeKey,
-        };
       }
     }
 
-    const activeFrames = new Map<FrameConstructor, ResolvedActiveFrameRuntime>();
+    return activeFrameRoute;
+  }
 
-    if (activeFrame) {
-      activeFrames.set(activeFrame.frame, activeFrame);
+  resolveActiveFrame(routeIds: readonly RouteRuntimeId[], hash: string): ActiveFrameRouterRuntime | null {
+    const activeFrameRouter = this.resolveFrame(routeIds, hash);
+
+    const activeRuntimeKeys = new Map<FrameRouter, string>();
+
+    if (activeFrameRouter) {
+      activeRuntimeKeys.set(activeFrameRouter.match.router, activeFrameRouter.runtimeKey);
     }
 
-    if (activeFrame || !context.location.hash) {
-      this.disposeInactiveFrameRuntimes(activeFrames);
+    this.disposeInactiveFrameRouterRuntimes(activeRuntimeKeys);
+
+    if (!activeFrameRouter) {
+      return null;
     }
 
-    return [...activeFrames.values()].map((activeFrame) => {
-      return {
-        back: activeFrame.back,
-        close: activeFrame.close,
-        exception: activeFrame.exception,
-        forbidden: activeFrame.forbidden,
-        frame: activeFrame.frame,
-        ownerScope: activeFrame.ownerScope,
-        preparedRuntime: shouldUseFrameRuntime(activeFrame.frame, activeFrame.metadata)
-          ? this.prepareFrameRuntime(
-              activeFrame.frame,
-              activeFrame.runtimeKey,
-              activeFrame.props,
-              activeFrame.ownerScope,
-            )
-          : null,
-        props: activeFrame.props,
-        runtimeKey: activeFrame.runtimeKey,
-      };
-    });
+    return {
+      ...activeFrameRouter,
+      preparedRuntime: this.frameRouterRuntimes.prepare(
+        activeFrameRouter.match.router,
+        activeFrameRouter.runtimeKey,
+        activeFrameRouter.ownerScope,
+      ),
+    };
+  }
+
+  async preloadFrame(
+    routeIds: readonly RouteRuntimeId[],
+    hash: string,
+    options: FrameRouterRuntimeLoadOptions,
+  ): Promise<void> {
+    if (!(await this.waitForRouteActivation(routeIds, options.location.key, options.signal))) {
+      return;
+    }
+
+    const activeFrameRouter = this.resolveFrame(routeIds, hash);
+
+    if (!activeFrameRouter) {
+      return;
+    }
+
+    const runtime = this.frameRouterRuntimes.prepare(
+      activeFrameRouter.match.router,
+      activeFrameRouter.runtimeKey,
+      activeFrameRouter.ownerScope,
+    );
+
+    await runtime.load(activeFrameRouter.match, options);
   }
 
   invalidateActiveRoutes(): void {
-    clearFrameNavigationState(this.frameNavigationScope);
-
     const hadActiveRoutes = this.activeRouteIds.size > 0;
 
-    this.activeRouteIds.forEach((routeId) => {
-      this.invalidatedRouteIds.add(routeId);
-    });
+    this.activeRouteIds.forEach((routeId) => this.invalidatedRouteIds.add(routeId));
     this.activeRouteIds.clear();
 
     if (hadActiveRoutes) {
       this.notifyListeners();
     }
 
-    void this.disposeFrameRuntimes();
+    void this.disposeFrameRouterRuntimes();
   }
 
   register(
@@ -243,73 +149,125 @@ export class RouterRuntime extends RouterFrameAvailabilityInterface {
       throw new Error(`Runtime маршрута уже зарегистрирован: ${routeId}.`);
     }
 
-    this.routeExceptions.set(routeId, options.exception);
-    this.routeForbidden.set(routeId, options.forbidden);
-
-    if (options.resolveException) {
-      this.routeExceptionResolvers.set(routeId, options.resolveException);
-    }
-
     this.routeFrames.set(routeId, options.frames ?? []);
     this.routeRuntimes.set(routeId, routeRuntime);
+  }
+
+  trackRouteActivation(routeId: RouteRuntimeId, navigationKey: string): RouteActivationTracker {
+    const barrier = this.getOrCreateRouteActivationBarrier(routeId, navigationKey);
+    let activated = false;
+
+    return {
+      activate: () => {
+        activated = true;
+        barrier.resolve(true);
+      },
+      complete: () => {
+        if (!activated) {
+          barrier.resolve(false);
+        }
+      },
+    };
   }
 
   subscribe(listener: RouterRuntimeListener): () => void {
     this.listeners.add(listener);
 
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
-
-  trackRouteLoading(): () => void {
-    this.routeLoadingCounter += 1;
-    this.notifyListeners();
-
-    let isCompleted = false;
-
-    return () => {
-      if (isCompleted) {
-        return;
-      }
-
-      isCompleted = true;
-      this.routeLoadingCounter = Math.max(0, this.routeLoadingCounter - 1);
-      this.notifyListeners();
-    };
+    return () => this.listeners.delete(listener);
   }
 
   async dispose(): Promise<void> {
     const routeRuntimes = [...this.routeRuntimes.values()];
-    const frameRuntimes = this.frameRuntimes.drain();
+    const frameRouterRuntimes = this.frameRouterRuntimes.drain();
 
     this.activeRouteIds.clear();
     this.invalidatedRouteIds.clear();
-    this.routeLoadingCounter = 0;
-    this.routeExceptions.clear();
-    this.routeExceptionResolvers.clear();
     this.routeFrames.clear();
     this.routeRuntimes.clear();
+    this.routeActivationWaves.clear();
     this.notifyListeners();
 
     await Promise.all([
-      ...routeRuntimes.map((routeRuntime) => {
-        return routeRuntime.dispose();
-      }),
-      ...frameRuntimes.map((frameRuntime) => {
-        return frameRuntime.dispose();
-      }),
+      ...routeRuntimes.map((runtime) => runtime.dispose()),
+      ...frameRouterRuntimes.map((runtime) => runtime.dispose()),
     ]);
   }
 
-  syncActiveRoutes(routeIds: readonly RouteRuntimeId[]): void {
-    const nextActiveRouteIds = new Set(
-      routeIds.filter((routeId) => {
-        return this.routeRuntimes.has(routeId);
-      }),
-    );
+  private resolveFrame(routeIds: readonly RouteRuntimeId[], hash: string): ResolvedActiveFrameRouterRuntime | null {
+    const activeFrameRoute = this.matchFrameRoute(routeIds, hash);
 
-    const didActiveRoutesChange = !areRouteIdSetsEqual(this.activeRouteIds, nextActiveRouteIds);
+    if (!activeFrameRoute) {
+      return null;
+    }
+
+    const routeRuntime = this.routeRuntimes.get(activeFrameRoute.routeId);
+
+    if (!routeRuntime) {
+      return null;
+    }
+
+    return {
+      kind: 'router',
+      match: activeFrameRoute.match,
+      ownerScope: routeRuntime.getRouteScope(),
+      runtimeKey: activeFrameRoute.routeId,
+    };
+  }
+
+  private getOrCreateRouteActivationBarrier(routeId: RouteRuntimeId, navigationKey: string): RouteActivationBarrier {
+    let wave = this.routeActivationWaves.get(navigationKey);
+
+    if (!wave) {
+      wave = new Map();
+      this.routeActivationWaves.set(navigationKey, wave);
+    }
+
+    let barrier = wave.get(routeId);
+
+    if (!barrier) {
+      barrier = new RouteActivationBarrier();
+      wave.set(routeId, barrier);
+    }
+
+    return barrier;
+  }
+
+  private async waitForRouteActivation(
+    routeIds: readonly RouteRuntimeId[],
+    navigationKey: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    await Promise.resolve();
+
+    if (signal?.aborted) {
+      this.routeActivationWaves.delete(navigationKey);
+      return false;
+    }
+
+    const wave = this.routeActivationWaves.get(navigationKey);
+    const barriers = routeIds.flatMap((routeId) => {
+      const barrier = wave?.get(routeId);
+      return barrier ? [barrier] : [];
+    });
+
+    if (barriers.length === 0) {
+      this.routeActivationWaves.delete(navigationKey);
+      return !signal?.aborted;
+    }
+
+    const activation = Promise.all(barriers.map((barrier) => barrier.promise)).then((results) => {
+      return results.every(Boolean);
+    });
+    const result = signal ? await waitForActivation(activation, signal) : await activation;
+
+    this.routeActivationWaves.delete(navigationKey);
+
+    return result;
+  }
+
+  syncActiveRoutes(routeIds: readonly RouteRuntimeId[]): void {
+    const nextActiveRouteIds = new Set(routeIds.filter((routeId) => this.routeRuntimes.has(routeId)));
+    const changed = !areRouteIdSetsEqual(this.activeRouteIds, nextActiveRouteIds);
 
     nextActiveRouteIds.forEach((routeId) => {
       this.routeRuntimes.get(routeId)?.commit();
@@ -323,70 +281,41 @@ export class RouterRuntime extends RouterFrameAvailabilityInterface {
 
       routeRuntime.discardPending();
 
-      if (!this.activeRouteIds.has(routeId) && !this.invalidatedRouteIds.has(routeId)) {
-        return;
+      if (this.activeRouteIds.has(routeId) || this.invalidatedRouteIds.has(routeId)) {
+        this.invalidatedRouteIds.delete(routeId);
+        void routeRuntime.dispose();
       }
-
-      this.invalidatedRouteIds.delete(routeId);
-      void routeRuntime.dispose();
     });
 
     this.activeRouteIds.clear();
-    nextActiveRouteIds.forEach((routeId) => {
-      this.activeRouteIds.add(routeId);
-    });
+    nextActiveRouteIds.forEach((routeId) => this.activeRouteIds.add(routeId));
 
-    if (didActiveRoutesChange) {
+    if (changed) {
       this.notifyListeners();
     }
   }
 
-  private notifyListeners(): void {
-    this.listeners.forEach((listener) => {
-      listener();
-    });
+  private disposeInactiveFrameRouterRuntimes(activeRuntimeKeys: ReadonlyMap<FrameRouter, string>): void {
+    this.disposeRuntimesAfterRender(this.frameRouterRuntimes.collectInactiveExcept(activeRuntimeKeys));
   }
 
-  private async disposeFrameRuntimes(): Promise<void> {
-    const frameRuntimes = this.frameRuntimes.drain();
-
-    await Promise.all(
-      frameRuntimes.map((frameRuntime) => {
-        return frameRuntime.dispose();
-      }),
-    );
+  private async disposeFrameRouterRuntimes(): Promise<void> {
+    await Promise.all(this.frameRouterRuntimes.drain().map((runtime) => runtime.dispose()));
   }
 
-  private disposeInactiveFrameRuntimes(activeFrames: ReadonlyMap<FrameConstructor, ResolvedActiveFrameRuntime>): void {
-    const activeRuntimeKeys = new Map<FrameConstructor, string | undefined>();
-
-    activeFrames.forEach((activeFrame, frame) => {
-      activeRuntimeKeys.set(frame, activeFrame.runtimeKey);
-    });
-
-    const inactiveFrameRuntimes = this.frameRuntimes.collectInactiveExcept(activeRuntimeKeys);
-
-    this.disposeFrameRuntimesAfterRender(inactiveFrameRuntimes);
-  }
-
-  private disposeFrameRuntimesAfterRender(frameRuntimes: readonly FrameRuntime<object>[]): void {
-    if (frameRuntimes.length === 0) {
+  private disposeRuntimesAfterRender(runtimes: readonly FrameRouterRuntime[]): void {
+    if (runtimes.length === 0) {
       return;
     }
 
     queueMicrotask(() => {
-      void Promise.allSettled(
-        frameRuntimes.map((frameRuntime) => {
-          return frameRuntime.dispose();
-        }),
-      );
+      void Promise.allSettled(runtimes.map((runtime) => runtime.dispose()));
     });
   }
 
-  private resolveRouteException(routeId: RouteRuntimeId): React.ReactNode {
-    return this.routeExceptionResolvers.get(routeId)?.() ?? this.routeExceptions.get(routeId);
+  private notifyListeners(): void {
+    this.listeners.forEach((listener) => listener());
   }
-
 }
 
 const areRouteIdSetsEqual = (left: ReadonlySet<RouteRuntimeId>, right: ReadonlySet<RouteRuntimeId>): boolean => {
@@ -401,4 +330,41 @@ const areRouteIdSetsEqual = (left: ReadonlySet<RouteRuntimeId>, right: ReadonlyS
   }
 
   return true;
+};
+
+class RouteActivationBarrier {
+  readonly promise: Promise<boolean>;
+  private settle!: (activated: boolean) => void;
+  private settled = false;
+
+  constructor() {
+    this.promise = new Promise<boolean>((resolve) => {
+      this.settle = resolve;
+    });
+  }
+
+  resolve(activated: boolean): void {
+    if (this.settled) {
+      return;
+    }
+
+    this.settled = true;
+    this.settle(activated);
+  }
+}
+
+const waitForActivation = (activation: Promise<boolean>, signal: AbortSignal): Promise<boolean> => {
+  if (signal.aborted) {
+    return Promise.resolve(false);
+  }
+
+  return new Promise<boolean>((resolve) => {
+    const abort = (): void => resolve(false);
+
+    signal.addEventListener('abort', abort, { once: true });
+    void activation.then((activated) => {
+      signal.removeEventListener('abort', abort);
+      resolve(activated);
+    });
+  });
 };

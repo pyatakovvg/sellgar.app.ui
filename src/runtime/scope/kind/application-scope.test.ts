@@ -20,13 +20,13 @@ describe('ApplicationScope', () => {
 
     const moduleExecutor = moduleScope.get(RequestExecutorInterface);
     const frameExecutor = frameScope.get(RequestExecutorInterface);
-    let moduleRequestSignal: AbortSignal | null = null;
+    const moduleRequestSignals: AbortSignal[] = [];
     const moduleRequestSettled = vi.fn();
 
     expect(moduleExecutor).toBe(frameExecutor);
 
     const moduleRequest = moduleExecutor.run(({ signal }) => {
-      moduleRequestSignal = signal;
+      moduleRequestSignals.push(signal);
 
       return new Promise<never>((_resolve, reject) => {
         signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
@@ -38,7 +38,13 @@ describe('ApplicationScope', () => {
 
     await vi.waitFor(() => expect(session.phase).toBe('anonymous'));
 
-    expect(moduleRequestSignal?.aborted).toBe(true);
+    const activeModuleRequestSignal = moduleRequestSignals[0];
+
+    if (activeModuleRequestSignal === undefined) {
+      throw new Error('Module request signal was not captured.');
+    }
+
+    expect(activeModuleRequestSignal.aborted).toBe(true);
     expect(moduleRequestSettled).not.toHaveBeenCalled();
 
     frameScope.dispose();

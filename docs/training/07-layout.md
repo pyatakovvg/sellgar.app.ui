@@ -171,4 +171,3 @@ widget с собственным runtime.
 
 - [Layouts в router](../03-router-and-navigation.md#layouts)
 - [Структура layout package](../14-layout-package-structure.md)
-

@@ -1,6 +1,6 @@
 import { DisposableRegistryInterface, type Disposable } from './disposable-registry.interface.ts';
 
-export class DisposableRegistry extends DisposableRegistryInterface {
+export class DisposableRegistry implements DisposableRegistryInterface {
   private readonly disposables: Disposable[] = [];
 
   add(disposable: Disposable): void {

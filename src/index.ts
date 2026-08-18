@@ -3,6 +3,7 @@ export { ApplicationControllerInterface } from './application/lifecycle/applicat
 export {
   ApplicationConfiguratorInterface,
   type ApplicationComponents,
+  type ApplicationFrames,
   type ApplicationInitializerDeclaration,
 } from './application/config/application-configurator';
 export { ApplicationEventBusInterface } from './application/event/application-event-bus';
@@ -33,6 +34,7 @@ export {
   type RuntimeOwner,
   type RuntimeParticipant,
 } from './runtime/failure';
+export { RuntimeExceptionServiceInterface } from './runtime/exception';
 export {
   SessionRuntimeStateInterface,
   type SessionRuntimePhase,
@@ -81,14 +83,16 @@ export {
 
 export {
   Controller,
-  type ControllerActionArgs,
+  type ControllerArgs,
   type ControllerActionPayload,
   type ControllerActionResult,
-  type ControllerInterface,
-  type ControllerLoaderArgs,
+  type WithParams,
+  type WithPayload,
+  type WithProps,
 } from './controller/contract/controller';
 export { useController } from './controller/react/controller-runtime-context';
 export { useLoaderData } from './controller/react/use-controller-loader-data';
+export { useParams } from './controller/react/use-params';
 export { useSubmit, type ControllerSubmit } from './controller/react/use-controller-submit';
 
 export type { AbstractDependencyConstructor, DependencyToken } from './di/token/dependency-token';
@@ -104,31 +108,13 @@ export { Inject, Injectable, MultiInject, Optional } from './di/injection/decora
 
 export {
   Frame,
-  FrameDefinition,
   FrameShell,
   FrameShellInterface,
   type FrameConstructor,
   type FrameMetadata,
-  type FrameProps,
   type FrameShellContextInterface,
 } from './frame/declaration/frame';
-export {
-  FrameSourceInterface,
-  type FrameSourceCloseHandler,
-  type FrameSourceContextInterface,
-  type FrameSourceResult,
-} from './frame/source/frame-source';
-export { HashFrameSource, type HashFrameSourceOptions } from './frame/source/hash-frame-source';
-export {
-  FrameControllerInterface,
-  type FrameControllerActionArgs,
-  type FrameControllerActionPayload,
-  type FrameControllerActionResult,
-  type FrameControllerLoaderArgs,
-  type FrameControllerLoaderResult,
-} from './frame/runtime/frame-controller';
-export { FrameServiceInterface, type FrameOpenArgs } from './frame/service/frame-service';
-export { useFrame, type CurrentFrameHandle, type FrameHandle } from './frame/react/use-frame';
+export { FrameRoute, FrameRouter, type FrameRouteOptions, type FrameRouterOptions } from './frame/router/declaration';
 
 export { GuardFailure, type GuardFailureStrategy } from './guard/contract/guard-failure-strategy';
 export { Guard, GuardInterface, type GuardToken } from './guard/contract/guard';
@@ -163,17 +149,27 @@ export {
   type UserRequestPromptViewProps,
 } from './features/user-request';
 
+export {
+  NavigationBlockerFeature,
+  NavigationBlockerPresentation,
+  NavigationBlockerServiceInterface,
+  useBlocker,
+  type NavigationBlockerCondition,
+  type NavigationBlockerConditionValue,
+  type NavigationBlockerFeatureOptions,
+  type NavigationBlockerRegistration,
+  type NavigationBlockerRegistrationOptions,
+  type NavigationBlockerViewProps,
+  type UseBlockerOptions,
+} from './features/navigation-blocker';
+
 export { Layout, type LayoutConstructor, type LayoutMetadata, type LayoutViewProps } from './layout/declaration/layout';
 
 export { Module, type ModuleConstructor, type ModuleMetadata } from './module/declaration/module';
 
 export { RevalidateServiceInterface } from './revalidate/contract/revalidate-service';
 export { useRevalidate, type RevalidateHandler } from './revalidate/react/use-revalidate';
-export type {
-  RevalidateHandler as RevalidateServiceHandler,
-  RevalidateKey,
-  RevalidateOptions,
-} from './revalidate/contract/revalidate-service';
+export type { RevalidateKey, RevalidateOptions } from './revalidate/contract/revalidate-service';
 
 export {
   Entity,
@@ -236,6 +232,7 @@ export {
 } from './router/service/location-service';
 export {
   NavigateServiceInterface,
+  type NavigateFrame,
   type RouterHashNavigateOptions,
   type RouterNavigateOptions,
   type RouterSearchNavigateOptions,
@@ -246,19 +243,8 @@ export type {
   RoutePolicyDeclarations,
   RouteRuntimeContextInterface,
 } from './router/runtime/route-runtime-context';
-export {
-  createHashFromObject,
-  parseHashToObject,
-  type RouterHashObject,
-  type RouterHashOptions,
-} from './router/utils/hash-utils';
-export {
-  parseSearchParams,
-  updateSearchParams,
-  type RouterSearchObject,
-  type RouterSearchParseOptions,
-  type RouterSearchUpdateOptions,
-} from './router/utils/search-utils';
+export type { RouterHashObject } from './router/utils/hash-utils';
+export type { RouterSearchObject } from './router/utils/search-utils';
 export type { RuntimeContextInterface } from './runtime/context';
 export { Provider, RuntimeProviderInterface } from './runtime/provider/runtime-provider';
 export type {
@@ -276,18 +262,6 @@ export {
   type WidgetMetadata,
   type WidgetProps,
 } from './widget/declaration/widget';
-export {
-  WidgetControllerInterface,
-  type WidgetControllerActionArgs,
-  type WidgetControllerActionPayload,
-  type WidgetControllerActionResult,
-  type WidgetControllerLoaderArgs,
-  type WidgetControllerLoaderResult,
-} from './widget/runtime/widget-controller';
-export {
-  WidgetRuntimeFactoryInterface,
-  type WidgetPreloadOptions,
-  type WidgetRuntimeFactoryOptions,
-} from './widget/runtime/widget-runtime-factory';
+export { WidgetPreloaderInterface, type WidgetPreloadOptions } from './widget/runtime/widget-runtime-factory';
 export { useWidgetProps } from './widget/react/use-widget-props';
 export { WidgetHost, type WidgetHostProps } from './widget/react/widget-host';

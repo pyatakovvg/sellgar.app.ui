@@ -122,7 +122,7 @@ class FilterSearchDto {
   search!: string;
 }
 
-class TestRouterHookBindings extends BindingModuleInterface {
+class TestRouterHookBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     const bindings = new RouterServiceBindings();
 

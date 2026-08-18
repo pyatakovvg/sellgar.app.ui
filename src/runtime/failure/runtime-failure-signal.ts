@@ -1,5 +1,6 @@
 import type { RuntimeFailure, RuntimeFailureSource } from './runtime-failure.ts';
 import { createRuntimeFailure } from './runtime-failure.ts';
+import { isRuntimeExceptionSignal } from '../exception/runtime-exception-signal.ts';
 
 const RUNTIME_OPERATION_SIGNAL = Symbol('RuntimeOperationSignal');
 const failures = new WeakMap<object, RuntimeFailure>();
@@ -22,6 +23,23 @@ export const captureRuntimeFailure = (error: unknown, source: RuntimeFailureSour
     }
   }
 
+  if (isRuntimeExceptionSignal(error)) {
+    if (isObject(error.cause)) {
+      const causeFailure = failures.get(error.cause);
+
+      if (causeFailure) {
+        failures.set(error, causeFailure);
+        return causeFailure;
+      }
+    }
+
+    const failure = createRuntimeFailure(error.cause, source);
+
+    failures.set(error, failure);
+    if (isObject(error.cause)) failures.set(error.cause, failure);
+    return failure;
+  }
+
   return createRuntimeFailure(error, source);
 };
 
@@ -32,7 +50,7 @@ export const throwRuntimeOperationError = (error: unknown, source: RuntimeFailur
 
   if (isObject(error)) {
     if (!failures.has(error)) {
-      failures.set(error, createRuntimeFailure(error, source));
+      failures.set(error, createRuntimeFailure(isRuntimeExceptionSignal(error) ? error.cause : error, source));
     }
 
     throw error;

@@ -22,8 +22,8 @@
 Controller token:
 
 ```ts
-export abstract class OrdersControllerInterface implements ControllerInterface {
-  abstract loader(args: ControllerLoaderArgs): Promise<OrdersLoaderData>;
+export abstract class OrdersControllerInterface {
+  abstract loader(args: ControllerArgs): Promise<OrdersLoaderData>;
 }
 ```
 
@@ -58,18 +58,16 @@ Loader принадлежит controller.
 
 ```ts
 @Controller()
-export class OrdersController extends OrdersControllerInterface {
+export class OrdersController implements OrdersControllerInterface {
   constructor(
     @Inject(OrdersServiceInterface)
     private readonly ordersService: OrdersServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async loader(args: ControllerLoaderArgs): Promise<OrdersLoaderData> {
+  async loader(args: ControllerArgs): Promise<OrdersLoaderData> {
     return {
       items: await this.ordersService.getOrders({
-        signal: args.request.signal,
+        signal: args.signal,
       }),
     };
   }
@@ -93,8 +91,8 @@ controller под отдельную команду.
 Token:
 
 ```ts
-export abstract class CancelOrderControllerInterface implements ControllerInterface {
-  abstract action(args: ControllerActionArgs<CancelOrderPayload>): Promise<void>;
+export abstract class CancelOrderControllerInterface {
+  abstract action(args: ControllerArgs<WithPayload<CancelOrderPayload>>): Promise<void>;
 }
 ```
 
@@ -102,17 +100,15 @@ Implementation:
 
 ```ts
 @Controller()
-export class CancelOrderController extends CancelOrderControllerInterface {
+export class CancelOrderController implements CancelOrderControllerInterface {
   constructor(
     @Inject(OrdersServiceInterface)
     private readonly ordersService: OrdersServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async action(args: ControllerActionArgs<CancelOrderPayload>): Promise<void> {
+  async action(args: ControllerArgs<WithPayload<CancelOrderPayload>>): Promise<void> {
     await this.ordersService.cancel(args.payload.id, {
-      signal: args.request.signal,
+      signal: args.signal,
     });
   }
 }
@@ -155,19 +151,17 @@ await revalidate(OrdersControllerInterface);
 
 ```ts
 @Controller()
-export class CancelOrderController extends CancelOrderControllerInterface {
+export class CancelOrderController implements CancelOrderControllerInterface {
   constructor(
     @Inject(OrdersServiceInterface)
     private readonly ordersService: OrdersServiceInterface,
     @Inject(RevalidateServiceInterface)
     private readonly revalidateService: RevalidateServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async action(args: ControllerActionArgs<CancelOrderPayload>): Promise<void> {
+  async action(args: ControllerArgs<WithPayload<CancelOrderPayload>>): Promise<void> {
     await this.ordersService.cancel(args.payload.id, {
-      signal: args.request.signal,
+      signal: args.signal,
     });
 
     await this.revalidateService.revalidate(OrdersControllerInterface);
@@ -179,6 +173,32 @@ export class CancelOrderController extends CancelOrderControllerInterface {
 и из controller без причины.
 
 ## Добавить Query Params
+
+Query DTO владеет преобразованием URL-значений. Для массивного фильтра учти,
+что один query-параметр парсится как скаляр, а повторяющиеся параметры — как
+массив:
+
+```ts
+import { Expose, Transform, type TransformFnParams } from 'class-transformer';
+import { IsArray, IsString } from 'class-validator';
+
+const normalizeArrayValue = ({ value }: TransformFnParams): unknown => {
+  return value === undefined || Array.isArray(value) ? value : [value];
+};
+
+class OrdersFilterParams {
+  @Expose()
+  @Transform(normalizeArrayValue)
+  @IsArray()
+  @IsString({ each: true })
+  readonly status?: string[];
+}
+```
+
+Не ограничивайся `{ each: true }`: без `@Transform(...)` значение
+`?status=active` останется строкой, а без `@IsArray()` DTO не проверяет тип
+контейнера. Полное объяснение и пример числового массива — в
+[Router И Навигация](./03-router-and-navigation.md#массивы-в-query-dto).
 
 Во view:
 
@@ -249,16 +269,14 @@ provider.
 
 ```ts
 @Provider()
-export class OrdersSummaryWidgetPreloadProvider extends RuntimeProviderInterface {
+export class OrdersSummaryWidgetPreloadProvider implements RuntimeProviderInterface {
   constructor(
-    @Inject(WidgetRuntimeFactoryInterface)
-    private readonly widgetRuntimeFactory: WidgetRuntimeFactoryInterface,
-  ) {
-    super();
-  }
+    @Inject(WidgetPreloaderInterface)
+    private readonly widgetPreloader: WidgetPreloaderInterface,
+  ) {}
 
   beforeRender(context: RuntimeProviderContextInterface): Promise<RuntimeProviderResult> {
-    return this.widgetRuntimeFactory.preload(context, OrdersSummaryWidget, {
+    return this.widgetPreloader.preload(context, OrdersSummaryWidget, {
       props: {
         title: 'Заказы',
       },
@@ -282,12 +300,11 @@ export class OrdersModule {}
 
 ## Добавить Frame
 
-Создай params DTO:
+Создай внутренний params type:
 
 ```ts
-export class OrderDetailsFrameParams {
-  @Expose()
-  readonly id!: string;
+interface OrderDetailsFrameParams {
+  readonly id: string;
 }
 ```
 
@@ -295,17 +312,15 @@ export class OrderDetailsFrameParams {
 
 ```tsx
 @UseBindings(OrderDetailsBindings)
-@Frame<OrderDetailsFrameParams>({
-  source: HashFrameSource.create('order-details', OrderDetailsFrameParams),
-  shell: OrderDetailsFrameShell,
+@Frame({
   fallback: <p>Фрейм загружается...</p>,
   view: FrameView,
 })
-export class OrderDetailsFrame extends FrameDefinition<OrderDetailsFrameParams> {}
+export class OrderDetailsFrame {}
 ```
 
 Если frame должен загрузить собственные данные, добавь
-`FrameControllerInterface` и читай результат во view:
+прикладной controller token и читай результат во view:
 
 ```tsx
 const data = useLoaderData(OrderDetailsControllerInterface);
@@ -313,7 +328,7 @@ const submit = useSubmit(OrderDetailsControllerInterface);
 const revalidate = useRevalidate();
 ```
 
-Если frame только показывает props из hash/source и не имеет собственной
+Если frame только показывает route params и не имеет собственной
 business logic, `controllers` можно не объявлять.
 
 Добавь frame в route:
@@ -321,7 +336,12 @@ business logic, `controllers` можно не объявлять.
 ```ts
 new Route({
   path: '/',
-  frames: [OrderDetailsFrame],
+  frames: [
+    new FrameRouter({
+      baseSource: 'orders/:id',
+      routes: [new FrameRoute({ load: () => import('@frame/order-details') })],
+    }),
+  ],
   routes: [
     new Route({
       path: '/orders',
@@ -334,18 +354,19 @@ new Route({
 Открой из view:
 
 ```tsx
-const orderDetailsFrame = useFrame(OrderDetailsFrame);
+const navigate = useNavigate();
 
-await orderDetailsFrame.open({ id });
+await navigate.frame.open(`/orders/${id}`);
 ```
 
 Открой из controller:
 
 ```ts
-await this.frameService.open(OrderDetailsFrame, { id });
+await this.navigate.frame.open(`/orders/${id}`);
 ```
 
-Потребитель не знает hash key. Hash key принадлежит `HashFrameSource`.
+Переход всегда задаётся абсолютным frame source. Frame token и hash parsing
+потребителю не нужны.
 
 ## Выбрать Provider Phase
 

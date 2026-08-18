@@ -63,6 +63,10 @@ export class WidgetStateMachine {
   }
 
   toRenderFailed(error: unknown): boolean {
+    return this.toRuntimeFailed(error);
+  }
+
+  toRuntimeFailed(error: unknown): boolean {
     if (this.phase === 'failed' || this.phase === 'disposing' || this.phase === 'disposed') {
       return false;
     }

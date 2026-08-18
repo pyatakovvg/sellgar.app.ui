@@ -1,15 +1,10 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { matchRoutes } from 'react-router';
-import type {
-  ActionFunctionArgs,
-  LoaderFunctionArgs,
-  RouteObject,
-  ShouldRevalidateFunctionArgs,
-} from 'react-router';
+import { matchRoutes, RouterContextProvider } from 'react-router';
+import type { LoaderFunctionArgs, RouteObject, ShouldRevalidateFunctionArgs } from 'react-router';
 
 import { Layout } from '../../../layout/declaration/layout';
-import { Route } from '../../../router/declaration/route';
+import { getRouteDefinition, Route } from '../../../router/declaration/route';
 import { Router } from '../../../router/declaration/router';
 import { RoutePolicyInterface } from '../../../router/runtime/route-policy';
 import type { RoutePolicyDeclaration } from '../../../router/runtime/route-runtime-context';
@@ -17,7 +12,8 @@ import type { RouteRuntimeHandle } from '../../../router/runtime/router-runtime'
 import type { ApplicationComponents } from '../../../application/config/application-configurator';
 import type { ApplicationControllerInterface } from '../../../application/lifecycle/application-lifecycle';
 import type { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
-import { Frame, FrameDefinition } from '../../../frame/declaration/frame';
+import { Frame } from '../../../frame/declaration/frame';
+import { FrameRoute, FrameRouter } from '../../../frame/router/declaration';
 import { Provider, RuntimeProviderInterface } from '../../../runtime/provider/runtime-provider';
 import { RuntimeScopeProvider } from '../../../runtime/react';
 import type { ApplicationScope } from '../../../runtime/scope/kind';
@@ -34,7 +30,7 @@ import {
 } from './index.ts';
 
 describe('createRouteObjects', () => {
-  it('creates module route objects with normalized path, loader and action', async () => {
+  it('creates module route objects with normalized path and loader without React Router action transport', async () => {
     const fixture = createBuilderFixture();
     const route = new Route({
       load: loadModule,
@@ -45,24 +41,20 @@ describe('createRouteObjects', () => {
     const routeObject = routeObjects[0];
     const routeRuntime = fixture.getRouteRuntime(route);
 
-    expect(routeObject?.id).toBe(`root.${route.runtimeId}`);
+    expect(routeObject?.id).toBe(`root.${getRouteDefinition(route).runtimeId}`);
     expect(routeObject?.path).toBe('reports');
     expect(routeObject?.loader).toBeTypeOf('function');
-    expect(routeObject?.action).toBeTypeOf('function');
+    expect(routeObject?.action).toBeUndefined();
     expect(fixture.routerRuntime.registerMock).toHaveBeenCalledWith(
-      `root.${route.runtimeId}`,
+      `root.${getRouteDefinition(route).runtimeId}`,
       routeRuntime,
       expect.objectContaining({
         frames: [],
-        resolveException: expect.any(Function),
       }),
     );
 
     await invokeRouteLoader(routeObject, createLoaderArgs());
-    await invokeRouteAction(routeObject, createActionArgs());
-
     expect(routeRuntime.loader).toHaveBeenCalledTimes(1);
-    expect(routeRuntime.action).toHaveBeenCalledTimes(1);
   });
 
   it('creates automatic index route objects for pathless module routes', () => {
@@ -79,12 +71,14 @@ describe('createRouteObjects', () => {
     const rootRouteObject = routeObjects[0];
     const indexRouteObject = rootRouteObject?.children?.[0];
 
-    expect(indexRouteObject?.id).toBe(`root.${rootRoute.runtimeId}.${indexRoute.runtimeId}`);
+    expect(indexRouteObject?.id).toBe(
+      `root.${getRouteDefinition(rootRoute).runtimeId}.${getRouteDefinition(indexRoute).runtimeId}`,
+    );
     expect(indexRouteObject).toMatchObject({
       index: true,
     });
     expect(indexRouteObject?.loader).toBeTypeOf('function');
-    expect(indexRouteObject?.action).toBeTypeOf('function');
+    expect(indexRouteObject?.action).toBeUndefined();
   });
 
   it('skips route revalidation for hash-only navigation', () => {
@@ -364,60 +358,61 @@ describe('createRouteObjects', () => {
     expect(context.actionPolicies).toEqual(context.loaderPolicies);
   });
 
-  it('inherits route frames to child route runtime availability', () => {
+  it('keeps frame router ownership on the route that declares it', () => {
     const fixture = createBuilderFixture();
     const childRoute = new Route({
-      frames: [ChildFrame],
+      frames: [ChildFrameRouter],
       load: loadModule,
       path: '/details',
     });
     const parentRoute = new Route({
-      frames: [ParentFrame],
+      frames: [ParentFrameRouter],
       path: '/reports',
       routes: [childRoute],
     });
 
     fixture.createRouteObjects([parentRoute]);
 
-    const parentContext = fixture.getFactoryContext(parentRoute);
-    const childContext = fixture.getFactoryContext(childRoute);
-
-    expect(parentContext.availableFrames).toEqual([ParentFrame]);
-    expect(childContext.availableFrames).toEqual([ParentFrame, ChildFrame]);
     expect(fixture.routerRuntime.registerMock).toHaveBeenCalledWith(
-      `root.${parentRoute.runtimeId}`,
+      `root.${getRouteDefinition(parentRoute).runtimeId}`,
       fixture.getRouteRuntime(parentRoute),
       expect.objectContaining({
-        frames: [ParentFrame],
-        resolveException: expect.any(Function),
+        frames: [ParentFrameRouter],
       }),
     );
     expect(fixture.routerRuntime.registerMock).toHaveBeenCalledWith(
-      `root.${parentRoute.runtimeId}.${childRoute.runtimeId}`,
+      `root.${getRouteDefinition(parentRoute).runtimeId}.${getRouteDefinition(childRoute).runtimeId}`,
       fixture.getRouteRuntime(childRoute),
       expect.objectContaining({
-        frames: [ParentFrame, ChildFrame],
-        resolveException: expect.any(Function),
+        frames: [ChildFrameRouter],
       }),
     );
   });
 
-  it('deduplicates inherited route frames', () => {
+  it('does not copy a parent frame router into child route registration', () => {
     const fixture = createBuilderFixture();
     const childRoute = new Route({
-      frames: [ParentFrame],
       load: loadModule,
       path: '/details',
     });
     const parentRoute = new Route({
-      frames: [ParentFrame],
+      frames: [ParentFrameRouter],
       path: '/reports',
       routes: [childRoute],
     });
 
     fixture.createRouteObjects([parentRoute]);
 
-    expect(fixture.getFactoryContext(childRoute).availableFrames).toEqual([ParentFrame]);
+    expect(fixture.routerRuntime.registerMock).toHaveBeenCalledWith(
+      `root.${getRouteDefinition(parentRoute).runtimeId}`,
+      fixture.getRouteRuntime(parentRoute),
+      expect.objectContaining({ frames: [ParentFrameRouter] }),
+    );
+    expect(fixture.routerRuntime.registerMock).toHaveBeenCalledWith(
+      `root.${getRouteDefinition(parentRoute).runtimeId}.${getRouteDefinition(childRoute).runtimeId}`,
+      fixture.getRouteRuntime(childRoute),
+      expect.objectContaining({ frames: [] }),
+    );
   });
 
   it('passes nearest inherited exception to child route error elements', () => {
@@ -670,7 +665,7 @@ class TestPolicy extends RoutePolicyInterface {
 }
 
 @Provider()
-class TestProvider extends RuntimeProviderInterface {}
+class TestProvider implements RuntimeProviderInterface {}
 
 const ProviderLayoutView: React.FC<React.PropsWithChildren> = ({ children }) => {
   return <section>{children}</section>;
@@ -713,12 +708,22 @@ const ChildFrameView = (): null => {
 @Frame({
   view: ParentFrameView,
 })
-class ParentFrame extends FrameDefinition {}
+class ParentFrame {}
 
 @Frame({
   view: ChildFrameView,
 })
-class ChildFrame extends FrameDefinition {}
+class ChildFrame {}
+
+const ParentFrameRouter = new FrameRouter({
+  baseSource: 'parent',
+  routes: [new FrameRoute({ load: async () => ({ ParentFrame }) })],
+});
+
+const ChildFrameRouter = new FrameRouter({
+  baseSource: 'child',
+  routes: [new FrameRoute({ load: async () => ({ ChildFrame }) })],
+});
 
 interface BuilderFixture {
   readonly createRouteObjects: (routes: readonly Route[]) => RouteObject[];
@@ -754,7 +759,6 @@ const createBuilderFixture = (options: BuilderFixtureOptions = {}): BuilderFixtu
         inheritedException: null,
         inheritedFallback: null,
         inheritedForbidden: null,
-        inheritedFrames: [],
         inheritedNotFound: options.notFound,
         inheritedPolicies: createEmptyRoutePolicies(),
         basePath: options.basePath,
@@ -804,13 +808,17 @@ class TestRouteRuntimeRegistry implements RouteRuntimeRegistry {
     routeId: string,
     routeRuntime: RouteRuntimeHandle,
     options?: {
-      readonly exception?: React.ReactNode;
-      readonly forbidden?: React.ReactNode;
       readonly frames?: readonly unknown[];
-      readonly resolveException?: () => React.ReactNode;
     },
   ): void {
     this.registerMock(routeId, routeRuntime, options);
+  }
+
+  trackRouteActivation(): { activate(): void; complete(): void } {
+    return {
+      activate: vi.fn(),
+      complete: vi.fn(),
+    };
   }
 }
 
@@ -818,23 +826,29 @@ class TestRouteRuntimeAdapter implements RouteRuntimeAdapter {
   readonly action = vi.fn(async () => {
     return null;
   });
+  readonly getActionState = vi.fn(() => ({ data: undefined, error: undefined, inProcess: false }));
+  readonly getController = vi.fn((): never => {
+    throw new Error('Контроллер недоступен в тестовом runtime.');
+  });
+  readonly getLoaderData = vi.fn((): never => {
+    throw new Error('Loader data недоступны в тестовом runtime.');
+  });
+  readonly getParams = vi.fn(() => ({}));
+  readonly getRevalidateRevision = vi.fn(() => 0);
+  readonly getRevalidateState = vi.fn(() => ({ error: undefined, inProcess: false }));
+  readonly invoke = vi.fn((): never => {
+    throw new Error('Метод контроллера недоступен в тестовом runtime.');
+  });
   readonly commit = vi.fn();
   readonly discardPending = vi.fn();
   readonly dispose = vi.fn(async () => {});
   readonly getException = vi.fn((exception?: React.ReactNode) => {
     return exception;
   });
-  readonly getPreparedFrameRuntime = vi.fn(() => null);
-  readonly prepareFrameRuntime = vi.fn((): never => {
-    throw new Error('Неожиданная подготовка runtime фрейма.');
-  });
   readonly getModuleRuntime = vi.fn(() => {
     return {
       getViewModuleOrNull: () => null,
     } as unknown as ModuleRuntime;
-  });
-  readonly getRuntimeScope = vi.fn(() => {
-    return {} as RuntimeScope;
   });
   readonly getRouteScope = vi.fn(() => {
     return {} as RuntimeScope;
@@ -842,30 +856,18 @@ class TestRouteRuntimeAdapter implements RouteRuntimeAdapter {
   readonly loader = vi.fn(async () => {
     return null;
   });
+  readonly revalidate = vi.fn(async () => {});
+  readonly subscribe = vi.fn(() => () => {});
 }
 
 const createLoaderArgs = (): LoaderFunctionArgs => {
   const url = new URL('https://example.test');
 
   return {
-    context: {},
+    context: new RouterContextProvider(),
     params: {},
     pattern: '/',
     request: new Request(url),
-    url,
-  };
-};
-
-const createActionArgs = (): ActionFunctionArgs => {
-  const url = new URL('https://example.test');
-
-  return {
-    context: {},
-    params: {},
-    pattern: '/',
-    request: new Request(url, {
-      method: 'post',
-    }),
     url,
   };
 };
@@ -876,14 +878,6 @@ const invokeRouteLoader = async (routeObject: RouteObject | undefined, args: Loa
   }
 
   return routeObject.loader(args);
-};
-
-const invokeRouteAction = async (routeObject: RouteObject | undefined, args: ActionFunctionArgs): Promise<unknown> => {
-  if (typeof routeObject?.action !== 'function') {
-    throw new Error('Action маршрута не является вызываемым.');
-  }
-
-  return routeObject.action(args);
 };
 
 interface ShouldRevalidateTestOptions {

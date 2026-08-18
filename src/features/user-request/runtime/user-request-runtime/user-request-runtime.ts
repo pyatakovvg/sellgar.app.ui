@@ -6,7 +6,7 @@ import {
 } from './user-request-request.ts';
 import { UserRequestRuntimeInterface, type UserRequestRuntimeListener } from './user-request-runtime.interface.ts';
 
-export class UserRequestRuntime extends UserRequestRuntimeInterface {
+export class UserRequestRuntime implements UserRequestRuntimeInterface {
   private readonly listeners = new Set<UserRequestRuntimeListener>();
   private readonly requests: UserRequestRequest[] = [];
   private revision = 0;

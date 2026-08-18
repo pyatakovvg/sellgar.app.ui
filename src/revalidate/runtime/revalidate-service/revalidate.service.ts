@@ -5,22 +5,21 @@ import { executeRuntimeOperation } from '../../../runtime/operation';
 
 import {
   RevalidateServiceInterface,
+  RevalidateRegistryInterface,
   type RevalidateHandler,
   type RevalidateKey,
   type RevalidateOptions,
 } from '../../contract/revalidate-service';
 
 @Injectable()
-export class RevalidateService extends RevalidateServiceInterface {
+export class RevalidateService implements RevalidateRegistryInterface, RevalidateServiceInterface {
   private readonly fallbackHandlers = new Set<RevalidateHandler>();
   private readonly handlers = new Map<RevalidateKey, Set<RevalidateHandler>>();
 
   constructor(
     @Inject(RuntimeFailureReporterInterface)
     private readonly reporter: RuntimeFailureReporterInterface,
-  ) {
-    super();
-  }
+  ) {}
 
   register(key: RevalidateKey, handler: RevalidateHandler): void {
     const handlers = this.handlers.get(key) ?? new Set<RevalidateHandler>();
@@ -112,7 +111,7 @@ export class RevalidateService extends RevalidateServiceInterface {
     );
 
     for (const result of results) {
-      if (result.type === 'failed') {
+      if (result.type === 'failed' || result.type === 'escalated') {
         const owner = { kind: 'application' } as const;
         await reportRuntimeFailure(this.reporter, result.failure, owner, 'revalidate.failed', 'ready');
       }

@@ -1,6 +1,7 @@
 # Аудит Зависимости `@tiyn/app` От React Router
 
-- Статус документа: аналитический снимок
+- Статус документа: historical
+- Результат: выводы реализованы 2026-08-13
 - Дата аудита: 2026-08-05
 - Область: `library/tiyn-app` и его production-потребители в management panel
 - Изменения runtime/API: отсутствуют
@@ -10,8 +11,11 @@
 изменить перед появлением другого способа управления экранными сценариями, в
 частности FSM adapter.
 
-Это не утверждённый design и не план реализации. К нему следует вернуться перед
-проектированием router/runtime abstraction и сверить выводы с актуальным кодом.
+Снимок ниже сохранён как исходное обоснование переработки. В актуальной
+реализации React Router adapter преобразует `Request`, params и navigation
+responses в router-neutral context/decisions; core `RouteRuntime`, providers и
+controllers больше не получают `Request`. Controller API использует единый
+`ControllerArgs` с композиционными `WithParams`, `WithProps` и `WithPayload`.
 
 ## Итог
 
@@ -88,21 +92,21 @@ framework runtime.
 
 ## Карта Связанности
 
-| Уровень | Текущая зависимость | Критичность |
-| --- | --- | --- |
-| `Application.createView` | Всегда создаёт React Browser Router | критическая |
-| Route activation/commit | Активная ветка определяется `useMatches()` | критическая |
-| Module loader/action | RR loaders, actions, `Request`, fetcher | критическая |
-| Redirect/error flow | Thrown redirects, responses и RR error boundaries | высокая |
-| Revalidation | RR revalidator для modules/application | высокая |
-| Pending/fallback | RR navigation state и URL segments | высокая |
-| Frames | Active routes, URL hash и browser location | высокая |
-| Policies | Контракт близок к нейтральному, исполнение RR-specific | средняя |
-| Location/navigation | Скрыты за DI, но полностью URL-oriented | средняя |
-| Layout inheritance | Почти нейтрально, но собирается RR route builder | средняя |
-| DI/scopes/runtime operations | Не зависят от RR | низкая |
-| Widget runtime | Практически router-neutral | низкая |
-| Прикладные controllers | Не используют transport args | низкая |
+| Уровень                      | Текущая зависимость                                    | Критичность |
+| ---------------------------- | ------------------------------------------------------ | ----------- |
+| `Application.createView`     | Всегда создаёт React Browser Router                    | критическая |
+| Route activation/commit      | Активная ветка определяется `useMatches()`             | критическая |
+| Module loader/action         | RR loaders, actions, `Request`, fetcher                | критическая |
+| Redirect/error flow          | Thrown redirects, responses и RR error boundaries      | высокая     |
+| Revalidation                 | RR revalidator для modules/application                 | высокая     |
+| Pending/fallback             | RR navigation state и URL segments                     | высокая     |
+| Frames                       | Active routes, URL hash и browser location             | высокая     |
+| Policies                     | Контракт близок к нейтральному, исполнение RR-specific | средняя     |
+| Location/navigation          | Скрыты за DI, но полностью URL-oriented                | средняя     |
+| Layout inheritance           | Почти нейтрально, но собирается RR route builder       | средняя     |
+| DI/scopes/runtime operations | Не зависят от RR                                       | низкая      |
+| Widget runtime               | Практически router-neutral                             | низкая      |
+| Прикладные controllers       | Не используют transport args                           | низкая      |
 
 ## Application Жёстко Создаёт React Router
 
@@ -221,35 +225,36 @@ params и `Request`, хотя уже имеют отдельный `AbortSignal`
 
 - [`controller.interface.ts`](../src/controller/contract/controller/controller.interface.ts);
 - [`runtime-provider.interface.ts`](../src/runtime/provider/runtime-provider/runtime-provider.interface.ts);
-- [`frame-controller.interface.ts`](../src/frame/runtime/frame-controller/frame-controller.interface.ts).
+- удалённый legacy-контракт `frame-controller.interface.ts` (см. историю Git).
 
-## Module Action Использует React Router Как Lifecycle Adapter
+## Module Action Использует React Router Как Message Bus
 
 Для module controller `useSubmit()` вызывает RR `useFetcher()`:
 
-1. `ModuleRuntime` регистрирует controller token и исходную ссылку на payload;
-2. `fetcher.submit()` передаёт route action только одноразовый action id;
-3. `RouteRuntime.action()` выполняет route policies и session revision guard;
-4. `ModuleRuntime` находит операцию и вызывает controller с исходным payload;
-5. submit ожидает завершения fetcher lifecycle и React Router revalidation;
-6. результат, ошибка и `inProcess` читаются из `ModuleRuntime`.
+1. controller token и payload сериализуются в JSON;
+2. добавляются поля `__tiynAppController`, `__tiynAppSubmitId` и
+   `__tiynAppPayload`;
+3. `fetcher.submit()` направляет запрос в route action;
+4. `RouteRuntime.action()` снова разбирает `Request`;
+5. результат или ошибка помещаются в envelope;
+6. hook сопоставляет ответ с submit ID.
 
-`Request` не является транспортом объектной модели. Payload не сериализуется,
-поэтому `File`, `Blob`, экземпляры классов и вложенные объекты не теряют тип и
-ссылочную идентичность. Решение опирается на клиентский `createBrowserRouter`:
-при переносе route actions на сервер потребуется явный сетевой контракт.
+Этот HTTP-подобный transport является внутренним вызовом controller, а не
+реальной сетевой границей.
 
-Frame и widget runtime используют прямую схему:
+Frame и widget runtime уже используют более нейтральную схему:
 
 ```text
 useSubmit -> runtime.action(controllerToken, payload)
 ```
 
-Action state module, frame и widget хранится владеющим runtime.
+Их action state хранится самим runtime. Этот механизм является готовым образцом
+для module actions.
 
 См.:
 
 - [`use-controller-submit.hook.ts`](../src/controller/react/use-controller-submit/use-controller-submit.hook.ts);
+- удалённый legacy-adapter `controller-action-request.ts` (см. историю Git);
 - [`module-runtime.ts`](../src/module/runtime/module-runtime/module-runtime.ts).
 
 ## Revalidation Разделена Не До Конца
@@ -411,12 +416,13 @@ URL-зависимый feature code может оставаться URL-зави
 определять общий frame source contract. Для FSM понадобится snapshot-backed
 frame source или другой способ связать frame с текущим состоянием.
 
-См.:
+После реализации выводов аудита этот набор заменён frame-router runtime и
+общим navigation port. Актуальная реализация:
 
-- [`frame-source.interface.ts`](../src/frame/source/frame-source/frame-source.interface.ts);
-- [`hash-frame-source.ts`](../src/frame/source/hash-frame-source/hash-frame-source.ts);
-- [`frame.service.ts`](../src/frame/service/frame-service/frame.service.ts);
-- [`router-runtime.ts`](../src/router/runtime/router-runtime/router-runtime.ts).
+- [`frame-layer.tsx`](../src/frame/react/frame-layer/frame-layer.tsx);
+- [`frame-router-runtime.ts`](../src/frame/router/runtime/frame-router-runtime/frame-router-runtime.ts);
+- [`router-runtime.ts`](../src/router/runtime/router-runtime/router-runtime.ts);
+- [`router.service.ts`](../src/router/service/router-service/router.service.ts).
 
 ## Несоответствие Документации Реальной Границе
 
@@ -568,8 +574,8 @@ Feature должен явно зависеть от нужной capability. О�
    Router единственной реализацией.
 3. Вынести RR-типы из `RouteRuntime`: собственный activation context, outcomes и
    явный `AbortSignal`.
-4. Выполнено: payload и action state перенесены в `ModuleRuntime`, а React Router
-   оставлен lifecycle adapter для module route action.
+4. Перевести module actions на прямой `ModuleRuntime.action()` по образцу
+   frame/widget runtime.
 5. Сделать module revalidate непосредственной операцией runtime; RR revalidate
    оставить механизмом URL adapter.
 6. Разделить общий compiler runtime declarations и RR `RouteObject` builder.

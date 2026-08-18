@@ -11,10 +11,8 @@ export interface UserRequestFeatureOptions {
 }
 
 @UseBindings(UserRequestBindings)
-export class UserRequestFeature extends ApplicationFeatureInterface {
-  private constructor(private readonly options: UserRequestFeatureOptions) {
-    super();
-  }
+export class UserRequestFeature implements ApplicationFeatureInterface {
+  private constructor(private readonly options: UserRequestFeatureOptions) {}
 
   static configure(options: UserRequestFeatureOptions): UserRequestFeature {
     return new UserRequestFeature(options);

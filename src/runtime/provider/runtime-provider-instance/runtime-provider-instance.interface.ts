@@ -6,10 +6,8 @@ export abstract class RuntimeProviderInstanceInterface {
   abstract dispose(): void | Promise<void>;
 }
 
-export class RuntimeProviderInstance extends RuntimeProviderInstanceInterface {
-  constructor(private readonly disposeHandler: RuntimeProviderDisposeHandler) {
-    super();
-  }
+export class RuntimeProviderInstance implements RuntimeProviderInstanceInterface {
+  constructor(private readonly disposeHandler: RuntimeProviderDisposeHandler) {}
 
   dispose(): void | Promise<void> {
     return this.disposeHandler();

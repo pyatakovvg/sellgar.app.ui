@@ -1,1 +1,7 @@
-export { RouteRuntime } from './route-runtime.ts';
+export {
+  isRouteRuntimeNavigationException,
+  RouteRuntime,
+  RouteRuntimeNavigationException,
+  type RouteRuntimeLoadContext,
+  type RouteRuntimeNavigationDecision,
+} from './route-runtime.ts';

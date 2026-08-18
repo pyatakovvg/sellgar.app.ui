@@ -1,7 +1,8 @@
 export {
   ActiveRouteRuntimeBoundary,
   RouterServiceLocationBoundary,
-  SessionRevalidationBoundary,
+  connectRuntimeRefresh,
+  createFramePreloadLoader,
   createReactRouterView,
 } from './react-router-adapter.tsx';
 export {

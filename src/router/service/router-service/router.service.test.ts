@@ -185,6 +185,56 @@ describe('RouterService', () => {
     expect(back).toHaveBeenCalledTimes(1);
   });
 
+  it('opens and closes frame routes while preserving pathname, search and state', async () => {
+    const service = createRouterService();
+    const navigate = vi.fn();
+
+    service.attachNavigator({ back: vi.fn(), navigate });
+    service.syncLocation({
+      hash: '#employees/1',
+      key: 'location:1',
+      params: {},
+      pathname: '/employees',
+      search: '?status=active',
+      state: { source: 'list' },
+    });
+
+    await service.frame.open('/employees/1/edit');
+    await service.frame.close();
+
+    expect(navigate).toHaveBeenNthCalledWith(1, '/employees?status=active#employees/1/edit', {
+      state: { source: 'list' },
+    });
+    expect(navigate).toHaveBeenNthCalledWith(2, '/employees?status=active', {
+      state: { source: 'list' },
+    });
+  });
+
+  it('opens a frame route with replace and explicit navigation state', async () => {
+    const service = createRouterService();
+    const navigate = vi.fn();
+
+    service.attachNavigator({ back: vi.fn(), navigate });
+    service.syncLocation({
+      hash: '#employees/1',
+      key: 'location:1',
+      params: {},
+      pathname: '/employees',
+      search: '?status=active',
+      state: { source: 'list' },
+    });
+
+    await service.frame.open('/employees/2', {
+      replace: true,
+      state: { source: 'direct' },
+    });
+
+    expect(navigate).toHaveBeenCalledWith('/employees?status=active#employees/2', {
+      replace: true,
+      state: { source: 'direct' },
+    });
+  });
+
   it('navigates hash params with merge and converted base values', async () => {
     const service = createRouterService();
     const navigate = vi.fn();
@@ -362,7 +412,7 @@ class RouteParamsDto {
   page!: number;
 }
 
-class TestRouterServiceBindings extends BindingModuleInterface {
+class TestRouterServiceBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     const bindings = new RouterServiceBindings();
 

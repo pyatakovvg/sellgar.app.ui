@@ -86,24 +86,24 @@ Hello World
 
 ## Карта Курса
 
-| № | Занятие | Новый вопрос | Наблюдаемый результат |
-|---:|---|---|---|
-| 1 | [Первый запуск](./01-first-start.md) | Как получить первый экран? | В браузере отображается `Hello, @tiyn/app!` |
-| 2 | [Application и lifecycle](./02-application-lifecycle.md) | Кто запускает и останавливает приложение? | Видны splash, initialize и dispose |
-| 3 | [Router, location и navigation](./03-router-location-navigation.md) | Как URL становится состоянием приложения? | Два route, активный пункт меню и query filter |
-| 4 | [Module от простого к рабочему](./04-module.md) | Что принадлежит экрану route? | Экран оформлен как изолированный module package |
-| 5 | [DI, bindings и loader](./05-di-bindings-loader.md) | Как runtime-класс получает зависимость и данные? | Список загружается controller-ом без ручного `new` |
-| 6 | [Controller actions](./06-controller-actions.md) | Где проходит пользовательская mutation? | Фильтр меняется action-ом с наблюдаемым pending state |
-| 7 | [Layout](./07-layout.md) | Как переиспользовать оболочку route-ветки? | Общая навигация не пересоздаётся между экранами |
-| 8 | [Widget](./08-widget.md) | Когда React component становится отдельным runtime? | Summary загружается и обновляется независимо от module |
-| 9 | [Frame](./09-frame.md) | Как открыть адресуемый overlay поверх route? | Детали заказа открываются по hash и закрываются через shell |
-| 10 | [Providers и runtime scopes](./10-providers-scopes.md) | Где живут preload, subscriptions и cleanup? | Widget preload и подписка принадлежат lifecycle boundary |
-| 11 | [Store, session и events](./11-state-events.md) | Как связывать независимых участников? | Action публикует событие, подписчик обновляет нужный runtime |
-| 12 | [Reactive entities](./12-reactive-entities.md) | Как обновить все живые копии entity? | Event меняет статус без ручного поиска компонентов |
-| 13 | [Revalidate](./13-revalidate.md) | Как обновить loader data без подмены navigation? | Module, widget и frame обновляются в собственных границах |
-| 14 | [Policies и guards](./14-policies-guards.md) | Где проверять route и local capability? | Route защищён policy, кнопка и action — guard |
-| 15 | [Ошибки и application features](./15-errors-features.md) | Кто показывает ошибку и кто выполняет recovery? | Локальная ошибка, общий bus, notification и confirm |
-| 16 | [Production composition](./16-production-composition.md) | Как собрать механизмы без смешения ответственности? | Итоговый сценарий и архитектурный разбор |
+|   № | Занятие                                                             | Новый вопрос                                        | Наблюдаемый результат                                        |
+| --: | ------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------ |
+|   1 | [Первый запуск](./01-first-start.md)                                | Как получить первый экран?                          | В браузере отображается `Hello, @tiyn/app!`                  |
+|   2 | [Application и lifecycle](./02-application-lifecycle.md)            | Кто запускает и останавливает приложение?           | Видны splash, initialize и dispose                           |
+|   3 | [Router, location и navigation](./03-router-location-navigation.md) | Как URL становится состоянием приложения?           | Два route, активный пункт меню и query filter                |
+|   4 | [Module от простого к рабочему](./04-module.md)                     | Что принадлежит экрану route?                       | Экран оформлен как изолированный module package              |
+|   5 | [DI, bindings и loader](./05-di-bindings-loader.md)                 | Как runtime-класс получает зависимость и данные?    | Список загружается controller-ом без ручного `new`           |
+|   6 | [Controller actions](./06-controller-actions.md)                    | Где проходит пользовательская mutation?             | Фильтр меняется action-ом с наблюдаемым pending state        |
+|   7 | [Layout](./07-layout.md)                                            | Как переиспользовать оболочку route-ветки?          | Общая навигация не пересоздаётся между экранами              |
+|   8 | [Widget](./08-widget.md)                                            | Когда React component становится отдельным runtime? | Summary загружается и обновляется независимо от module       |
+|   9 | [Frame](./09-frame.md)                                              | Как открыть адресуемый overlay поверх route?        | Детали заказа открываются по hash и закрываются через shell  |
+|  10 | [Providers и runtime scopes](./10-providers-scopes.md)              | Где живут preload, subscriptions и cleanup?         | Widget preload и подписка принадлежат lifecycle boundary     |
+|  11 | [Store, session и events](./11-state-events.md)                     | Как связывать независимых участников?               | Action публикует событие, подписчик обновляет нужный runtime |
+|  12 | [Reactive entities](./12-reactive-entities.md)                      | Как обновить все живые копии entity?                | Event меняет статус без ручного поиска компонентов           |
+|  13 | [Revalidate](./13-revalidate.md)                                    | Как обновить loader data без подмены navigation?    | Module, widget и frame обновляются в собственных границах    |
+|  14 | [Policies и guards](./14-policies-guards.md)                        | Где проверять route и local capability?             | Route защищён policy, кнопка и action — guard                |
+|  15 | [Ошибки и application features](./15-errors-features.md)            | Кто показывает ошибку и кто выполняет recovery?     | Локальная ошибка, общий bus, notification и confirm          |
+|  16 | [Production composition](./16-production-composition.md)            | Как собрать механизмы без смешения ответственности? | Итоговый сценарий и архитектурный разбор                     |
 
 Нумерация задаёт порядок появления понятий, но одно занятие можно проводить в
 несколько встреч. Рекомендуемая длительность — 45–75 минут на занятие, включая
@@ -139,20 +139,20 @@ entities и revalidate. Здесь слушатель начинает расс�
 Одинаковая логика применяется отдельно к каждой сущности. Нельзя считать тему
 завершённой после показа decorator-а.
 
-| Ступень | Вопрос слушателя | Что показывает ведущий |
-|---:|---|---|
-| 1 | Что это? | Определение через решаемую проблему |
-| 2 | Когда это нужно? | Один подходящий и один неподходящий сценарий |
-| 3 | Как выглядит минимум? | Declaration или contract без необязательных частей |
-| 4 | Кто создаёт экземпляр? | Различие declaration token и runtime instance |
-| 5 | Откуда приходят данные? | Props, loader data, location или injected dependency |
-| 6 | Как отправить команду? | Hook во view и service/controller в runtime-коде |
-| 7 | Где его scope? | Доступные bindings и владелец lifetime |
-| 8 | Как очищаются ресурсы? | Dispose, abort signal или provider cleanup |
-| 9 | Как обрабатываются pending/error? | Локальный state и ближайшая UI boundary |
-| 10 | Как сочетается с другими runtime? | Реальный составной сценарий |
-| 11 | Где границы применения? | Антипример и типичная ошибка выбора |
-| 12 | Как выглядит production-вариант? | Код management panel и checklist для review |
+| Ступень | Вопрос слушателя                  | Что показывает ведущий                               |
+| ------: | --------------------------------- | ---------------------------------------------------- |
+|       1 | Что это?                          | Определение через решаемую проблему                  |
+|       2 | Когда это нужно?                  | Один подходящий и один неподходящий сценарий         |
+|       3 | Как выглядит минимум?             | Declaration или contract без необязательных частей   |
+|       4 | Кто создаёт экземпляр?            | Различие declaration token и runtime instance        |
+|       5 | Откуда приходят данные?           | Props, loader data, location или injected dependency |
+|       6 | Как отправить команду?            | Hook во view и service/controller в runtime-коде     |
+|       7 | Где его scope?                    | Доступные bindings и владелец lifetime               |
+|       8 | Как очищаются ресурсы?            | Dispose, abort signal или provider cleanup           |
+|       9 | Как обрабатываются pending/error? | Локальный state и ближайшая UI boundary              |
+|      10 | Как сочетается с другими runtime? | Реальный составной сценарий                          |
+|      11 | Где границы применения?           | Антипример и типичная ошибка выбора                  |
+|      12 | Как выглядит production-вариант?  | Код management panel и checklist для review          |
 
 ### Module
 
@@ -189,18 +189,19 @@ entities и revalidate. Здесь слушатель начинает расс�
 
 ```text
 overlay как идея
--> Frame + Source + Shell + View
+-> Frame + FrameRouter + FrameRoute + global shell
 -> typed props
 -> регистрация на route
--> useFrame.open/close
+-> absolute frame navigation и close
 -> hash addressability
 -> controller и local revalidate
--> parent frame history и back
+-> общая browser history без frame-specific back
 -> providers, layouts и startup failure
 ```
 
 Ключевая граница: frame — presentation runtime поверх текущего route, а не
-самостоятельный экран. Hash key принадлежит source, а не вызывающему коду.
+самостоятельный экран. URL принадлежит `FrameRouter`/`FrameRoute`, а не
+declaration конкретного Frame.
 
 ### Provider
 

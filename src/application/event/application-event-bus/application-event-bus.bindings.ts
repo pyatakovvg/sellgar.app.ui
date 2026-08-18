@@ -4,7 +4,7 @@ import type { BindingRegistryInterface } from '../../../di/binding/binding-regis
 import { ApplicationEventBusInterface } from './application-event-bus.interface.ts';
 import { ApplicationEventBus } from './application-event-bus.ts';
 
-export class ApplicationEventBusBindings extends BindingModuleInterface {
+export class ApplicationEventBusBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(ApplicationEventBusInterface).to(ApplicationEventBus).inSingletonScope();
   }

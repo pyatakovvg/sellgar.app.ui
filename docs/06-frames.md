@@ -1,577 +1,392 @@
 # Фреймы
 
-Frame - presentation runtime, активируемый через source. Типичный сценарий:
-hash-driven drawer или modal. При этом `@tiyn/app` не вводит отдельные runtime
-понятия drawer/modal, а описывает их как frame + shell.
+Frame — presentation runtime поверх текущего route screen: drawer, modal,
+инспектор или detail panel. Сам Frame не знает URL, hash, shell и соседние
+фреймы. Его доступностью и навигацией управляет отдельное дерево
+`FrameRouter`/`FrameRoute`.
 
 ```text
-Frame
-  runtime definition
-
-Source
-  adapter активации и команд
-
-Shell
-  визуальный контейнер
-
-View
-  runtime content inside shell
+обычный Router выбирает активную Route-ветку
+  -> Route.frames предоставляет доступные FrameRouter
+    -> hash сопоставляется с одним FrameRoute
+      -> FrameRoute лениво загружает Frame
+        -> FrameRouter shell отображает Frame runtime
 ```
 
-## Когда Использовать Frame
+Standalone frames и открытие по class token не поддерживаются. Каждый Frame
+должен загружаться через `FrameRoute`, каждый `FrameRoute` должен находиться в
+`FrameRouter`, а `Route.frames` принимает только `FrameRouter`.
 
-Используй frame, если UI должен открываться поверх текущего route:
+## Глобальная Конфигурация
 
-- drawer;
-- modal;
-- side panel;
-- inspector;
-- detail view, который должен сохраняться в URL hash.
+Если дерево обычных routes содержит хотя бы один `FrameRouter`, приложение
+обязано настроить общий shell:
 
-Frame подходит, когда open/close должны быть command API, а active state должен
-определяться source, например hash.
+```tsx
+protected configure(app: ApplicationConfiguratorInterface): void {
+  app.components({
+    fallback: <ApplicationFallback />,
+    exception: <ApplicationException />,
+    forbidden: <ApplicationForbidden />,
+    notFound: <ApplicationNotFound />,
+  });
 
-Не используй frame как замену основного route screen. Если пользователь
-переходит на самостоятельный экран, нужен route module.
+  app.frames({
+    shell: ManagementPanelFrameShell,
+  });
+
+  app.router(router);
+}
+```
+
+У `app.frames(...)` обязателен только `shell`. Неуказанные `fallback`,
+`exception`, `forbidden` и `notFound` наследуются из `app.components(...)`.
+Порядок вызовов `app.components(...)` и `app.frames(...)` не влияет на
+результат.
+
+При необходимости frame runtime может иметь отдельные глобальные границы:
+
+```tsx
+app.frames({
+  shell: ManagementPanelFrameShell,
+  fallback: <FrameFallback />,
+  exception: <FrameException />,
+  forbidden: <FrameForbidden />,
+  notFound: <FrameNotFound />,
+});
+```
+
+При первом входе или перезагрузке по URL с активным frame hash application
+router начинает route/module и frame цепочки одновременно. Общий application
+`splash` остаётся видимым, пока не готовы обе цепочки, включая widget preload
+из их providers. Обе цепочки продолжаются только после успешных
+`canMatch`/`canActivate` целевой обычной Route-ветки: frame preload не обходит
+route access-policy. Frame не ждёт render Module, чтобы начать загрузку.
+
+После первого render, при обычном переходе между frame routes, используется
+frame `fallback`, а не application `splash`.
 
 ## Declaration Фрейма
 
-```ts
-export class OrderDetailsFrameParams {
-  @Expose()
-  readonly id!: string;
-}
-```
-
 ```tsx
-@UseBindings(OrderDetailsBindings)
-@Frame<OrderDetailsFrameParams>({
-  source: HashFrameSource.create('order-details', OrderDetailsFrameParams),
-  shell: OrderDetailsFrameShell,
-  layouts: [OrderDetailsLayout],
-  providers: [OrdersSummaryWidgetPreloadProvider],
-  fallback: <p>Фрейм загружается...</p>,
-  exception: <p>Фрейм не загрузился</p>,
+@UseBindings(EmployeeReviewBindings)
+@Frame({
+  layouts: [EmployeeReviewLayout],
+  providers: [EmployeeReviewPreloadProvider],
+  fallback: <EmployeeReviewFallback />,
+  exception: <EmployeeReviewException />,
   view: FrameView,
 })
-export class OrderDetailsFrame extends FrameDefinition<OrderDetailsFrameParams> {}
+export class EmployeeReviewFrame {}
 ```
 
-`FrameDefinition<TProps>` нужен для типизации token. Благодаря этому
-`useFrame(...)` и `FrameServiceInterface` знают, какие props нужны для
-`open(...)`.
+Frame declaration не несёт параметры маршрута: они принадлежат активному
+`FrameRoute`. Controller получает их через `args.params`, а view при
+необходимости — через общий `useParams<TParams>()`.
 
-Metadata frame:
+Metadata `@Frame` содержит только собственный runtime-контракт:
 
 ```ts
-interface FrameMetadata<TProps extends object = object> {
+interface FrameMetadata {
   readonly exception?: React.ReactNode;
   readonly fallback?: React.ReactNode;
   readonly layouts?: readonly LayoutConstructor[];
-  readonly providers?: readonly DependencyToken<RuntimeProviderInterface>[];
-  readonly shell?: DependencyToken<FrameShellInterface>;
-  readonly source?: FrameSourceInterface<TProps>;
-  readonly view: RenderableView<TProps>;
+  readonly providers?: readonly ProviderToken[];
+  readonly view: RenderableView;
 }
 ```
 
-Frame controllers объявляются не в metadata, а через `@Controller()` на concrete
-implementation и frame-local bindings. `providers` описывают lifecycle side
-effects вокруг загрузки frame runtime. Не подменяй controller provider-ом, если
-задача состоит в загрузке данных или обработке action.
+В `@Frame` нет `source`, `shell`, policies и routing-конфигурации. Frame package
+не должен импортировать соседние frame tokens и управлять переходами между ними.
 
-## Layouts Фрейма
+## FrameRouter И FrameRoute
 
-Frame может использовать те же `@Layout(...)`, что route runtime:
-
-```text
-FrameShell
--> layouts[]
--> Frame view
-```
-
-`shell` отвечает за внешний контейнер frame: drawer/modal/overlay, close/open
-mechanics и presentation chrome. `layouts` отвечают за внутреннюю композицию:
-header, footer, tabs, toolbar, spacing и preload providers для вложенных widget
-runtime.
-
-Порядок `layouts: [A, B]` совпадает с route layouts:
-
-```tsx
-<A>
-  <B>
-    <FrameView />
-  </B>
-</A>
-```
-
-Layout bindings активируются в `FrameScope`. Layout providers добавляются в
-frame provider pipeline после frame-level providers.
-
-Layout во frame не становится владельцем frame data contract. Loader result,
-action payloads и DTO остаются у frame controller. Layout может читать данные
-через `useLoaderData(...)` или submit state через `useSubmit(...)`,
-если это нужно для header, footer или controls.
-
-## Подключение Frame К Route
-
-Frames объявляются на route и наследуются child routes.
+`FrameRouter` задаёт общий URL-префикс и оркестрирует связный flow. Например,
+просмотр и редактирование сотрудника:
 
 ```ts
-new Route({
-  path: '/',
-  frames: [OrderDetailsFrame],
-  layouts: [MainLayout],
+const EmployeeFrameRouter = new FrameRouter({
+  baseSource: 'employees/:employeeId',
   routes: [
-    new Route({
-      path: '/orders',
-      load: () => import('@module/orders'),
+    new FrameRoute({
+      load: () => import('@frame/employee-review'),
+    }),
+    new FrameRoute({
+      path: 'edit',
+      load: () => import('@frame/employee-edit'),
     }),
   ],
 });
 ```
 
-`OrderDetailsFrame` будет доступен на `/orders`.
+Получаются абсолютные frame sources:
 
-Layouts не должны рендерить frame hosts. `Application.createView()`
-устанавливает `FrameLayer` глобально.
+```text
+/employees/42
+/employees/42/edit
+```
 
-## HashFrameSource
-
-`HashFrameSource` связывает frame с hash key:
+`FrameRoute` без `path` является индексным маршрутом относительно
+`baseSource`. Вложенные `FrameRoute` позволяют строить дерево и задавать
+`defaultTo`:
 
 ```ts
-HashFrameSource.create('order-details', OrderDetailsFrameParams);
+new FrameRouter({
+  baseSource: 'terminals/:terminalId',
+  routes: [
+    new FrameRoute({
+      defaultTo: 'review',
+      routes: [
+        new FrameRoute({
+          path: 'review',
+          load: () => import('@frame/terminal-review'),
+        }),
+        new FrameRoute({
+          path: 'edit',
+          load: () => import('@frame/terminal-edit'),
+        }),
+      ],
+    }),
+  ],
+});
 ```
 
-Активный URL:
+`load` должен лениво вернуть module export с одним `@Frame` class. Сам
+`FrameRoute` не импортирует этот class синхронно.
 
-```text
-/orders#order-details(id='100')
+`FrameRouter` и `FrameRoute` поддерживают framework-композицию:
+
+- `canMatch` и `canActivate`;
+- `providers`;
+- `layouts`;
+- `fallback`, `exception`, `forbidden`, `notFound`;
+- `shell` на уровне `FrameRouter`;
+- `defaultTo` и вложенные routes на уровне `FrameRoute`.
+
+## Доступность От Обычного Route
+
+Каждый `FrameRouter` подключается на том уровне обычного route tree, где его
+фреймы должны быть доступны:
+
+```ts
+new Route({
+  path: '/employees',
+  canMatch: [AccessToSection.configure().withOptions(['employees'])],
+  frames: [
+    new FrameRouter({
+      baseSource: 'employees/invitations/create',
+      routes: [
+        new FrameRoute({
+          load: () => import('@frame/employee-invitation-create'),
+        }),
+      ],
+    }),
+  ],
+  layouts: [EmployeesLayout],
+  routes: [
+    new Route({
+      frames: [
+        new FrameRouter({
+          baseSource: 'employees/:employeeId',
+          routes: [
+            new FrameRoute({ load: () => import('@frame/employee-review') }),
+            new FrameRoute({ path: 'edit', load: () => import('@frame/employee-edit') }),
+          ],
+        }),
+      ],
+      load: () => import('@module/employees'),
+    }),
+    new Route({
+      path: '/invitations',
+      frames: [
+        new FrameRouter({
+          baseSource: 'employees/invitations/:invitationId',
+          routes: [new FrameRoute({ load: () => import('@frame/employee-invitation-review') })],
+        }),
+      ],
+      load: () => import('@module/employee-invitations'),
+    }),
+  ],
+});
 ```
 
-Открытие без props создает hash flag:
+Правило доступности совпадает с обычным router tree:
 
-```text
-/orders#order-details
-```
+- `FrameRouter` родительского `Route` доступен всей активной дочерней ветке;
+- `FrameRouter` конкретного child `Route` доступен только в этой ветке;
+- runtime и scope router-а принадлежат именно тому `Route`, где router объявлен;
+- переход на hash, недоступный текущей route-ветке, не открывает Frame.
 
-Source resolve-ит:
-
-- active state;
-- props;
-- runtime key;
-- close handler.
-
-Runtime key строится по raw hash value. Поэтому изменение hash props remount-ит
-frame runtime.
-
-`RouterRuntime.resolveActiveFrames(...)` возвращает максимум один активный
-frame. Если в hash вручную оказалось несколько frame keys, runtime выбирает
-последний доступный frame из текущей route branch, а `FrameLayer` рендерит
-полученный active frame runtime.
-
-`FrameService.open(...)` заменяет текущий frame следующим и очищает остальные
-активные frame keys. Если `open(...)` вызван из runtime scope активного frame,
-текущий frame сохраняется как parent во внутренней frame-history. URL хранит
-только текущий frame:
-
-```text
-/orders#incident-review(id='INC-1')
-```
-
-Frame-history хранится в `sessionStorage` через внутренний модуль
-`frame-navigation-state`. Область ключа storage задается `router.baseUrl`, поэтому
-несколько приложений на одном домене не делят frame-history.
-
-`history.state` не используется для frame-history: он не является источником
-истины и не участвует в восстановлении parent chain.
-
-Frame commands:
-
-- `open(...)` открывает frame. Из активного frame он добавляет текущий frame в
-  parent stack.
-- `back()` возвращает предыдущий frame из parent stack. Если parent нет,
-  закрывает текущий frame.
-- `close()` закрывает всю frame-сессию и очищает parent stack.
-- `hasParent()` показывает, есть ли доступный parent frame для текущего active
-  frame runtime.
-
-При reload URL остается адресуемым состоянием текущего frame, а
-`sessionStorage` восстанавливает историю открытия вокруг него. Если сохраненный
-`current` не совпадает с текущим hash key и props, frame-history считается
-stale и очищается. В этом случае frame работает как direct link без parent.
+На одном уровне можно объявить несколько независимых `FrameRouter`. Переход
+между ними ничем не отличается от перехода внутри одного flow.
 
 ## Shell
 
-Shell определяет визуальное представление: drawer, modal, dialog, fullscreen и
-любой другой контейнер. `@tiyn/app` не зависит от конкретного UI kit.
+Shell является общей внешней оболочкой: overlay, drawer/modal chrome, кнопки
+закрытия и возврата.
 
 ```tsx
-@Injectable()
-export class OrderDetailsFrameShell extends FrameShellInterface {
-  render(context: FrameShellContextInterface): React.ReactNode {
+@FrameShell()
+export class ManagementPanelFrameShell implements FrameShellInterface {
+  render({ close, content, open }: FrameShellContextInterface): React.ReactNode {
     return (
-      <aside aria-hidden={!context.open}>
-        <button type="button" onClick={() => context.close()}>
-          Закрыть
-        </button>
-        {context.content}
-      </aside>
+      <Drawer open={open} onClose={close}>
+        {content}
+      </Drawer>
     );
   }
 }
 ```
 
-Shell context:
+Разрешение shell:
 
-```ts
-interface FrameShellContextInterface {
-  readonly back: () => void | Promise<void>;
-  readonly close: () => void | Promise<void>;
-  readonly content: React.ReactNode;
-  readonly open: boolean;
-}
+```text
+FrameRouter.shell
+  -> app.frames.shell
 ```
 
-Shell close controls, overlay click и Escape должны вызывать `context.close()`,
-потому что это закрытие всей frame-сессии. Кнопки "Назад" внутри view или
-controller должны вызывать `frameService.back()`.
+Локальный `FrameRouter.shell` заменяет глобальный shell для всего flow.
+`@Frame` собственного shell не имеет.
 
-## View Фрейма
+## Навигация
 
-Frame view получает props из source.
+Для React-кода:
 
 ```tsx
-export const FrameView: React.FC<OrderDetailsFrameParams> = (props) => {
-  return <OrderDetailsView id={props.id} />;
-};
+const navigate = useNavigate();
+
+await navigate.frame.open('/employees/42');
+await navigate.frame.open('/employees/42/edit');
+await navigate.frame.close();
 ```
 
-`view` принимает `RenderableView<TProps>`:
-
-```tsx
-view: FrameView;
-view: <FrameView id="100" />;
-view: (props) => <FrameView {...props} />;
-```
-
-Предпочтительная форма - `view: FrameView`.
-
-## Frame Controller
-
-Frame controller похож на widget controller: он работает внутри конкретного
-frame runtime instance и получает props из frame source.
-
-```ts
-export interface OrderDetailsFrameData {
-  readonly loadedAt: string;
-  readonly status: string;
-}
-
-export interface ConfirmOrderPayload {
-  readonly reason: string;
-}
-
-export interface ConfirmOrderResult {
-  readonly accepted: boolean;
-}
-```
-
-```ts
-import { FrameControllerInterface, type FrameControllerActionArgs, type FrameControllerLoaderArgs } from '@tiyn/app';
-
-export abstract class OrderDetailsControllerInterface extends FrameControllerInterface<OrderDetailsFrameParams> {
-  abstract loader(args: FrameControllerLoaderArgs<OrderDetailsFrameParams>): Promise<OrderDetailsFrameData>;
-
-  abstract action(
-    args: FrameControllerActionArgs<OrderDetailsFrameParams, ConfirmOrderPayload>,
-  ): Promise<ConfirmOrderResult>;
-}
-```
-
-```ts
-import { Controller } from '@tiyn/app';
-
-@Controller()
-export class OrderDetailsController extends OrderDetailsControllerInterface {
-  async loader(args: FrameControllerLoaderArgs<OrderDetailsFrameParams>): Promise<OrderDetailsFrameData> {
-    return {
-      loadedAt: new Date().toISOString(),
-      status: `Order ${args.props.id} loaded`,
-    };
-  }
-
-  async action(
-    args: FrameControllerActionArgs<OrderDetailsFrameParams, ConfirmOrderPayload>,
-  ): Promise<ConfirmOrderResult> {
-    await confirmOrder(args.props.id, args.payload.reason);
-
-    return {
-      accepted: true,
-    };
-  }
-}
-```
-
-`FrameControllerLoaderArgs<TProps>` содержит:
-
-- `props` - props, полученные из `FrameSourceInterface`;
-- `params` - route params активного route location;
-- `request` - request, собранный по текущему location;
-- `signal` - abort signal текущего frame lifecycle.
-
-`FrameControllerActionArgs<TProps, TPayload>` дополнительно содержит
-`payload`.
-
-Controller должен быть помечен `@Controller()` и привязан в frame bindings:
-
-```ts
-export class OrderDetailsBindings extends BindingModuleInterface {
-  register(registry: BindingRegistryInterface): void {
-    registry.bind(OrderDetailsControllerInterface).to(OrderDetailsController).inSingletonScope();
-  }
-}
-```
-
-## Hooks Во Frame View
-
-Frame view читает frame runtime через frame hooks:
-
-```tsx
-export const FrameView: React.FC<OrderDetailsFrameParams> = () => {
-  const data = useLoaderData(OrderDetailsControllerInterface);
-  const submit = useSubmit(OrderDetailsControllerInterface);
-  const revalidate = useRevalidate();
-
-  return (
-    <section>
-      <p>{data.status}</p>
-      <button disabled={submit.inProcess} type="button" onClick={() => submit({ reason: 'manual' })}>
-        Подтвердить
-      </button>
-      <button disabled={revalidate.inProcess} type="button" onClick={() => revalidate()}>
-        Обновить
-      </button>
-    </section>
-  );
-};
-```
-
-Доступные hooks:
-
-```ts
-useController(OrderDetailsControllerInterface);
-useLoaderData(OrderDetailsControllerInterface);
-useSubmit(OrderDetailsControllerInterface);
-useRevalidate();
-```
-
-`useSubmit(...)` возвращает function со state:
-
-```ts
-submit.inProcess;
-submit.data;
-submit.error;
-```
-
-Submit state общий для активного frame runtime и controller token. Несколько
-вызовов `useSubmit(...)` для одного controller в одном frame instance
-читают один `inProcess`, `data` и `error`.
-
-Один controller token в одном frame runtime может держать только один pending
-submit. Повторный вызов из любого hook instance во время active submit вернет
-rejected promise.
-
-`useRevalidate()` возвращает function со state:
-
-```ts
-revalidate.inProcess;
-revalidate.error;
-```
-
-Ошибки submit/revalidate остаются recoverable в hook state и не переводят
-frame runtime в `failed`.
-
-## Revalidate Frame
-
-Frame revalidate обновляет только данные активного frame runtime. Он не
-перезапускает route/module loader и не обновляет вложенные widgets.
-
-Во frame view:
-
-```tsx
-const revalidate = useRevalidate();
-
-await revalidate();
-```
-
-В frame controller:
+Для controller или service используется тот же контракт через DI:
 
 ```ts
 @Controller()
-export class OrderDetailsController extends OrderDetailsControllerInterface {
+export class EmployeeReviewController implements EmployeeReviewControllerInterface {
   constructor(
-    @Inject(RevalidateServiceInterface)
-    private readonly revalidateService: RevalidateServiceInterface,
-  ) {
-    super();
-  }
-
-  async action(
-    args: FrameControllerActionArgs<OrderDetailsFrameParams, ConfirmOrderPayload>,
-  ): Promise<ConfirmOrderResult> {
-    await confirmOrder(args.props.id, args.payload.reason);
-    await this.revalidateService.revalidate({
-      signal: args.signal,
-    });
-
-    return {
-      accepted: true,
-    };
-  }
-}
-```
-
-Используй `RevalidateServiceInterface`, когда revalidate является частью
-frame action. Внутри frame scope этот token обновляет active frame runtime.
-Используй `useRevalidate()`, когда revalidate запускает сам пользовательский UI.
-
-## Открытие Frame Из React
-
-Во view используй `useFrame(frameToken)`.
-
-```tsx
-export const OrdersView: React.FC = () => {
-  const orderDetailsFrame = useFrame(OrderDetailsFrame);
-
-  return (
-    <button type="button" onClick={() => orderDetailsFrame.open({ id: '100' })}>
-      Открыть детали
-    </button>
-  );
-};
-```
-
-Возврат к parent frame:
-
-```tsx
-await orderDetailsFrame.back();
-```
-
-Закрытие всей frame-сессии:
-
-```tsx
-await orderDetailsFrame.close();
-```
-
-Frame без обязательных props можно открыть без аргументов:
-
-```tsx
-const helpFrame = useFrame(HelpFrame);
-
-await helpFrame.open();
-```
-
-## Открытие Frame Из Controller Или Service
-
-Runtime-код использует `FrameServiceInterface`.
-
-```ts
-@Controller()
-export class OpenOrderDetailsController implements ControllerInterface {
-  constructor(
-    @Inject(FrameServiceInterface)
-    private readonly frameService: FrameServiceInterface,
+    @Inject(NavigateServiceInterface)
+    private readonly navigate: NavigateServiceInterface,
   ) {}
 
-  async action(args: ControllerActionArgs<{ readonly id: string }>): Promise<void> {
-    await this.frameService.open(OrderDetailsFrame, {
-      id: args.payload.id,
-    });
+  async edit(employeeId: string): Promise<void> {
+    await this.navigate.frame.open(`/employees/${employeeId}/edit`);
   }
 }
 ```
 
-Возврат к parent frame:
+`frame.open()` принимает абсолютный source, начинающийся с `/`. Относительные
+значения вроде `frame.open('edit')` запрещены: одинаковый вызов должен сохранять
+смысл при переходе между независимыми frame routers.
 
-```ts
-await this.frameService.back(OrderDetailsFrame);
+`frame.close()` создаёт обычную history entry без активного frame route.
+Благодаря этому история остаётся полноценной:
+
+```text
+открыть frame 1 -> закрыть -> открыть frame 6 -> закрыть
+browser back    -> frame 6 -> закрыто -> frame 1 -> закрыто
 ```
 
-Закрытие всей frame-сессии:
+Для закрытия без отдельной записи передай `{ replace: true }`.
+
+Возврат по browser history выполняется `NavigateServiceInterface.back()` либо
+средствами браузера. Framework не пытается
+выводить родителя из распределённых `FrameRouter`/`FrameRoute` declarations и
+не подменяет отсутствующую history entry синтетическим переходом. Если
+конкретному экрану нужна кнопка на известный URL, это явная feature navigation.
+
+Не изменяй hash вручную через `window.location` или React Router. Используй
+`NavigateServiceInterface.frame`; отдельного injectable frame navigation service
+и отдельной frame history metadata нет.
+
+## Params И Controller
+
+Динамические сегменты `baseSource` и `path` становятся props фрейма. Значения
+URL-сегментов являются строками:
 
 ```ts
-await this.frameService.close(OrderDetailsFrame);
+type EmployeeReviewControllerArgs = ControllerArgs<WithProps<{ readonly employeeId: string }>>;
+
+export abstract class EmployeeReviewControllerInterface {
+  abstract loader(args: EmployeeReviewControllerArgs): Promise<EmployeeEntity>;
+}
+
+@Controller()
+export class EmployeeReviewController implements EmployeeReviewControllerInterface {
+  constructor(
+    @Inject(EmployeeServiceInterface)
+    private readonly employeeService: EmployeeServiceInterface,
+  ) {}
+
+  loader({ props, signal }: EmployeeReviewControllerArgs): Promise<EmployeeEntity> {
+    return this.employeeService.get(props.employeeId, { signal });
+  }
+}
 ```
 
-Потребители не должны знать hash key. Hash key принадлежит `HashFrameSource` в
-definition.
+Controller получает params через единый `ControllerArgs<WithProps<...>>`.
+Нельзя повторно читать hash/location и разбирать source внутри controller или
+view.
 
-## Providers Фрейма
-
-Frame metadata может объявлять providers:
+Frame использует общие controller hooks:
 
 ```tsx
-@Frame<OrderDetailsFrameParams>({
-  source: HashFrameSource.create('order-details', OrderDetailsFrameParams),
-  shell: OrderDetailsFrameShell,
-  providers: [OrdersSummaryWidgetPreloadProvider],
-  fallback: <p>Фрейм загружается...</p>,
-  view: FrameView,
-})
-export class OrderDetailsFrame extends FrameDefinition<OrderDetailsFrameParams> {}
+const employee = useLoaderData(EmployeeReviewControllerInterface);
+const submit = useSubmit(EmployeeReviewControllerInterface);
+const controller = useController(EmployeeReviewControllerInterface);
+const revalidate = useRevalidate(EmployeeReviewControllerInterface);
 ```
 
-Frame providers помечаются `@Provider()`, используют
-`RuntimeProviderInterface` и выполняются в `FrameScope`.
+Обычная ошибка `action` остаётся в `submit.error`. Для принудительного перевода
+frame runtime в `failed` controller вызывает внедрённый
+`RuntimeExceptionServiceInterface.raise(error)`.
 
-Это позволяет preload-ить widgets или подключать lifecycle effects, не
-перенося orchestration code во frame view.
+## Providers И Layouts
 
-Frame provider lifecycle:
+Порядок композиции:
 
 ```text
-beforeLoad
--> frame controller loaders
--> beforeRender
--> frame layouts
--> frame view render
+FrameRouter shell
+  -> FrameRouter layouts
+    -> FrameRoute layouts от корня к листу
+      -> Frame layouts
+        -> Frame view
 ```
 
-Provider может подготовить вложенный widget через
-`WidgetRuntimeFactoryInterface.preload(...)`. Данные самого frame должны
-загружаться controller-ом.
+Router-level providers живут весь срок активного router runtime. Providers
+ветки `FrameRoute` пересоздаются при переходе на другой leaf. Frame providers
+принадлежат конкретному Frame runtime.
 
-## Поведение При Старте
+Provider используется для lifecycle side effects: preload, subscription,
+подключение внешнего runtime. Загрузка данных и пользовательские команды
+принадлежат controller.
 
-Прямое открытие страницы с active hash:
+## Границы Ошибок
+
+Для routing-stage (`load` Frame export, policies, router/route providers)
+граница выбирается так:
 
 ```text
-/orders#order-details(id='100')
--> route branch matches
--> available frames собираются из matched route branch
--> active frame runtime подготавливается во время loader flow текущего leaf route
--> FrameLayer renders prepared frame
+ближайший FrameRoute
+  -> FrameRouter
+    -> app.frames
+      -> app.components
 ```
 
-Это правило действует на любой глубине route tree и с настроенным `baseUrl`:
-canonical pathname дочернего route включает все parent segments, поэтому
-providers и controller loaders активного frame завершаются до разрешения route
-loader и скрытия startup splash.
+После создания Frame его собственные `fallback` и `exception` являются самой
+близкой runtime-границей. Ошибка loader/action/render конкретного Frame остаётся
+внутри Frame runtime и не переводит обычный Route или всё приложение в
+`failed`. Ошибка shell либо router-level layout принадлежит `FrameRouter`.
 
-Активация только через hash после render страницы:
+## Чеклист
 
-```text
-user открывает frame
--> hash changes
--> route loaders не revalidate-ятся автоматически
--> FrameLayer starts frame runtime
--> frame fallback renders while providers run
-```
-
-Если frame runtime падает при resolution provider/controller, во время
-`beforeRender` или React render, `FrameLayer` показывает `@Frame.exception`.
-Render failure публикуется с `operation: 'render'`; ошибка frame view остаётся
-внутри frame shell и не заменяет module UI. Если собственного `exception` нет,
-используется ближайший route/application exception UI.
+- Frame не содержит `source` и `shell`.
+- `Route.frames` содержит только `FrameRouter`.
+- Каждый `FrameRoute` находится внутри `FrameRouter`.
+- `app.frames({ shell })` настроен, если используются frame routers.
+- Переходы используют только абсолютный `to('/...')`.
+- Frame package не импортирует соседние frame tokens.
+- Params приходят в controller через `props`.
+- Browser back, shell back и close проверены для прямого URL и history flow.
+- Lazy-load, forbidden, not-found и render errors остаются в frame layer.

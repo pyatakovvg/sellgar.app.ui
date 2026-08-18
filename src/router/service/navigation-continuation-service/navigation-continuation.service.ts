@@ -9,15 +9,13 @@ const DEFAULT_CONTINUATION_KEY = 'default';
 const STORAGE_PREFIX = 'tiyn:navigation-continuation:';
 
 @Injectable()
-export class NavigationContinuationService extends NavigationContinuationServiceInterface {
+export class NavigationContinuationService implements NavigationContinuationServiceInterface {
   private readonly fallbackStorage = new Map<string, string>();
 
   constructor(
     @Inject(LocationServiceInterface)
     private readonly locationService: LocationServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
   capture(target: string, options: NavigationContinuationOptions = {}): string | null {
     const normalizedTarget = this.normalizeTarget(target, options);
@@ -39,12 +37,6 @@ export class NavigationContinuationService extends NavigationContinuationService
     }
 
     return this.capture(`${location.pathname}${location.search}${location.hash}`, options);
-  }
-
-  captureRequest(request: Request, options: NavigationContinuationOptions = {}): string | null {
-    const url = new URL(request.url);
-
-    return this.capture(`${url.pathname}${url.search}${url.hash}`, options);
   }
 
   clear(options: NavigationContinuationOptions = {}): void {

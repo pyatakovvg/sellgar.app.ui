@@ -24,7 +24,7 @@ Framework создает рядом с runtime-веткой отдельный `
 ## Контракт
 
 ```ts
-export abstract class Application extends ApplicationControllerInterface {
+export abstract class Application implements ApplicationControllerInterface {
   get lifecycle(): ApplicationLifecycleSnapshot;
 
   compose(): void;
@@ -162,13 +162,11 @@ Application initializer - DI-managed class с методом `execute(...)`.
 
 ```ts
 @Initializer()
-export class ResolveSessionInitializer extends ApplicationInitializerInterface {
+export class ResolveSessionInitializer implements ApplicationInitializerInterface {
   constructor(
     @Inject(SessionGatewayInterface)
     private readonly sessionGateway: SessionGatewayInterface,
-  ) {
-    super();
-  }
+  ) {}
 
   async execute(context: ApplicationInitializerContextInterface): Promise<void> {
     const session = await this.sessionGateway.resolve({
@@ -240,15 +238,13 @@ app.initializers([
 
 ```ts
 @Initializer()
-export class ResolveProfileInitializer extends ApplicationInitializerInterface {
+export class ResolveProfileInitializer implements ApplicationInitializerInterface {
   constructor(
     @Inject(ApplicationStoreInterface)
     private readonly store: ApplicationStoreInterface,
     @Inject(ProfileGatewayInterface)
     private readonly profileGateway: ProfileGatewayInterface,
-  ) {
-    super();
-  }
+  ) {}
 
   async execute(context: ApplicationInitializerContextInterface): Promise<void> {
     const profile = await this.profileGateway.getProfile({
@@ -293,6 +289,18 @@ session.setAnonymous();
 session.setAuthenticated();
 session.subscribe(listener);
 ```
+
+После запуска router каждое изменение session revision регистрирует invalidation
+в единственном application-scoped `RuntimeOperationCoordinator`. Coordinator
+схлопывает invalidations одной волны и вызывает единственный refresh handler
+router adapter-а. Поэтому источник transition — action, произвольный метод
+controller, loader, provider, request recovery или application service — не
+меняет lifecycle. `SessionRuntimeStateInterface` при этом не знает о router,
+navigation и policy.
+
+Не добавляй после `setAuthenticated()` или `setAnonymous()` ручной redirect либо
+`revalidate()`. Решение о переходе принадлежит route policy, а повторную
+проверку инициирует framework.
 
 Не складывай profile, permissions, tenant или feature flags в session state.
 Для этих данных используй `ApplicationStoreInterface`.

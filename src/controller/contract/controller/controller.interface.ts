@@ -1,21 +1,28 @@
-export interface ControllerLoaderArgs {
-  readonly params: Record<string, string | undefined>;
-  readonly request: Request;
-}
+export type ControllerArgs<TArgs extends object = object> = TArgs & {
+  readonly signal: AbortSignal;
+};
 
-export interface ControllerActionArgs<TPayload = unknown> {
-  readonly params: Record<string, string | undefined>;
+export type WithParams<TParams, TNext extends object = object> = TNext & {
+  readonly params: TParams;
+};
+
+export type WithPayload<TPayload, TNext extends object = object> = TNext & {
   readonly payload: TPayload;
-  readonly request: Request;
-}
+};
 
-export interface ControllerInterface {
-  action?(args: ControllerActionArgs): unknown | Promise<unknown>;
+export type WithProps<TProps extends object, TNext extends object = object> = TNext & {
+  readonly props: TProps;
+};
+
+interface ControllerRuntimeContract {
+  action?(args: ControllerArgs<WithPayload<unknown>>): unknown | Promise<unknown>;
 
   dispose?(): void | Promise<void>;
 
-  loader?(args: ControllerLoaderArgs): unknown | Promise<unknown>;
+  loader?(args: ControllerArgs): unknown | Promise<unknown>;
 }
+
+export type RuntimeController = ControllerRuntimeContract;
 
 export type ControllerLoaderResult<TController> = TController extends {
   loader: (...args: infer _TArgs) => infer TResult;

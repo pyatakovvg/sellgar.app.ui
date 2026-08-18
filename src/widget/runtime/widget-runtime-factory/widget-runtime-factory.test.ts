@@ -1,3 +1,4 @@
+import type { ControllerArgs, WithProps } from '../../../controller/contract/controller';
 import 'reflect-metadata';
 
 import React from 'react';
@@ -13,10 +14,10 @@ import type {
   RuntimeProviderCleanup,
   RuntimeProviderContextInterface,
 } from '../../../runtime/provider/runtime-provider';
+import { bindRuntimeProviderScope } from '../../../runtime/provider/runtime-provider';
 
 import { Widget, WidgetDefinition } from '../../declaration/widget';
 
-import { WidgetControllerInterface, type WidgetControllerLoaderArgs } from '../widget-controller';
 import { WidgetRuntimeFactory } from './';
 
 describe('WidgetRuntimeFactory', () => {
@@ -117,11 +118,11 @@ interface TestWidgetProps {
 }
 
 @Controller()
-class TestWidgetController extends WidgetControllerInterface<TestWidgetProps> {
+class TestWidgetController {
   static disposeCount = 0;
   static loaderValues: string[] = [];
 
-  loader(args: WidgetControllerLoaderArgs<TestWidgetProps>): string {
+  loader(args: ControllerArgs<WithProps<TestWidgetProps>>): string {
     TestWidgetController.loaderValues.push(args.props.value);
 
     return args.props.value;
@@ -132,7 +133,7 @@ class TestWidgetController extends WidgetControllerInterface<TestWidgetProps> {
   }
 }
 
-class TestWidgetBindings extends BindingModuleInterface {
+class TestWidgetBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(TestWidgetController).toSelf().inSingletonScope();
   }
@@ -156,14 +157,13 @@ const assertRuntimeProviderCleanup: (value: unknown) => asserts value is Runtime
 };
 
 const createProviderContext = (scope: ApplicationScope): RuntimeProviderContextInterface => {
-  const request = new Request('https://tiyn-app.test/widget-preload');
-
-  return {
-    params: {},
-    phase: 'beforeRender',
-    props: {},
-    request,
+  return bindRuntimeProviderScope(
+    {
+      params: {},
+      phase: 'beforeRender',
+      props: {},
+      signal: new AbortController().signal,
+    },
     scope,
-    signal: request.signal,
-  };
+  );
 };

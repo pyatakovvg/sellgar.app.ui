@@ -5,7 +5,7 @@ import { ClassTransformerRouterParamsConverter } from '../class-transformer-rout
 
 import { RouterParamsConverterInterface } from './router-params-converter.interface.ts';
 
-export class RouterParamsConverterBindings extends BindingModuleInterface {
+export class RouterParamsConverterBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(RouterParamsConverterInterface).to(ClassTransformerRouterParamsConverter).inSingletonScope();
   }

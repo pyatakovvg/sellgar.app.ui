@@ -1,13 +1,13 @@
 import type React from 'react';
-import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router';
-import { redirect, replace } from 'react-router';
 
 import type { ApplicationControllerInterface } from '../../../application/lifecycle/application-lifecycle';
 import type { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
-import { MODULE_ACTION_ID_FIELD, ModuleRuntime } from '../../../module/runtime/module-runtime';
-import { FrameRuntime } from '../../../frame/runtime/frame-runtime';
-import { getFrameMetadata, type FrameConstructor } from '../../../frame/declaration/frame';
-import type { FrameSourceCloseHandler, FrameSourceContextInterface } from '../../../frame/source/frame-source';
+import { NavigationBlockerServiceInterface } from '../../../features/navigation-blocker/contract/navigation-blocker-service';
+import {
+  NavigationBlockerRuntimeInterface,
+  NavigationBlockerService,
+} from '../../../features/navigation-blocker/runtime/navigation-blocker-runtime';
+import { ModuleRuntime } from '../../../module/runtime/module-runtime';
 import { getLayoutMetadata, type LayoutConstructor } from '../../../layout/declaration/layout';
 import { PolicyRunner } from '../../../policy/runtime/policy-runner';
 import type { PolicyBoundaryDecision } from '../../../policy/contract/policy-boundary-decision';
@@ -21,9 +21,12 @@ import type { RuntimeScope } from '../../../runtime/scope/base';
 import {
   createRuntimeRevisionGuard,
   executeRuntimeOperation,
+  RuntimeOperationCoordinator,
   type RuntimeOperationResult,
 } from '../../../runtime/operation';
 import {
+  captureRuntimeFailure,
+  getRuntimeOperationError,
   reportRuntimeFailure,
   RuntimeFailureReporterInterface,
   type RuntimeFailure,
@@ -31,48 +34,90 @@ import {
   type RuntimeFailureSource,
   type RuntimeOwner,
 } from '../../../runtime/failure';
-import { isFirstAvailableRouteDefault, type Route } from '../../declaration/route';
-import { RouterParamsConverterInterface } from '../../params/router-params-converter';
+import {
+  getRouteDefinition,
+  isFirstAvailableRouteDefault,
+  type Route,
+  type RouteDefinition,
+} from '../../declaration/route';
 import { NavigateServiceInterface } from '../../service/navigate-service';
 import { NavigationContinuationServiceInterface } from '../../service/navigation-continuation-service';
 import { RouterServiceControllerInterface } from '../../service/router-service-controller';
 import type { RouterLocationSnapshot } from '../../service/location-service';
-import { parseHashToObject } from '../../utils/hash-utils';
+import { LocationServiceInterface } from '../../service/location-service';
+import type { DependencyToken } from '../../../di/token/dependency-token';
 import { createRoutePathname } from '../../utils/route-pathname';
-import { parseSearchParams } from '../../utils/search-utils';
-import { RouterRuntime } from '../router-runtime';
-import { FrameRuntimeRegistry } from '../frame-runtime-registry';
-
 import type {
   RoutePolicyBoundary,
   RoutePolicyDeclarations,
   RouteRuntimeContextInterface,
 } from '../route-runtime-context';
 
+export interface RouteRuntimeLoadContext {
+  readonly activate?: () => void;
+  readonly location: RouterLocationSnapshot;
+  readonly signal: AbortSignal;
+}
+
+type RouteRuntimeExecutionContext = RouteRuntimeLoadContext;
+
+export class RouteRuntimeNavigationException extends Error {
+  constructor(readonly decision: RouteRuntimeNavigationDecision) {
+    super(`Route runtime завершил операцию решением ${decision.type}.`);
+  }
+}
+
+export const isRouteRuntimeNavigationException = (value: unknown): value is RouteRuntimeNavigationException => {
+  return value instanceof RouteRuntimeNavigationException;
+};
+
+export type RouteRuntimeNavigationDecision =
+  | {
+      readonly replace: boolean;
+      readonly to: string;
+      readonly type: 'redirect';
+    }
+  | { readonly type: 'forbidden' }
+  | { readonly type: 'not-found' };
+
 export class RouteRuntime {
+  private readonly definition: RouteDefinition;
   private readonly moduleRuntime: ModuleRuntime | null;
-  private readonly preparedFrameRuntimes = new FrameRuntimeRegistry();
   private readonly providerTokens: readonly ProviderToken[];
   private readonly routeOwner: RuntimeOwner;
   private readonly routeScope: RouteScope;
   private providerPipeline: RuntimeProviderPipeline | undefined;
 
   constructor(
-    private readonly route: Route,
+    route: Route,
     private readonly app: ApplicationControllerInterface,
     private readonly session: SessionRuntimeStateInterface,
     private readonly appScope: RuntimeScope,
     private readonly loaderPolicies: RoutePolicyDeclarations,
     private readonly actionPolicies: RoutePolicyDeclarations,
-    private readonly availableFrames: readonly FrameConstructor[] = [],
     private readonly routePathname: string = '/',
     private readonly basePath?: string,
+    routeId: string = routePathname,
   ) {
-    this.routeScope = new RouteScope(appScope);
+    this.definition = getRouteDefinition(route);
+    this.routeScope = new RouteScope(appScope, (registry) => {
+      if (!appScope.has(NavigationBlockerRuntimeInterface)) {
+        return;
+      }
+
+      registry.bind(NavigationBlockerServiceInterface).toConstantValue(
+        new NavigationBlockerService(appScope.get(NavigationBlockerRuntimeInterface), {
+          kind: 'route',
+          routeId,
+        }),
+      );
+    });
     this.routeOwner = { id: routePathname, kind: 'route' };
-    this.activateLayouts(route.layouts);
+    this.activateLayouts(this.definition.layouts);
     this.providerTokens = this.getProviderTokens();
-    this.moduleRuntime = route.load ? new ModuleRuntime(this.routeScope, route.load, this.routeOwner) : null;
+    this.moduleRuntime = this.definition.load
+      ? new ModuleRuntime(this.routeScope, this.definition.load, this.routeOwner)
+      : null;
   }
 
   getModuleRuntime(): ModuleRuntime {
@@ -83,116 +128,162 @@ export class RouteRuntime {
     return this.moduleRuntime;
   }
 
-  getRuntimeScope(): RuntimeScope {
-    return this.moduleRuntime?.getViewModuleOrNull()?.scope ?? this.routeScope;
+  action<TPayload>(controllerToken: DependencyToken<unknown>, payload: TPayload): Promise<unknown> {
+    const moduleRuntime = this.getModuleRuntime();
+    const coordinator = this.appScope.get(RuntimeOperationCoordinator);
+    const location = this.getCurrentLocation();
+    const abortController = new AbortController();
+    const context: RouteRuntimeLoadContext = {
+      location,
+      signal: abortController.signal,
+    };
+
+    return coordinator.run(async () => {
+      const source = this.createRuntimeSource('action');
+
+      try {
+        await this.executePolicies('canMatch', context, this.actionPolicies);
+        await this.executePolicies('canAction', context, this.actionPolicies);
+
+        return await moduleRuntime.action(controllerToken, payload, {
+          params: location.params,
+          props: {},
+          signal: abortController.signal,
+        });
+      } catch (error) {
+        const operationError = getRuntimeOperationError(error, source);
+
+        if (isRouteRuntimeNavigationException(operationError.cause)) {
+          await this.navigate(operationError.cause.decision);
+          return undefined;
+        }
+
+        const failure = captureRuntimeFailure(error, source);
+
+        await this.reportFailure(failure, 'action.failed', 'active');
+        throw failure.cause;
+      }
+    });
+  }
+
+  getActionState<TResult = unknown>(controllerToken: DependencyToken<unknown>) {
+    return this.getModuleRuntime().getActionState<TResult>(controllerToken);
+  }
+
+  getController<TController>(controllerToken: DependencyToken<TController>): TController {
+    return this.getModuleRuntime().getController(controllerToken);
+  }
+
+  getLoaderData<TValue>(controllerToken: DependencyToken<unknown>): TValue {
+    return this.getModuleRuntime().getLoaderData<TValue>(controllerToken);
+  }
+
+  getParams(): Readonly<Record<string, string | undefined>> {
+    return this.getCurrentLocation().params;
+  }
+
+  getRevalidateState(): { readonly error: unknown; readonly inProcess: boolean } {
+    return EMPTY_REVALIDATE_STATE;
+  }
+
+  getRevalidateRevision(): number {
+    return 0;
+  }
+
+  revalidate(): Promise<void> {
+    return this.appScope.get(RuntimeOperationCoordinator).invalidateAndWait();
+  }
+
+  invoke<TValue>(controllerToken: DependencyToken<unknown>, method: string | symbol, args: readonly unknown[]): TValue {
+    const moduleRuntime = this.getModuleRuntime();
+
+    return this.appScope.get(RuntimeOperationCoordinator).run(() => {
+      return moduleRuntime.invoke<TValue>(controllerToken, method, args);
+    });
+  }
+
+  subscribe(listener: () => void): () => void {
+    return this.getModuleRuntime().subscribe(listener);
+  }
+
+  private getCurrentLocation(): RouterLocationSnapshot {
+    const location = this.appScope.get(LocationServiceInterface).location;
+
+    if (location === null) {
+      throw new Error('Активный location маршрута недоступен.');
+    }
+
+    return location;
+  }
+
+  private async navigate(decision: RouteRuntimeNavigationDecision): Promise<void> {
+    if (decision.type !== 'redirect') {
+      throw new RouteRuntimeNavigationException(decision);
+    }
+
+    const navigation = this.appScope.get(NavigateServiceInterface);
+
+    if (decision.replace) {
+      await navigation.replace(decision.to);
+      return;
+    }
+
+    await navigation.to(decision.to);
   }
 
   getRouteScope(): RuntimeScope {
     return this.routeScope;
   }
 
-  getPreparedFrameRuntime<TProps extends object>(
-    frame: FrameConstructor<TProps>,
-    runtimeKey: string | undefined,
-  ): FrameRuntime<TProps> | null {
-    return this.preparedFrameRuntimes.getPrepared(frame, runtimeKey);
-  }
-
-  prepareFrameRuntime<TProps extends object>(
-    frame: FrameConstructor<TProps>,
-    runtimeKey: string | undefined,
-    props: TProps,
-    ownerScope: RuntimeScope,
-  ): FrameRuntime<TProps> {
-    return this.preparedFrameRuntimes.prepare(frame, runtimeKey, props, ownerScope);
-  }
-
   getException(inheritedException?: React.ReactNode): React.ReactNode {
     const moduleRuntime = this.moduleRuntime?.getErrorBoundaryModuleOrNull();
 
-    return moduleRuntime?.metadata.exception ?? this.route.exception ?? inheritedException;
+    return moduleRuntime?.metadata.exception ?? this.definition.exception ?? inheritedException;
   }
 
-  async loader(args: LoaderFunctionArgs): Promise<unknown> {
-    const routerRuntime = this.appScope.get(RouterRuntime);
-    const completeRouteLoading =
-      typeof routerRuntime.trackRouteLoading === 'function' ? routerRuntime.trackRouteLoading() : () => {};
+  async loader(context: RouteRuntimeLoadContext): Promise<unknown> {
+    this.redirectStaticDefaultRoute(context);
 
-    try {
-      this.redirectStaticDefaultRoute(args);
-
-      const operationGuard = createRuntimeRevisionGuard(this.session);
-      const location = createRouteLocation(args, this.basePath);
-      const result = await executeRuntimeOperation({
-        guard: operationGuard,
-        operation: async () => {
-          this.appScope.get(RouterServiceControllerInterface).syncLocation(location);
-
-          await this.executePolicies('canMatch', args, this.loaderPolicies);
-          await this.redirectFirstAvailableDefaultRoute(args);
-
-          if (this.moduleRuntime === null) {
-            await this.executePolicies('canActivate', args, this.loaderPolicies);
-
-            await this.runProviderBeforeLoad(args);
-            await this.runProviderSetup(args);
-            await this.runProviderBeforeRender(args);
-            await this.loadFrameRuntimes(args, this.appScope, location);
-            await this.handleLoaderSessionTransition(args, operationGuard.revision);
-
-            return null;
-          }
-
-          const moduleRuntime = this.getModuleRuntime();
-
-          await this.executePolicies('canActivate', args, this.loaderPolicies);
-
-          await this.runProviderBeforeLoad(args);
-
-          const loaderData = await moduleRuntime.load({
-            params: args.params,
-            request: args.request,
-          });
-
-          await this.runProviderSetup(args);
-          await this.runProviderBeforeRender(args);
-          await this.loadFrameRuntimes(args, this.getRuntimeScope(), location);
-          await this.handleLoaderSessionTransition(args, operationGuard.revision);
-
-          return loaderData;
-        },
-        signal: args.request.signal,
-        source: this.createRuntimeSource('loader'),
-      });
-
-      return await this.applyLoaderOperationResult(args, operationGuard.revision, result);
-    } finally {
-      completeRouteLoading();
-    }
-  }
-
-  async action(args: ActionFunctionArgs): Promise<unknown> {
     const operationGuard = createRuntimeRevisionGuard(this.session);
-    const moduleRuntime = this.getModuleRuntime();
-    let actionId: string | null = null;
+    const location = context.location;
     const result = await executeRuntimeOperation({
       guard: operationGuard,
       operation: async () => {
-        actionId = await parseModuleActionId(args.request);
+        this.appScope.get(RouterServiceControllerInterface).syncLocation(location);
 
-        await this.executePolicies('canMatch', args, this.actionPolicies);
-        await this.executePolicies('canAction', args, this.actionPolicies);
+        await this.executePolicies('canMatch', context, this.loaderPolicies);
+        await this.redirectFirstAvailableDefaultRoute(context);
+        await this.executePolicies('canActivate', context, this.loaderPolicies);
+        context.activate?.();
 
-        return await moduleRuntime.runAction(actionId, {
-          params: args.params,
-          request: args.request,
+        if (this.moduleRuntime === null) {
+          await this.runProviderBeforeLoad(context);
+          await this.runProviderSetup(context);
+          await this.runProviderBeforeRender(context);
+
+          return null;
+        }
+
+        const moduleRuntime = this.getModuleRuntime();
+
+        await this.runProviderBeforeLoad(context);
+
+        const loaderData = await moduleRuntime.load({
+          params: location.params,
+          props: {},
+          signal: context.signal,
         });
+
+        await this.runProviderSetup(context);
+        await this.runProviderBeforeRender(context);
+
+        return loaderData;
       },
-      signal: args.request.signal,
-      source: this.createRuntimeSource('action'),
+      signal: context.signal,
+      source: this.createRuntimeSource('loader'),
     });
 
-    return await this.applyActionOperationResult(args, operationGuard.revision, moduleRuntime, actionId, result);
+    return await this.applyLoaderOperationResult(result);
   }
 
   commit(): void {
@@ -201,67 +292,67 @@ export class RouteRuntime {
 
   discardPending(): void {
     void this.disposeProviders();
-    void this.disposePreparedFrameRuntimes();
     this.moduleRuntime?.discardPending();
   }
 
   async dispose(): Promise<void> {
     await this.disposeProviders();
-    await this.disposePreparedFrameRuntimes();
     await this.moduleRuntime?.dispose();
   }
 
-  private async runProviderBeforeLoad(args: LoaderFunctionArgs): Promise<void> {
-    await this.runProviders(args, 'beforeLoad');
+  private async runProviderBeforeLoad(context: RouteRuntimeLoadContext): Promise<void> {
+    await this.runProviders(context, 'beforeLoad');
   }
 
-  private async runProviderSetup(args: LoaderFunctionArgs): Promise<void> {
-    await this.runProviders(args, 'setup');
+  private async runProviderSetup(context: RouteRuntimeLoadContext): Promise<void> {
+    await this.runProviders(context, 'setup');
   }
 
-  private redirectStaticDefaultRoute(args: LoaderFunctionArgs): void {
+  private redirectStaticDefaultRoute(context: RouteRuntimeLoadContext): void {
     if (
-      this.route.defaultTo === undefined ||
-      isFirstAvailableRouteDefault(this.route.defaultTo) ||
-      !this.isDefaultRouteRequest(args.request)
+      this.definition.defaultTo === undefined ||
+      isFirstAvailableRouteDefault(this.definition.defaultTo) ||
+      !this.isDefaultRouteLocation(context.location)
     ) {
       return;
     }
 
-    throw replace(this.route.defaultTo);
+    throw createRouteRuntimeNavigationException({ replace: true, to: this.definition.defaultTo, type: 'redirect' });
   }
 
-  private async redirectFirstAvailableDefaultRoute(args: LoaderFunctionArgs): Promise<void> {
+  private async redirectFirstAvailableDefaultRoute(context: RouteRuntimeLoadContext): Promise<void> {
     if (
-      this.route.defaultTo === undefined ||
-      !isFirstAvailableRouteDefault(this.route.defaultTo) ||
-      !this.isDefaultRouteRequest(args.request)
+      this.definition.defaultTo === undefined ||
+      !isFirstAvailableRouteDefault(this.definition.defaultTo) ||
+      !this.isDefaultRouteLocation(context.location)
     ) {
       return;
     }
 
-    const target = await this.resolveFirstAvailableRoute(args, this.route.routes, this.routePathname);
+    const target = await this.resolveFirstAvailableRoute(context, this.definition.routes, this.routePathname);
 
     if (target === null) {
-      throw new Response(null, { status: 403 });
+      throw createRouteRuntimeNavigationException({ type: 'forbidden' });
     }
 
-    throw replace(target);
+    throw createRouteRuntimeNavigationException({ replace: true, to: target, type: 'redirect' });
   }
 
   private async resolveFirstAvailableRoute(
-    args: LoaderFunctionArgs,
+    context: RouteRuntimeLoadContext,
     routes: readonly Route[],
     parentPathname: string,
   ): Promise<string | null> {
     for (const route of routes) {
-      if (route.path === '*') {
+      const definition = getRouteDefinition(route);
+
+      if (definition.path === '*') {
         continue;
       }
 
-      const routePathname = createRoutePathname(parentPathname, route.path);
+      const routePathname = createRoutePathname(parentPathname, definition.path);
 
-      if (!(await this.canMatchDefaultRoute(route, args))) {
+      if (!(await this.canMatchDefaultRoute(route, context))) {
         continue;
       }
 
@@ -269,7 +360,7 @@ export class RouteRuntime {
         return routePathname;
       }
 
-      const target = await this.resolveFirstAvailableRoute(args, route.routes, routePathname);
+      const target = await this.resolveFirstAvailableRoute(context, definition.routes, routePathname);
 
       if (target !== null) {
         return target;
@@ -279,51 +370,54 @@ export class RouteRuntime {
     return null;
   }
 
-  private async canMatchDefaultRoute(route: Route, args: LoaderFunctionArgs): Promise<boolean> {
-    if (route.canMatch.length === 0) {
+  private async canMatchDefaultRoute(route: Route, context: RouteRuntimeLoadContext): Promise<boolean> {
+    const definition = getRouteDefinition(route);
+
+    if (definition.canMatch.length === 0) {
       return true;
     }
 
     const policyRunner = new PolicyRunner<RouteRuntimeContextInterface>(this.appScope, this.routeOwner);
 
-    return await policyRunner.test(route.canMatch, this.createPolicyContext(args));
+    return await policyRunner.test(definition.canMatch, this.createPolicyContext(context));
   }
 
-  private isDefaultRouteRequest(request: Request): boolean {
-    const url = new URL(request.url);
-    const pathname = removeBasePath(url.pathname, this.basePath);
-
-    return normalizePathname(pathname) === normalizePathname(this.routePathname);
+  private isDefaultRouteLocation(location: RouterLocationSnapshot): boolean {
+    return (
+      normalizePathname(location.pathname) === normalizePathname(removeBasePath(this.routePathname, this.basePath))
+    );
   }
 
-  private async runProviderBeforeRender(args: LoaderFunctionArgs): Promise<void> {
-    await this.runProviders(args, 'beforeRender');
+  private async runProviderBeforeRender(context: RouteRuntimeLoadContext): Promise<void> {
+    await this.runProviders(context, 'beforeRender');
   }
 
-  private async runProviders(args: LoaderFunctionArgs, phase: 'beforeLoad' | 'beforeRender' | 'setup'): Promise<void> {
+  private async runProviders(
+    context: RouteRuntimeLoadContext,
+    phase: 'beforeLoad' | 'beforeRender' | 'setup',
+  ): Promise<void> {
     if (this.providerTokens.length === 0) {
       return;
     }
 
-    const context = this.createProviderContext(args);
+    const providerContext = this.createProviderContext(context);
     const providerPipeline = this.getOrCreateProviderPipeline();
 
     if (phase === 'beforeLoad') {
-      await providerPipeline.runBeforeLoad(context);
+      await providerPipeline.runBeforeLoad(providerContext);
     } else if (phase === 'beforeRender') {
-      await providerPipeline.runBeforeRender(context);
+      await providerPipeline.runBeforeRender(providerContext);
     } else if (phase === 'setup') {
-      await providerPipeline.setup(context);
+      await providerPipeline.setup(providerContext);
     }
   }
 
-  private createProviderContext(args: LoaderFunctionArgs): RuntimeProviderPipelineContext {
+  private createProviderContext(context: RouteRuntimeLoadContext): RuntimeProviderPipelineContext {
     return {
-      params: args.params,
+      params: context.location.params,
       props: {},
-      request: args.request,
       scope: this.routeScope,
-      signal: args.request.signal,
+      signal: context.signal,
     };
   }
 
@@ -340,8 +434,8 @@ export class RouteRuntime {
 
   private getProviderTokens(): readonly ProviderToken[] {
     return [
-      ...this.route.providers,
-      ...this.route.layouts.flatMap((layout) => {
+      ...this.definition.providers,
+      ...this.definition.layouts.flatMap((layout) => {
         return getLayoutMetadata(layout).providers ?? [];
       }),
     ];
@@ -365,181 +459,30 @@ export class RouteRuntime {
     await providerPipeline.dispose();
   }
 
-  private async loadFrameRuntimes(
-    args: LoaderFunctionArgs,
-    ownerScope: RuntimeScope,
-    location: RouterLocationSnapshot,
-  ): Promise<void> {
-    if (this.availableFrames.length === 0 || !this.isDefaultRouteRequest(args.request)) {
-      return;
-    }
-
-    const navigateService = this.appScope.get(NavigateServiceInterface);
-    const routerRuntime = this.appScope.get(RouterRuntime);
-    const sourceContext = this.createFrameSourceContext(location, navigateService);
-    const activeFrames = this.resolveActiveFrames(sourceContext, ownerScope);
-
-    await Promise.all(
-      activeFrames.map(async (activeFrame) => {
-        const existingRuntime = routerRuntime.getPreparedFrameRuntime(activeFrame.frame, activeFrame.runtimeKey);
-        const runtime =
-          existingRuntime ??
-          routerRuntime.prepareFrameRuntime(
-            activeFrame.frame,
-            activeFrame.runtimeKey,
-            activeFrame.props,
-            activeFrame.ownerScope,
-          );
-
-        await runtime
-          .load({
-            app: this.app,
-            close: activeFrame.close,
-            location,
-            navigateService,
-            session: this.session,
-          })
-          .catch((error: unknown) => {
-            if (args.request.signal.aborted || isFrameRuntimeCancellationError(error)) {
-              return;
-            }
-          });
-      }),
-    );
-  }
-
-  private createFrameSourceContext(
-    location: RouterLocationSnapshot,
-    navigateService: NavigateServiceInterface,
-  ): FrameSourceContextInterface {
-    return {
-      location,
-      navigateService,
-      paramsConverter: this.appScope.get(RouterParamsConverterInterface),
-    };
-  }
-
-  private async handleLoaderSessionTransition(args: LoaderFunctionArgs, sessionRevision: number): Promise<void> {
-    if (this.session.revision === sessionRevision) {
-      return;
-    }
-
-    await this.executePolicies('canMatch', args, this.loaderPolicies);
-    await this.executePolicies('canActivate', args, this.loaderPolicies);
-  }
-
-  private async handleActionSessionTransition(args: ActionFunctionArgs, sessionRevision: number): Promise<void> {
-    if (this.session.revision === sessionRevision) {
-      return;
-    }
-
-    await this.executePolicies('canMatch', args, this.actionPolicies);
-    await this.executePolicies('canAction', args, this.actionPolicies);
-  }
-
-  private async applyLoaderOperationResult(
-    args: LoaderFunctionArgs,
-    sessionRevision: number,
-    result: RuntimeOperationResult<unknown>,
-  ): Promise<unknown> {
+  private async applyLoaderOperationResult(result: RuntimeOperationResult<unknown>): Promise<unknown> {
     switch (result.type) {
       case 'completed':
         return result.value;
       case 'interrupted':
-        await this.handleLoaderSessionTransition(args, sessionRevision);
         return null;
       case 'rejected':
-        await this.handleLoaderSessionTransition(args, sessionRevision);
         throw result.error;
       case 'failed':
-        await this.handleLoaderSessionTransition(args, sessionRevision);
+        if (isRouteRuntimeNavigationException(result.failure.cause)) {
+          throw result.failure.cause;
+        }
+
+        await this.reportLoaderFailure(result.failure);
+        throw result.failure.cause;
+      case 'escalated':
         await this.reportLoaderFailure(result.failure);
         throw result.failure.cause;
     }
   }
 
-  private async applyActionOperationResult(
-    args: ActionFunctionArgs,
-    sessionRevision: number,
-    moduleRuntime: ModuleRuntime,
-    actionId: string | null,
-    result: RuntimeOperationResult<unknown>,
-  ): Promise<unknown> {
-    switch (result.type) {
-      case 'completed':
-        moduleRuntime.completeAction(requireActionId(actionId), result.value);
-        return null;
-      case 'interrupted':
-        interruptModuleAction(moduleRuntime, actionId);
-        await this.handleActionSessionTransition(args, sessionRevision);
-        return null;
-      case 'rejected':
-        await this.handleActionSessionTransition(args, sessionRevision);
-
-        if (!failModuleAction(moduleRuntime, actionId, result.error)) {
-          throw result.error;
-        }
-
-        return null;
-      case 'failed':
-        await this.handleActionSessionTransition(args, sessionRevision);
-        await this.reportFailure(result.failure, 'action.failed', 'active');
-
-        if (!failModuleAction(moduleRuntime, actionId, result.failure.cause)) {
-          throw result.failure.cause;
-        }
-
-        return null;
-    }
-  }
-
-  private resolveActiveFrames(
-    context: FrameSourceContextInterface,
-    ownerScope: RuntimeScope,
-  ): PreparedFrameRuntimeEntry[] {
-    let activeFrame: PreparedFrameRuntimeEntry | null = null;
-
-    for (const frame of this.availableFrames) {
-      const metadata = getFrameMetadata(frame);
-      const source = metadata.source;
-
-      if (!source) {
-        continue;
-      }
-
-      const result = source.resolve(context);
-
-      if (!result.active) {
-        continue;
-      }
-
-      activeFrame = {
-        close: result.close,
-        frame,
-        ownerScope,
-        props: result.props,
-        runtimeKey: result.runtimeKey,
-      };
-    }
-
-    return activeFrame ? [activeFrame] : [];
-  }
-
-  private async disposePreparedFrameRuntimes(): Promise<void> {
-    await Promise.all(
-      [...this.availableFrames].flatMap((frame) => {
-        const runtimes = this.preparedFrameRuntimes.drainFrame(frame);
-
-        return runtimes.map((runtime) => {
-          return runtime.dispose();
-        });
-      }),
-    );
-  }
-
   private async executePolicies(
     boundary: RoutePolicyBoundary,
-    args: ActionFunctionArgs | LoaderFunctionArgs,
+    context: RouteRuntimeExecutionContext,
     policies: RoutePolicyDeclarations,
   ): Promise<void> {
     const declarations = policies[boundary];
@@ -549,18 +492,17 @@ export class RouteRuntime {
     }
 
     const policyRunner = new PolicyRunner<RouteRuntimeContextInterface>(this.appScope, this.routeOwner);
-    const decision = await policyRunner.execute(declarations, this.createPolicyContext(args));
+    const decision = await policyRunner.execute(declarations, this.createPolicyContext(context));
 
     this.applyPolicyDecision(decision);
   }
 
-  private createPolicyContext(args: ActionFunctionArgs | LoaderFunctionArgs): RouteRuntimeContextInterface {
+  private createPolicyContext(context: RouteRuntimeExecutionContext): RouteRuntimeContextInterface {
     return {
       app: this.app,
-      params: args.params,
-      request: args.request,
+      params: context.location.params,
       session: this.session,
-      signal: args.request.signal,
+      signal: context.signal,
     };
   }
 
@@ -569,7 +511,11 @@ export class RouteRuntime {
       case 'continue':
         return;
       case 'redirect':
-        throw decision.replace ? replace(decision.to) : redirect(decision.to);
+        throw createRouteRuntimeNavigationException({
+          replace: decision.replace ?? false,
+          to: decision.to,
+          type: 'redirect',
+        });
       case 'redirect-and-save-location':
         this.redirectAndSaveLocation(decision.to, decision.key, decision.replace);
         return;
@@ -577,9 +523,9 @@ export class RouteRuntime {
         this.redirectToSaved(decision.key, decision.fallback, decision.replace);
         return;
       case 'forbidden':
-        throw new Response(null, { status: 403 });
+        throw createRouteRuntimeNavigationException({ type: 'forbidden' });
       case 'not-found':
-        throw new Response(null, { status: 404 });
+        throw createRouteRuntimeNavigationException({ type: 'not-found' });
       case 'error':
         throw decision.error;
     }
@@ -594,10 +540,6 @@ export class RouteRuntime {
   }
 
   private async reportLoaderFailure(failure: RuntimeFailure): Promise<void> {
-    if (failure.cause instanceof Response) {
-      return;
-    }
-
     const disposition: RuntimeFailureDisposition =
       failure.source.owner.kind === 'module' ? 'module.activation-failed' : 'route.activation-failed';
 
@@ -623,7 +565,7 @@ export class RouteRuntime {
       key,
     });
 
-    throw shouldReplace ? replace(to) : redirect(to);
+    throw createRouteRuntimeNavigationException({ replace: shouldReplace, to, type: 'redirect' });
   }
 
   private redirectToSaved(key: string | undefined, fallback = '/', shouldReplace = false): never {
@@ -633,52 +575,9 @@ export class RouteRuntime {
         key,
       }) ?? fallback;
 
-    throw shouldReplace ? replace(target) : redirect(target);
+    throw createRouteRuntimeNavigationException({ replace: shouldReplace, to: target, type: 'redirect' });
   }
 }
-
-const parseModuleActionId = async (request: Request): Promise<string> => {
-  const formData = await request.clone().formData();
-  const actionId = formData.get(MODULE_ACTION_ID_FIELD);
-
-  return requireActionId(actionId);
-};
-
-const requireActionId = (actionId: FormDataEntryValue | string | null): string => {
-  if (typeof actionId !== 'string' || actionId.length === 0) {
-    throw new Error('Идентификатор действия контроллера некорректен.');
-  }
-
-  return actionId;
-};
-
-const failModuleAction = (moduleRuntime: ModuleRuntime, actionId: string | null, error: unknown): boolean => {
-  return actionId === null ? false : moduleRuntime.failAction(actionId, error);
-};
-
-const interruptModuleAction = (moduleRuntime: ModuleRuntime, actionId: string | null): void => {
-  if (actionId !== null) {
-    moduleRuntime.interruptAction(actionId);
-  }
-};
-
-interface PreparedFrameRuntimeEntry<TProps extends object = object> {
-  readonly close: FrameSourceCloseHandler;
-  readonly frame: FrameConstructor<TProps>;
-  readonly ownerScope: RuntimeScope;
-  readonly props: TProps;
-  readonly runtimeKey?: string;
-}
-
-const isFrameRuntimeCancellationError = (error: unknown): boolean => {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  return (
-    error.name === 'CanceledError' || error.message === 'canceled' || error.message === 'Рендеринг фрейма был прерван.'
-  );
-};
 
 const removeBasePath = (pathname: string, basePath: string | undefined): string => {
   if (!basePath || basePath === '/') {
@@ -703,29 +602,18 @@ const normalizePathname = (pathname: string): string => {
 };
 
 const isFirstAvailableRouteTarget = (route: Route): boolean => {
-  return route.path !== undefined || route.load !== undefined;
+  const definition = getRouteDefinition(route);
+
+  return definition.path !== undefined || definition.load !== undefined;
 };
 
-const createRouteLocation = (args: LoaderFunctionArgs, basePath: string | undefined): RouterLocationSnapshot => {
-  const url = new URL(args.request.url);
-  const hash = url.hash || getBrowserLocationHash();
-
-  return {
-    hash,
-    hashParams: parseHashToObject(hash),
-    key: args.request.url,
-    params: args.params,
-    pathname: removeBasePath(url.pathname, basePath),
-    search: url.search,
-    searchParams: parseSearchParams(url.search),
-    state: null,
-  };
+const createRouteRuntimeNavigationException = (
+  decision: RouteRuntimeNavigationDecision,
+): RouteRuntimeNavigationException => {
+  return new RouteRuntimeNavigationException(decision);
 };
 
-const getBrowserLocationHash = (): string => {
-  if (typeof globalThis.location?.hash !== 'string') {
-    return '';
-  }
-
-  return globalThis.location.hash;
-};
+const EMPTY_REVALIDATE_STATE = {
+  error: undefined,
+  inProcess: false,
+} as const;

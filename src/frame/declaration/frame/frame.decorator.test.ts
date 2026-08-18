@@ -1,14 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { Frame, FrameDefinition, getFrameMetadata, isFrameConstructor } from './';
-
-interface TestFrameProps {
-  readonly id: string;
-}
+import { Frame, getFrameMetadata, isFrameConstructor } from './';
 
 describe('Frame', () => {
   it('stores frame metadata on frame token', () => {
-    const metadata = getFrameMetadata<TestFrameProps>(TestFrame);
+    const metadata = getFrameMetadata(TestFrame);
 
     expect(metadata.view).toBe(TestFrameView);
     expect(isFrameConstructor(TestFrame)).toBe(true);
@@ -22,13 +18,13 @@ describe('Frame', () => {
   });
 });
 
-const TestFrameView = (_props: TestFrameProps): null => {
+const TestFrameView = (): null => {
   return null;
 };
 
-@Frame<TestFrameProps>({
+@Frame({
   view: TestFrameView,
 })
-class TestFrame extends FrameDefinition<TestFrameProps> {}
+class TestFrame {}
 
-class UnknownFrame extends FrameDefinition {}
+class UnknownFrame {}

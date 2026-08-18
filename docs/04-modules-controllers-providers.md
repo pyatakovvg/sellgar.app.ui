@@ -83,23 +83,15 @@ view: () => <OrdersView />;
 Controller - boundary для route/module data flow.
 
 ```ts
-export interface ControllerLoaderArgs {
-  readonly params: Record<string, string | undefined>;
-  readonly request: Request;
-}
-
-export interface ControllerActionArgs<TPayload = unknown> {
-  readonly params: Record<string, string | undefined>;
-  readonly payload: TPayload;
-  readonly request: Request;
-}
-
-export interface ControllerInterface {
-  loader?(args: ControllerLoaderArgs): unknown | Promise<unknown>;
-  action?(args: ControllerActionArgs): unknown | Promise<unknown>;
-  dispose?(): void | Promise<void>;
-}
+type ControllerArgs<TArgs extends object = object> = TArgs & { readonly signal: AbortSignal };
+type WithParams<TParams, TNext extends object = object> = TNext & { readonly params: TParams };
+type WithPayload<TPayload, TNext extends object = object> = TNext & { readonly payload: TPayload };
+type WithProps<TProps extends object, TNext extends object = object> = TNext & { readonly props: TProps };
 ```
+
+Один `ControllerArgs` используется в Module, Frame, Widget и guards. Метод
+добавляет только фактически читаемые наборы. `Request` в controller/guard не
+передаётся; HTTP, session и access dependencies подключаются через DI.
 
 `loader` готовит данные для view.
 
@@ -114,8 +106,8 @@ export interface ControllerInterface {
 
 - загрузить данные для view;
 - выполнить action из view;
-- связать React Router loader/action lifecycle с application/domain service;
-- получить route params или request signal.
+- связать runtime loader/action с application/domain service;
+- получить нужные controller params, props, payload или lifecycle signal.
 
 Не используй controller как long-lived store. Если данные должны жить на уровне
 приложения, используй `ApplicationStoreInterface` или отдельный application
@@ -135,42 +127,38 @@ export interface UpdateOrderFilterPayload {
   readonly query: string;
 }
 
-export abstract class OrdersControllerInterface implements ControllerInterface {
-  abstract loader(args: ControllerLoaderArgs): Promise<OrdersLoaderData>;
+export abstract class OrdersControllerInterface {
+  abstract loader(args: ControllerArgs): Promise<OrdersLoaderData>;
 }
 
-export abstract class UpdateOrderFilterControllerInterface implements ControllerInterface {
-  abstract action(args: ControllerActionArgs<UpdateOrderFilterPayload>): Promise<void>;
+export abstract class UpdateOrderFilterControllerInterface {
+  abstract action(args: ControllerArgs<WithPayload<UpdateOrderFilterPayload>>): Promise<void>;
 }
 
 @Controller()
-export class OrdersController extends OrdersControllerInterface {
+export class OrdersController implements OrdersControllerInterface {
   constructor(
     @Inject(OrdersServiceInterface)
     private readonly ordersService: OrdersServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async loader(args: ControllerLoaderArgs): Promise<OrdersLoaderData> {
+  async loader(args: ControllerArgs): Promise<OrdersLoaderData> {
     return {
       items: await this.ordersService.getOrders({
-        signal: args.request.signal,
+        signal: args.signal,
       }),
     };
   }
 }
 
 @Controller()
-export class UpdateOrderFilterController extends UpdateOrderFilterControllerInterface {
+export class UpdateOrderFilterController implements UpdateOrderFilterControllerInterface {
   constructor(
     @Inject(NavigateServiceInterface)
     private readonly navigateService: NavigateServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async action(args: ControllerActionArgs<UpdateOrderFilterPayload>): Promise<void> {
+  async action(args: ControllerArgs<WithPayload<UpdateOrderFilterPayload>>): Promise<void> {
     await this.navigateService.searchParams(
       {
         query: args.payload.query,
@@ -187,7 +175,7 @@ Controller должен быть помечен `@Controller()` на concrete im
 привязан в module-local bindings:
 
 ```ts
-export class OrdersBindings extends BindingModuleInterface {
+export class OrdersBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(OrdersControllerInterface).to(OrdersController);
     registry.bind(UpdateOrderFilterControllerInterface).to(UpdateOrderFilterController);
@@ -247,6 +235,11 @@ submit.data;
 submit.error;
 ```
 
+Сигнатура submit выводится из action contract. Если action содержит
+`WithPayload<TPayload>`, вызывай `submit(payload)`. Если action не содержит
+payload, вызывай `submit()` без фиктивных `null`, `undefined` или пустого
+объекта.
+
 Submit state общий для активного runtime scope и controller token. Если во view
 несколько компонентов вызывают `useSubmit(UpdateOrderFilterControllerInterface)`,
 они читают один и тот же `inProcess`, `data` и `error`.
@@ -255,16 +248,20 @@ Submit state общий для активного runtime scope и controller to
 submit. Повторный вызов из любого hook instance во время active submit вернет
 rejected promise.
 
-Для module controller исходный `payload` хранится в `ModuleRuntime` и передаётся
-в controller action без сериализации. React Router `useFetcher` получает только
-одноразовый action id: он управляет route action lifecycle, cancellation и
-revalidation, но не является транспортом объектной модели. `File`, `Blob`,
-экземпляры классов и вложенные объекты сохраняют исходную ссылку.
+Ошибка, брошенная из controller action, является recoverable submit
+result: `submit(...)` завершается значением `undefined`, а исходная
+ошибка доступна в `submit.error`. Module остаётся активным.
+
+Если action не может продолжать работу в текущем runtime, controller
+явно инжектит `RuntimeExceptionServiceInterface` и вызывает
+`raise(error)`. Ближайший runtime owner переходит в `failed` и
+показывает свою exception UI. Этот сценарий не записывается в
+`submit.error`.
 
 Публичные action args используют `payload`:
 
 ```ts
-async action(args: ControllerActionArgs<UpdateOrderFilterPayload>): Promise<void> {
+async action(args: ControllerArgs<WithPayload<UpdateOrderFilterPayload>>): Promise<void> {
   args.payload.query;
 }
 ```
@@ -282,13 +279,11 @@ Provider является самодостаточной DI-сущностью. 
 ```ts
 @UseBindings(OrdersEventsBindings)
 @Provider()
-export class OrdersEventsProvider extends RuntimeProviderInterface {
+export class OrdersEventsProvider implements RuntimeProviderInterface {
   constructor(
     @Inject(OrdersEventsSourceInterface)
     private readonly source: OrdersEventsSourceInterface,
-  ) {
-    super();
-  }
+  ) {}
 }
 ```
 
@@ -327,8 +322,7 @@ Context provider-а:
 interface RuntimeProviderContextInterface {
   readonly params: Record<string, string | undefined>;
   readonly phase: 'afterRender' | 'beforeLoad' | 'beforeRender' | 'onDemand' | 'setup';
-  readonly request: Request;
-  readonly scope: RuntimeScope;
+  readonly props: object;
   readonly signal: AbortSignal;
 }
 ```
@@ -370,7 +364,7 @@ Provider instances не являются общими между runtime pipelin
 общем `ProviderScope`.
 
 Module/frame/widget bindings не видны provider-у. Локальные `scope`, `props`,
-`params`, `request` и `signal` доступны только через provider context. Это не
+`params` и `signal` доступны только через provider context. Это не
 разрывает preload-цепочку: provider получает application-level runtime factory и
 передает ей context конкретного frame или widget.
 
@@ -463,16 +457,14 @@ Provider может подготовить widget runtime до первого re
 
 ```ts
 @Provider()
-export class OrdersSummaryWidgetPreloadProvider extends RuntimeProviderInterface {
+export class OrdersSummaryWidgetPreloadProvider implements RuntimeProviderInterface {
   constructor(
-    @Inject(WidgetRuntimeFactoryInterface)
-    private readonly widgetRuntimeFactory: WidgetRuntimeFactoryInterface,
-  ) {
-    super();
-  }
+    @Inject(WidgetPreloaderInterface)
+    private readonly widgetPreloader: WidgetPreloaderInterface,
+  ) {}
 
   beforeRender(context: RuntimeProviderContextInterface): Promise<RuntimeProviderResult> {
-    return this.widgetRuntimeFactory.preload(context, OrdersSummaryWidget, {
+    return this.widgetPreloader.preload(context, OrdersSummaryWidget, {
       props: {
         title: 'Orders',
       },
@@ -481,5 +473,6 @@ export class OrdersSummaryWidgetPreloadProvider extends RuntimeProviderInterface
 }
 ```
 
-`context.scope` и `context.signal` использует `preload(...)`. Не дублируй их в
-`props`. `props` должны описывать только widget props.
+Передавай в `preload(...)` исходный `context`: preloader сам связывает widget с
+текущим runtime-владельцем и использует `context.signal`. Прямого доступа к
+runtime scope у provider-а нет. `props` должны описывать только widget props.

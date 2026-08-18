@@ -121,7 +121,7 @@ class SecondGuard extends SecondGuardInterface {
   }
 }
 
-class TestGuardedBindings extends BindingModuleInterface {
+class TestGuardedBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(FirstGuardInterface).to(FirstGuard).inSingletonScope();
     registry.bind(SecondGuardInterface).to(SecondGuard).inSingletonScope();

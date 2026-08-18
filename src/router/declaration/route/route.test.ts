@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { Frame, FrameDefinition } from '../../../frame/declaration/frame';
+import { Frame } from '../../../frame/declaration/frame';
+import { FrameRoute, FrameRouter } from '../../../frame/router/declaration';
 import { Layout } from '../../../layout/declaration/layout';
 import { Provider, RuntimeProviderInterface } from '../../../runtime/provider/runtime-provider';
 import { RoutePolicyInterface } from '../../runtime/route-policy';
 import { Router } from '../router';
 
-import { Route } from './';
+import { getRouteDefinition, Route } from './';
 
 const loadModule = async (): Promise<Record<string, unknown>> => {
   return {};
@@ -19,7 +20,8 @@ describe('Route', () => {
       path: 'home',
     });
 
-    expect(route.runtimeId).toMatch(/^route:\d+$/);
+    expect(getRouteDefinition(route).runtimeId).toMatch(/^route:\d+$/);
+    expect(route).not.toHaveProperty('runtimeId');
   });
 
   it('creates unique runtime ids for different route instances', () => {
@@ -32,7 +34,7 @@ describe('Route', () => {
       path: 'home',
     });
 
-    expect(firstRoute.runtimeId).not.toBe(secondRoute.runtimeId);
+    expect(getRouteDefinition(firstRoute).runtimeId).not.toBe(getRouteDefinition(secondRoute).runtimeId);
   });
 
   it('keeps runtime ids stable when route instances are reordered', () => {
@@ -44,14 +46,14 @@ describe('Route', () => {
       load: loadModule,
       path: 'second',
     });
-    const firstRouteId = firstRoute.runtimeId;
-    const secondRouteId = secondRoute.runtimeId;
+    const firstRouteId = getRouteDefinition(firstRoute).runtimeId;
+    const secondRouteId = getRouteDefinition(secondRoute).runtimeId;
     const routes = [firstRoute, secondRoute];
 
     routes.reverse();
 
-    expect(firstRoute.runtimeId).toBe(firstRouteId);
-    expect(secondRoute.runtimeId).toBe(secondRouteId);
+    expect(getRouteDefinition(firstRoute).runtimeId).toBe(firstRouteId);
+    expect(getRouteDefinition(secondRoute).runtimeId).toBe(secondRouteId);
   });
 
   it('rejects empty child routes', () => {
@@ -104,7 +106,7 @@ describe('Route', () => {
       ],
     });
 
-    expect(route.defaultTo).toBe('/reports');
+    expect(getRouteDefinition(route).defaultTo).toBe('/reports');
   });
 
   it('allows first available default route target on route groups', () => {
@@ -118,7 +120,7 @@ describe('Route', () => {
       ],
     });
 
-    expect(route.defaultTo).toEqual({
+    expect(getRouteDefinition(route).defaultTo).toEqual({
       type: 'first-available',
     });
   });
@@ -181,7 +183,7 @@ describe('Route', () => {
       ],
     });
 
-    expect(route.routes).toHaveLength(1);
+    expect(getRouteDefinition(route).routes).toHaveLength(1);
   });
 
   it('allows action policies on branch routes', () => {
@@ -194,7 +196,7 @@ describe('Route', () => {
       ],
     });
 
-    expect(route.canAction).toEqual([TestPolicy]);
+    expect(getRouteDefinition(route).canAction).toEqual([TestPolicy]);
   });
 
   it('allows layouts on module routes', () => {
@@ -203,12 +205,20 @@ describe('Route', () => {
       load: loadModule,
     });
 
-    expect(route.layouts).toEqual([TestLayout]);
+    expect(getRouteDefinition(route).layouts).toEqual([TestLayout]);
   });
 
   it('allows frames on route boundaries', () => {
+    const frameRouter = new FrameRouter({
+      baseSource: 'test',
+      routes: [
+        new FrameRoute({
+          load: async () => ({ TestFrame }),
+        }),
+      ],
+    });
     const route = new Route({
-      frames: [TestFrame],
+      frames: [frameRouter],
       routes: [
         new Route({
           load: loadModule,
@@ -216,7 +226,7 @@ describe('Route', () => {
       ],
     });
 
-    expect(route.frames).toEqual([TestFrame]);
+    expect(getRouteDefinition(route).frames).toEqual([frameRouter]);
   });
 
   it('allows providers on route boundaries', () => {
@@ -229,7 +239,7 @@ describe('Route', () => {
       ],
     });
 
-    expect(route.providers).toEqual([TestProvider]);
+    expect(getRouteDefinition(route).providers).toEqual([TestProvider]);
   });
 
   it('allows forbidden view on route boundaries', () => {
@@ -243,7 +253,7 @@ describe('Route', () => {
       ],
     });
 
-    expect(route.forbidden).toBe(forbidden);
+    expect(getRouteDefinition(route).forbidden).toBe(forbidden);
   });
 
   it('allows fallback view on route boundaries', () => {
@@ -257,7 +267,7 @@ describe('Route', () => {
       ],
     });
 
-    expect(route.fallback).toBe(fallback);
+    expect(getRouteDefinition(route).fallback).toBe(fallback);
   });
 
   it('allows not found view on route boundaries', () => {
@@ -271,7 +281,7 @@ describe('Route', () => {
       ],
     });
 
-    expect(route.notFound).toBe(notFound);
+    expect(getRouteDefinition(route).notFound).toBe(notFound);
   });
 });
 
@@ -282,7 +292,7 @@ class TestPolicy extends RoutePolicyInterface {
 }
 
 @Provider()
-class TestProvider extends RuntimeProviderInterface {}
+class TestProvider implements RuntimeProviderInterface {}
 
 const TestLayoutView = (): null => {
   return null;
@@ -300,4 +310,4 @@ const TestFrameView = (): null => {
 @Frame({
   view: TestFrameView,
 })
-class TestFrame extends FrameDefinition {}
+class TestFrame {}

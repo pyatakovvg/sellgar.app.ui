@@ -120,11 +120,8 @@ adapter-ом; их route-level переопределения появятся �
 
 ```ts
 @Initializer()
-export class TrainingDelayInitializer
-  extends ApplicationInitializerInterface {
-  async execute(
-    context: ApplicationInitializerContextInterface,
-  ): Promise<void> {
+export class TrainingDelayInitializer implements ApplicationInitializerInterface {
+  async execute(context: ApplicationInitializerContextInterface): Promise<void> {
     await wait(800, context.signal);
   }
 }
@@ -154,10 +151,7 @@ Initializer — DI-managed startup participant. На этом занятии з�
 ```ts
 app.initializers([
   ResolveConfigInitializer,
-  Initializers.parallel([
-    ResolveSessionInitializer,
-    ResolveFeatureFlagsInitializer,
-  ]),
+  Initializers.parallel([ResolveSessionInitializer, ResolveFeatureFlagsInitializer]),
 ]);
 ```
 

@@ -9,6 +9,7 @@ import type { LocationServiceListener, RouterLocationSnapshot } from '../locatio
 import { LocationServiceInterface } from '../location-service';
 import { NavigateServiceInterface } from '../navigate-service';
 import type {
+  NavigateFrame,
   RouterHashNavigateOptions,
   RouterNavigateOptions,
   RouterSearchNavigateOptions,
@@ -18,9 +19,23 @@ import { RouterServiceControllerInterface } from '../router-service-controller';
 
 @Injectable()
 export class RouterService
-  extends LocationServiceInterface
-  implements NavigateServiceInterface, RouterServiceControllerInterface
+  implements LocationServiceInterface, NavigateServiceInterface, RouterServiceControllerInterface
 {
+  readonly frame: NavigateFrame = {
+    close: async (options) => {
+      await this.navigateFrame('', options);
+    },
+    open: async (source, options) => {
+      const normalizedSource = source.replace(/^\/+/, '').replace(/\/+$/, '');
+
+      if (normalizedSource.length === 0) {
+        throw new Error('Frame route source не должен быть пустым.');
+      }
+
+      await this.navigateFrame(`#${normalizedSource}`, options);
+    },
+  };
+
   private readonly listeners = new Set<LocationServiceListener>();
 
   private currentLocation: RouterLocationSnapshot | null = null;
@@ -29,9 +44,7 @@ export class RouterService
   constructor(
     @Inject(RouterParamsConverterInterface)
     private readonly paramsConverter: RouterParamsConverterInterface,
-  ) {
-    super();
-  }
+  ) {}
 
   get location(): RouterLocationSnapshot | null {
     return this.currentLocation;
@@ -187,6 +200,21 @@ export class RouterService
       search: '',
       searchParams: {},
       state: null,
+    };
+  }
+
+  private async navigateFrame(hash: string, options?: RouterNavigateOptions): Promise<void> {
+    const location = this.getActiveLocation();
+    const hasState = Object.prototype.hasOwnProperty.call(options ?? {}, 'state');
+    const state = hasState ? options?.state : location.state;
+    const resolvedOptions = hasState ? options : { ...options, state };
+
+    await this.navigateWithNavigator(`${location.pathname}${location.search}${hash}`, resolvedOptions);
+    this.currentLocation = {
+      ...location,
+      hash,
+      hashParams: parseHashToObject(hash),
+      state,
     };
   }
 

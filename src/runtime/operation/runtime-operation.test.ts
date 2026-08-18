@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ConflictException } from '../../http';
+import { RuntimeExceptionService } from '../exception';
 import { createRuntimeRevisionGuard, executeRuntimeOperation, type RuntimeRevisionSource } from './';
 
 const TEST_SOURCE = {
@@ -40,6 +41,24 @@ describe('runtime operation', () => {
         source: TEST_SOURCE,
       },
       type: 'failed',
+    });
+  });
+
+  it('returns escalated when operation explicitly raises a runtime exception', async () => {
+    const error = new Error('Операция запросила exception ближайшего runtime.');
+    const runtimeException = new RuntimeExceptionService();
+    const result = await executeRuntimeOperation({
+      guard: null,
+      operation: () => runtimeException.raise(error),
+      source: TEST_SOURCE,
+    });
+
+    expect(result).toMatchObject({
+      failure: {
+        cause: error,
+        source: TEST_SOURCE,
+      },
+      type: 'escalated',
     });
   });
 

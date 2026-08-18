@@ -139,7 +139,7 @@ const createFixture = (): Fixture => {
   };
 };
 
-class TestRuntimeFailureReporter extends RuntimeFailureReporterInterface {
+class TestRuntimeFailureReporter implements RuntimeFailureReporterInterface {
   readonly reportMock = vi.fn();
 
   report(report: RuntimeFailureReport): void {

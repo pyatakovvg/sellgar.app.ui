@@ -4,25 +4,25 @@ import type {
   RuntimeProviderContextInterface,
   RuntimeProviderResult,
 } from '../../../runtime/provider/runtime-provider';
+import { getRuntimeProviderScope } from '../../../runtime/provider/runtime-provider';
 import type { RuntimeScope } from '../../../runtime/scope/base';
 
 import type { WidgetConstructor } from '../../declaration/widget';
 
-import type { WidgetPreloadOptions, WidgetRuntimeFactoryOptions } from './widget-runtime-factory.interface.ts';
+import type { WidgetRuntimeFactoryOptions } from './widget-runtime-factory.interface.ts';
 import { WidgetRuntimeFactoryInterface } from './widget-runtime-factory.interface.ts';
+import { WidgetPreloaderInterface, type WidgetPreloadOptions } from './widget-preloader.interface.ts';
 import { WidgetRuntime } from '../widget-runtime';
 
 @Injectable()
-export class WidgetRuntimeFactory extends WidgetRuntimeFactoryInterface {
+export class WidgetRuntimeFactory implements WidgetRuntimeFactoryInterface, WidgetPreloaderInterface {
   private readonly preparedRuntimes = new WeakMap<RuntimeScope, WeakMap<object, Map<string, WidgetRuntime<object>>>>();
 
   constructor(
     @Inject(SessionRuntimeStateInterface)
     @Optional()
     private readonly session: SessionRuntimeStateInterface | null = null,
-  ) {
-    super();
-  }
+  ) {}
 
   create<TProps extends object>(
     widget: WidgetConstructor,
@@ -103,7 +103,7 @@ export class WidgetRuntimeFactory extends WidgetRuntimeFactoryInterface {
     options: WidgetPreloadOptions<TProps> = {},
   ): Promise<RuntimeProviderResult> {
     const runtimeOptions = {
-      ownerScope: context.scope,
+      ownerScope: getRuntimeProviderScope(context),
       props: options.props,
       runtimeKey: options.runtimeKey,
     };

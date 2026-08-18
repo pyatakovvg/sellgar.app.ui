@@ -2,9 +2,10 @@ import { SessionRuntimeStateInterface } from '../../../application/session/sessi
 import { RequestExecutor, RequestExecutorInterface } from '../../../application/request';
 import { ConsoleRuntimeFailureSink } from '../../../application/reporting/console-runtime-failure-sink';
 import { RuntimeFailureReporter } from '../../../application/reporting/runtime-failure-reporter';
-import { RouterFrameAvailabilityInterface } from '../../../router/runtime/router-frame-availability';
 import { RouterRuntime } from '../../../router/runtime/router-runtime';
 import { RuntimeFailureReporterInterface, RuntimeFailureSinkInterface } from '../../failure';
+import { RuntimeOperationCoordinator } from '../../operation';
+import { RuntimeExceptionService, RuntimeExceptionServiceInterface } from '../../exception';
 
 import { RuntimeScope } from '../base';
 
@@ -22,7 +23,9 @@ export class ApplicationScope extends RuntimeScope {
       registry.bind(ProviderScope).toConstantValue(this.providerScope);
       registry.bind(RuntimeFailureReporterInterface).to(RuntimeFailureReporter).inSingletonScope();
       registry.bind(RuntimeFailureSinkInterface).to(ConsoleRuntimeFailureSink).inSingletonScope();
-      registry.bind(RequestExecutorInterface).to(RequestExecutor).inSingletonScope();
+      registry.bind(RuntimeExceptionServiceInterface).to(RuntimeExceptionService).inSingletonScope();
+      registry.bind(RequestExecutor).toSelf().inSingletonScope();
+      registry.bind(RequestExecutorInterface).toService(RequestExecutor);
     });
   }
 
@@ -33,7 +36,6 @@ export class ApplicationScope extends RuntimeScope {
 
   bindRouterRuntime(routerRuntime: RouterRuntime): void {
     this.register((registry) => {
-      registry.bind(RouterFrameAvailabilityInterface).toConstantValue(routerRuntime);
       registry.bind(RouterRuntime).toConstantValue(routerRuntime);
     });
   }
@@ -41,6 +43,7 @@ export class ApplicationScope extends RuntimeScope {
   bindSession(session: SessionRuntimeStateInterface): void {
     this.register((registry) => {
       registry.bind(SessionRuntimeStateInterface).toConstantValue(session);
+      registry.bind(RuntimeOperationCoordinator).toConstantValue(new RuntimeOperationCoordinator(session));
     });
   }
 }

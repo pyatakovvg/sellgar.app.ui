@@ -167,7 +167,7 @@ const createProfileResolvedEvent = (profileId: string): ProfileResolvedEvent => 
   return { profileId };
 };
 
-class TestApplicationEventHandler extends ApplicationEventHandlerInterface<ProfileResolvedEvent> {
+class TestApplicationEventHandler implements ApplicationEventHandlerInterface<ProfileResolvedEvent> {
   readonly handleMock = vi.fn();
 
   handle(event: ProfileResolvedEvent): void {
@@ -175,11 +175,10 @@ class TestApplicationEventHandler extends ApplicationEventHandlerInterface<Profi
   }
 }
 
-class TestRuntimeFailureReporter extends RuntimeFailureReporterInterface {
+class TestRuntimeFailureReporter implements RuntimeFailureReporterInterface {
   readonly reportMock;
 
   constructor(handler: (report: RuntimeFailureReport) => void | Promise<void> = () => {}) {
-    super();
     this.reportMock = vi.fn((report: RuntimeFailureReport) => handler(report));
   }
 

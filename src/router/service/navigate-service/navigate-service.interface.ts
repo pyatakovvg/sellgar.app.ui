@@ -19,7 +19,15 @@ export interface RouterSearchNavigateOptions extends RouterSearchUpdateOptions {
   readonly replace?: boolean;
 }
 
+export interface NavigateFrame {
+  close(options?: RouterNavigateOptions): Promise<void>;
+
+  open(source: `/${string}`, options?: RouterNavigateOptions): Promise<void>;
+}
+
 export abstract class NavigateServiceInterface {
+  abstract readonly frame: NavigateFrame;
+
   abstract back(): Promise<void>;
 
   abstract hashParams(to: RouterHashObject, options?: RouterHashNavigateOptions): Promise<void>;

@@ -8,8 +8,6 @@ export abstract class NavigationContinuationServiceInterface {
 
   abstract captureLocation(options?: NavigationContinuationOptions): string | null;
 
-  abstract captureRequest(request: Request, options?: NavigationContinuationOptions): string | null;
-
   abstract clear(options?: NavigationContinuationOptions): void;
 
   abstract consume(options?: NavigationContinuationOptions): string | null;

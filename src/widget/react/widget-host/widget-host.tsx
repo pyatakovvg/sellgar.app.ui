@@ -87,13 +87,7 @@ export const WidgetHost = <TWidget extends WidgetConstructor>(
       exception={metadata.exception ?? components.exception}
       onError={(error) => void runtime.failRender(error)}
     >
-      <ControllerRuntimeProvider
-        value={{
-          controllers: runtime.getControllers(),
-          kind: 'widget',
-          runtime,
-        }}
-      >
+      <ControllerRuntimeProvider value={runtime}>
         <WidgetRuntimeProvider runtime={runtime}>{content}</WidgetRuntimeProvider>
       </ControllerRuntimeProvider>
     </RenderExceptionBoundary>
@@ -105,7 +99,7 @@ interface WidgetHostBaseProps<TWidget extends WidgetConstructor> {
   readonly token: TWidget;
 }
 
-type WidgetHostWidgetProps<TProps extends object> = keyof TProps extends never
+type WidgetHostWidgetProps<TProps extends object> = object extends TProps
   ? {
       readonly props?: TProps;
     }

@@ -8,6 +8,9 @@ import { Inject, Injectable } from '../../../di/injection/decorators';
 import type { BindingRegistryInterface } from '../../../di/binding/binding-registry';
 import { Route } from '../../../router/declaration/route';
 import { Router } from '../../../router/declaration/router';
+import { Frame, FrameShell, FrameShellInterface } from '../../../frame/declaration/frame';
+import type { FrameShellContextInterface } from '../../../frame/declaration/frame';
+import { FrameRoute, FrameRouter } from '../../../frame/router/declaration';
 import { RouterRuntime } from '../../../router/runtime/router-runtime';
 import { ApplicationScope } from '../../../runtime/scope/kind';
 import { RuntimeFailureReporter } from '../../reporting/runtime-failure-reporter';
@@ -239,13 +242,27 @@ describe('Application lifecycle', () => {
 
     expect(TestRuntime.autoBoundInitializerExecute).toHaveBeenCalledTimes(1);
   });
+
+  it('requires global frame configuration when the route tree contains a FrameRouter', () => {
+    const app = new TestApplication({ frameRouter: true });
+
+    expect(() => app.compose()).toThrow('FrameRouter требует глобальную настройку app.frames({ shell }).');
+  });
+
+  it('accepts a FrameRouter when the global frame shell is configured', () => {
+    const app = new TestApplication({ frameRouter: true, frames: true });
+
+    expect(() => app.compose()).not.toThrow();
+  });
 });
 
 interface TestApplicationOptions {
+  readonly frameRouter?: boolean;
+  readonly frames?: boolean;
   readonly initializers?: readonly ApplicationInitializerDeclaration[];
 }
 
-class TestApplicationBindings extends BindingModuleInterface {
+class TestApplicationBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(BlockingInitializer).to(BlockingInitializer).inSingletonScope();
     registry.bind(FirstParallelInitializer).to(FirstParallelInitializer).inSingletonScope();
@@ -271,11 +288,15 @@ class TestApplication extends Application {
       notFound: <div>Not found</div>,
       splash: <div>Splash</div>,
     });
+    if (this.options.frames) {
+      app.frames({ shell: TestFrameShell });
+    }
     app.initializers(this.options.initializers ?? []);
     app.router(
       new Router({
         routes: [
           new Route({
+            frames: this.options.frameRouter ? [TestFrameRouter] : [],
             load: async () => ({}),
           }),
         ],
@@ -284,8 +305,25 @@ class TestApplication extends Application {
   }
 }
 
+const TestFrameView = (): null => null;
+
+@Frame({ view: TestFrameView })
+class TestFrame {}
+
+const TestFrameRouter = new FrameRouter({
+  baseSource: 'test',
+  routes: [new FrameRoute({ load: async () => ({ TestFrame }) })],
+});
+
+@FrameShell()
+class TestFrameShell implements FrameShellInterface {
+  render(context: FrameShellContextInterface): React.ReactNode {
+    return context.content;
+  }
+}
+
 @Injectable()
-class BlockingInitializer extends ApplicationInitializerInterface {
+class BlockingInitializer implements ApplicationInitializerInterface {
   async execute(): Promise<void> {
     TestRuntime.blockingInitializerExecute();
     await TestRuntime.blockingInitializerDeferred?.promise;
@@ -293,7 +331,7 @@ class BlockingInitializer extends ApplicationInitializerInterface {
 }
 
 @Injectable()
-class FirstParallelInitializer extends ApplicationInitializerInterface {
+class FirstParallelInitializer implements ApplicationInitializerInterface {
   async execute(): Promise<void> {
     TestRuntime.firstParallelInitializerExecute();
     await TestRuntime.firstParallelInitializerDeferred?.promise;
@@ -301,7 +339,7 @@ class FirstParallelInitializer extends ApplicationInitializerInterface {
 }
 
 @Injectable()
-class SecondParallelInitializer extends ApplicationInitializerInterface {
+class SecondParallelInitializer implements ApplicationInitializerInterface {
   async execute(): Promise<void> {
     TestRuntime.secondParallelInitializerExecute();
     await TestRuntime.secondParallelInitializerDeferred?.promise;
@@ -309,7 +347,7 @@ class SecondParallelInitializer extends ApplicationInitializerInterface {
 }
 
 @Injectable()
-class AbortAwareInitializer extends ApplicationInitializerInterface {
+class AbortAwareInitializer implements ApplicationInitializerInterface {
   execute(context: ApplicationInitializerContextInterface): Promise<void> {
     TestRuntime.abortAwareInitializerSignal = context.signal;
 
@@ -322,7 +360,7 @@ class AbortAwareInitializer extends ApplicationInitializerInterface {
 }
 
 @Injectable()
-class DisposableInitializer extends ApplicationInitializerInterface {
+class DisposableInitializer implements ApplicationInitializerInterface {
   execute(context: ApplicationInitializerContextInterface): void {
     context.disposables.add(() => {
       TestRuntime.disposeOrder.push('disposable');
@@ -331,20 +369,18 @@ class DisposableInitializer extends ApplicationInitializerInterface {
 }
 
 @Injectable()
-class FailingInitializer extends ApplicationInitializerInterface {
+class FailingInitializer implements ApplicationInitializerInterface {
   execute(): void {
     throw TestRuntime.initializerError;
   }
 }
 
 @Injectable()
-class SessionAwareInitializer extends ApplicationInitializerInterface {
+class SessionAwareInitializer implements ApplicationInitializerInterface {
   constructor(
     @Inject(SessionRuntimeStateInterface)
     private readonly session: SessionRuntimeStateInterface,
-  ) {
-    super();
-  }
+  ) {}
 
   execute(): void {
     this.session.setAuthenticated();
@@ -353,7 +389,7 @@ class SessionAwareInitializer extends ApplicationInitializerInterface {
 }
 
 @Initializer()
-class AutoBoundInitializer extends ApplicationInitializerInterface {
+class AutoBoundInitializer implements ApplicationInitializerInterface {
   execute(): void {
     TestRuntime.autoBoundInitializerExecute();
   }

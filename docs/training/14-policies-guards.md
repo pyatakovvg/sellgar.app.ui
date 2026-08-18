@@ -36,12 +36,9 @@ UX, controller boundary обеспечивает выполнение прави
 
 ```ts
 @Policy()
-class RequireAuthenticatedSessionPolicy
-  extends PolicyInterface {
+class RequireAuthenticatedSessionPolicy extends RoutePolicyInterface {
   execute(): PolicyResult {
-    return this.session.phase === 'authenticated'
-      ? { type: 'pass' }
-      : { type: 'fail', reason: 'Anonymous session' };
+    return this.session.phase === 'authenticated' ? { type: 'pass' } : { type: 'fail', reason: 'Anonymous session' };
   }
 }
 ```
@@ -86,13 +83,18 @@ RequireAuthenticatedSessionPolicy.configure().onFail(
     replace: true,
     saveCurrentLocation: true,
   }),
-)
+);
 ```
 
 ### Заметки Ведущего
 
 Другие decisions: continue, redirectToSaved, forbidden, notFound, error.
 Разделение позволяет переиспользовать policy с разной реакцией на boundary.
+`extends RoutePolicyInterface` здесь является частью framework-контракта:
+concrete policy token наследует типизированный static API `configure()`.
+`implements PolicyInterface` оставил бы только instance method `execute` и
+сделал бы показанный вызов `RequireAuthenticatedSessionPolicy.configure()`
+невозможным.
 
 `Router.firstAvailable()` полезен для branch, где первый доступный child зависит
 от `canMatch`.
@@ -105,8 +107,7 @@ RequireAuthenticatedSessionPolicy.configure().onFail(
 
 ```ts
 @Guard()
-class CanCreateOrderGuard
-  extends GuardInterface<{ section: string }> {
+class CanCreateOrderGuard extends GuardInterface<{ section: string }> {
   execute(context): GuardResult {
     return this.permissions.canCreate(context.section);
   }
@@ -117,6 +118,8 @@ class CanCreateOrderGuard
 
 `false` — нормальный отказ. Исключение — ошибка выполнения guard. Concrete
 `@Guard()` может auto-bind-иться в текущем runtime scope.
+Наследование `GuardInterface` также сохраняет на concrete token статический
+builder `configure()` для настройки failure strategy.
 
 ---
 
@@ -132,7 +135,7 @@ const canCreate = useGuard(CanCreateOrderGuard, {
 
 ```ts
 @UseGuards(CanCreateOrderGuard)
-async action(args: ControllerActionArgs<CreateOrderPayload>) {
+async action(args: ControllerArgs<WithPayload<CreateOrderPayload>>) {
   // реальная команда
 }
 ```
@@ -149,11 +152,7 @@ controller loader/action boundary. На private helper он не сработа�
 ### На Экране
 
 ```tsx
-<Guarded
-  by={CanCreateOrderGuard}
-  context={{ section: 'orders' }}
-  fallback={<span>Нет доступа</span>}
->
+<Guarded by={CanCreateOrderGuard} context={{ section: 'orders' }} fallback={<span>Нет доступа</span>}>
   <CreateOrderButton />
 </Guarded>
 ```
@@ -203,4 +202,3 @@ boundary.
 - [Policies и boundary decisions](../08-policies-revalidate-errors.md#policies)
 - [Guards](../11-guards.md)
 - [Router inheritance](../03-router-and-navigation.md#наследование-route)
-

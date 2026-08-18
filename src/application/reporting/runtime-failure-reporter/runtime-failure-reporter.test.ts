@@ -47,11 +47,10 @@ describe('RuntimeFailureReporter', () => {
   });
 });
 
-class TestRuntimeFailureSink extends RuntimeFailureSinkInterface {
+class TestRuntimeFailureSink implements RuntimeFailureSinkInterface {
   readonly reportMock;
 
   constructor(handler: (report: RuntimeFailureReport) => void | Promise<void> = () => {}) {
-    super();
     this.reportMock = vi.fn((report: RuntimeFailureReport) => handler(report));
   }
 

@@ -1,3 +1,4 @@
+import type { ControllerArgs, WithParams, WithPayload } from '../../../controller/contract/controller';
 import 'reflect-metadata';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,26 +15,23 @@ import { GuardInterface } from '../../../guard/contract/guard';
 import { GuardRejectedException } from '../../../guard/contract/guard-rejected-exception';
 import { UseGuards } from '../../../guard/declaration/use-guards';
 import { Layout } from '../../../layout/declaration/layout';
-import { Policy, PolicyInterface } from '../../../policy/contract/policy';
-import type { PolicyResult } from '../../../policy/contract/policy-result';
 import { ApplicationScope } from '../../../runtime/scope/kind';
+import { RuntimeExceptionServiceInterface } from '../../../runtime/exception';
 import { Provider } from '../../../runtime/provider/runtime-provider';
-import type { NavigateServiceInterface } from '../../../router/service/navigate-service';
-import type { RouterLocationSnapshot } from '../../../router/service/location-service';
-import type { RouteRuntimeContextInterface } from '../../../router/runtime/route-runtime-context';
-import type { FrameConstructor } from '../../declaration/frame';
-import { createFrameNavigationEntry } from '../../navigation/frame-navigation-state';
-import { FrameServiceInterface, type FrameOpenArgs } from '../../service/frame-service';
-import { HashFrameSource } from '../../source/hash-frame-source';
-
-import { Frame, FrameDefinition } from '../../declaration/frame';
-import type { FrameSourceCloseHandler } from '../../source/frame-source';
-
 import {
-  FrameControllerInterface,
-  type FrameControllerActionArgs,
-  type FrameControllerLoaderArgs,
-} from '../frame-controller';
+  NavigateServiceInterface,
+  type NavigateFrame,
+  type RouterHashNavigateOptions,
+  type RouterNavigateOptions,
+  type RouterSearchNavigateOptions,
+} from '../../../router/service/navigate-service';
+import type { RouterHashObject } from '../../../router/utils/hash-utils';
+import type { RouterSearchObject } from '../../../router/utils/search-utils';
+import type { RouterLocationSnapshot } from '../../../router/service/location-service';
+import type { FrameConstructor } from '../../declaration/frame';
+
+import { Frame } from '../../declaration/frame';
+
 import { RevalidateServiceInterface } from '../../../revalidate/contract/revalidate-service';
 
 import { FrameRuntime } from './';
@@ -44,36 +42,31 @@ describe('FrameRuntime', () => {
     TestFrameProvider.beforeRenderError = null;
     TestFrameController.actionHandler = null;
     TestFrameController.loaderSuffix = '';
+    TestFrameController.loaderRuntimeException = null;
+    TestFrameController.runtimeException = null;
     TestFrameLoaderGuard.result = true;
-    TestFramePolicy.result = { type: 'pass' };
     TestFrameProvider.events = [];
-    TestRootFrameService.backMock.mockClear();
-    TestRootFrameService.openFromFrameMock.mockClear();
+    TestNavigateService.closeFrameMock.mockReset();
+    TestNavigateService.openFrameMock.mockReset();
   });
 
   it('loads frame controllers and providers', async () => {
-    const runtime = createFrameRuntime({
-      value: 'loaded',
-    });
+    const runtime = createFrameRuntime();
 
     await runtime.load(createLoadOptions());
 
     expect(runtime.getLoaderData(TestFrameController)).toEqual({
       params: {
         routeId: '42',
+        value: 'ready',
       },
-      value: 'loaded',
+      value: 'ready',
     });
     expect(TestFrameProvider.events).toEqual(['beforeLoad:beforeLoad', 'setup:setup', 'beforeRender:beforeRender']);
   });
 
   it('runs frame layout providers after frame providers', async () => {
-    const runtime = createFrameRuntime(
-      {
-        value: 'loaded',
-      },
-      TestFrameWithLayout,
-    );
+    const runtime = createFrameRuntime(TestFrameWithLayout);
 
     await runtime.load(createLoadOptions());
 
@@ -88,9 +81,7 @@ describe('FrameRuntime', () => {
   });
 
   it('runs frame action and allows controller-driven revalidate', async () => {
-    const runtime = createFrameRuntime({
-      value: 'ready',
-    });
+    const runtime = createFrameRuntime();
 
     await runtime.load(createLoadOptions());
 
@@ -104,15 +95,14 @@ describe('FrameRuntime', () => {
     expect(runtime.getLoaderData(TestFrameController)).toEqual({
       params: {
         routeId: '42',
+        value: 'ready',
       },
       value: 'ready:revalidated',
     });
   });
 
-  it('opens next frame from active frame with current frame as parent', async () => {
-    const runtime = createFrameRuntime({
-      value: 'ready',
-    });
+  it('navigates to the next absolute frame route', async () => {
+    const runtime = createFrameRuntime();
 
     await runtime.load(createLoadOptions());
 
@@ -120,38 +110,11 @@ describe('FrameRuntime', () => {
       value: 'open',
     });
 
-    expect(TestRootFrameService.openFromFrameMock).toHaveBeenCalledWith(
-      {
-        frameKey: 'TestFrame',
-        props: {
-          value: 'ready',
-        },
-      },
-      NextTestFrame,
-      {
-        value: 'next',
-      },
-    );
-  });
-
-  it('goes back through root frame history service', async () => {
-    const runtime = createFrameRuntime({
-      value: 'ready',
-    });
-
-    await runtime.load(createLoadOptions());
-
-    await runtime.action(TestFrameController, {
-      value: 'back',
-    });
-
-    expect(TestRootFrameService.backMock).toHaveBeenCalledOnce();
+    expect(TestNavigateService.openFrameMock).toHaveBeenCalledWith('/next', undefined);
   });
 
   it('blocks frame controller loader when guard rejects', async () => {
-    const runtime = createFrameRuntime({
-      value: 'blocked',
-    });
+    const runtime = createFrameRuntime();
 
     TestFrameLoaderGuard.result = false;
 
@@ -159,31 +122,8 @@ describe('FrameRuntime', () => {
     expect(runtime.getSnapshot().phase).toBe('failed');
   });
 
-  it('moves frame runtime to forbidden phase when activation policy fails', async () => {
-    TestFramePolicy.result = {
-      reason: 'denied',
-      type: 'fail',
-    };
-    const runtime = createFrameRuntime(
-      {
-        value: 'blocked',
-      },
-      GuardedFrame,
-    );
-
-    await expect(runtime.load(createLoadOptions())).resolves.toBeUndefined();
-
-    expect(runtime.getSnapshot()).toEqual({
-      error: null,
-      phase: 'forbidden',
-    });
-    expect(TestFrameProvider.events).toEqual([]);
-  });
-
   it('revalidates frame loader data without recreating runtime scope', async () => {
-    const runtime = createFrameRuntime({
-      value: 'ready',
-    });
+    const runtime = createFrameRuntime();
 
     await runtime.load(createLoadOptions());
 
@@ -194,6 +134,7 @@ describe('FrameRuntime', () => {
     expect(runtime.getLoaderData(TestFrameController)).toEqual({
       params: {
         routeId: '42',
+        value: 'ready',
       },
       value: 'ready:updated',
     });
@@ -202,9 +143,7 @@ describe('FrameRuntime', () => {
 
   it('keeps failed frame runtime available until frame dispose', async () => {
     const error = new Error('beforeRender фрейма завершился с ошибкой.');
-    const runtime = createFrameRuntime({
-      value: 'failed',
-    });
+    const runtime = createFrameRuntime();
 
     TestFrameProvider.beforeRenderError = error;
 
@@ -224,9 +163,7 @@ describe('FrameRuntime', () => {
 
   it('moves ready frame runtime to failed when its React view render fails', async () => {
     const error = new Error('Рендеринг view фрейма завершился с ошибкой.');
-    const runtime = createFrameRuntime({
-      value: 'ready',
-    });
+    const runtime = createFrameRuntime();
 
     await runtime.load(createLoadOptions());
     await runtime.failRender(error);
@@ -241,9 +178,7 @@ describe('FrameRuntime', () => {
   it('does not move stale session load errors into failed phase', async () => {
     const session = new SessionRuntimeState();
     const error = new Error('Сессия фрейма устарела.');
-    const runtime = createFrameRuntime({
-      value: 'stale',
-    });
+    const runtime = createFrameRuntime();
 
     session.setAuthenticated();
     TestFrameProvider.beforeRenderHandler = () => {
@@ -261,9 +196,7 @@ describe('FrameRuntime', () => {
 
   it('does not reject stale load when frame is disposed before load completes', async () => {
     const deferred = createDeferred<void>();
-    const runtime = createFrameRuntime({
-      value: 'disposed',
-    });
+    const runtime = createFrameRuntime();
 
     TestFrameProvider.beforeRenderHandler = async () => {
       await deferred.promise;
@@ -286,9 +219,7 @@ describe('FrameRuntime', () => {
   it('does not reject revalidate when session changes before revalidation error', async () => {
     const session = new SessionRuntimeState();
     const error = new Error('Сессия фрейма устарела.');
-    const runtime = createFrameRuntime({
-      value: 'ready',
-    });
+    const runtime = createFrameRuntime();
 
     session.setAuthenticated();
     await runtime.load(createLoadOptions(session));
@@ -305,6 +236,7 @@ describe('FrameRuntime', () => {
     expect(runtime.getLoaderData(TestFrameController)).toEqual({
       params: {
         routeId: '42',
+        value: 'ready',
       },
       value: 'ready',
     });
@@ -313,9 +245,7 @@ describe('FrameRuntime', () => {
   it('does not reject action when session changes before action error', async () => {
     const session = new SessionRuntimeState();
     const error = new Error('Сессия фрейма устарела.');
-    const runtime = createFrameRuntime({
-      value: 'ready',
-    });
+    const runtime = createFrameRuntime();
 
     session.setAuthenticated();
     await runtime.load(createLoadOptions(session));
@@ -332,14 +262,71 @@ describe('FrameRuntime', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('allows controller to close its current frame without action abort error', async () => {
-    const runtime = createFrameRuntime({
-      value: 'ready',
+  it('keeps frame action error in submit state without rejecting', async () => {
+    const error = new Error('Действие фрейма завершилось с ошибкой.');
+    const runtime = createFrameRuntime();
+
+    TestFrameController.actionHandler = () => {
+      throw error;
+    };
+    await runtime.load(createLoadOptions());
+
+    await expect(
+      runtime.action(TestFrameController, {
+        value: 'submitted',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(runtime.getActionState(TestFrameController)).toEqual({
+      data: undefined,
+      error,
+      inProcess: false,
     });
+    expect(runtime.getSnapshot()).toEqual({
+      error: null,
+      phase: 'ready',
+    });
+  });
+
+  it('moves frame to failed when action explicitly raises runtime exception', async () => {
+    const error = new Error('Критическая ошибка фрейма.');
+    const runtime = createFrameRuntime();
+
+    TestFrameController.runtimeException = error;
+    await runtime.load(createLoadOptions());
+
+    await expect(
+      runtime.action(TestFrameController, {
+        value: 'submitted',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(runtime.getActionState(TestFrameController).error).toBeUndefined();
+    expect(runtime.getSnapshot()).toEqual({
+      error,
+      phase: 'failed',
+    });
+  });
+
+  it('moves frame to failed when loader explicitly raises runtime exception', async () => {
+    const error = new Error('Критическая loader-ошибка фрейма.');
+    const runtime = createFrameRuntime();
+
+    TestFrameController.loaderRuntimeException = error;
+
+    await expect(runtime.load(createLoadOptions())).rejects.toBe(error);
+    expect(runtime.getSnapshot()).toEqual({
+      error,
+      phase: 'failed',
+    });
+  });
+
+  it('allows controller to close its current frame without action abort error', async () => {
+    const runtime = createFrameRuntime();
     const loadOptions = createLoadOptions();
     const actionAbortController = new AbortController();
 
-    loadOptions.close.mockImplementation(async () => {
+    TestNavigateService.closeFrameMock.mockImplementation(async () => {
       actionAbortController.abort();
     });
 
@@ -358,11 +345,12 @@ describe('FrameRuntime', () => {
     expect(result).toEqual({
       value: 'ready:close',
     });
-    expect(loadOptions.close).toHaveBeenCalledOnce();
+    expect(TestNavigateService.closeFrameMock).toHaveBeenCalledWith(undefined);
   });
 });
 
-interface TestFrameProps {
+interface TestFrameParams {
+  readonly routeId: string;
   readonly value: string;
 }
 
@@ -370,18 +358,9 @@ interface TestFrameActionPayload {
   readonly value: string;
 }
 
-abstract class TestFrameLoaderGuardInterface extends GuardInterface<FrameControllerLoaderArgs<TestFrameProps>> {}
+type TestFrameLoaderArgs = ControllerArgs<WithParams<TestFrameParams>>;
 
-abstract class TestFramePolicyInterface extends PolicyInterface<RouteRuntimeContextInterface> {}
-
-@Policy()
-class TestFramePolicy extends TestFramePolicyInterface {
-  static result: PolicyResult = { type: 'pass' };
-
-  execute(): PolicyResult {
-    return TestFramePolicy.result;
-  }
-}
+abstract class TestFrameLoaderGuardInterface extends GuardInterface<TestFrameLoaderArgs> {}
 
 @Injectable()
 class TestFrameLoaderGuard extends TestFrameLoaderGuardInterface {
@@ -393,45 +372,43 @@ class TestFrameLoaderGuard extends TestFrameLoaderGuardInterface {
 }
 
 @Controller()
-class TestFrameController extends FrameControllerInterface<TestFrameProps> {
+class TestFrameController {
   static actionHandler: (() => void) | null = null;
   static loaderSuffix = '';
+  static loaderRuntimeException: Error | null = null;
+  static runtimeException: Error | null = null;
 
   constructor(
     @Inject(RevalidateServiceInterface)
     private readonly revalidateService: RevalidateServiceInterface,
-    @Inject(FrameServiceInterface)
-    private readonly frameService: FrameServiceInterface,
-  ) {
-    super();
-  }
+    @Inject(NavigateServiceInterface)
+    private readonly navigate: NavigateServiceInterface,
+    @Inject(RuntimeExceptionServiceInterface)
+    private readonly runtimeExceptionService: RuntimeExceptionServiceInterface,
+  ) {}
 
-  async action(args: FrameControllerActionArgs<TestFrameProps, TestFrameActionPayload>): Promise<{ value: string }> {
+  async action(
+    args: ControllerArgs<WithPayload<TestFrameActionPayload, WithParams<TestFrameParams>>>,
+  ): Promise<{ value: string }> {
     TestFrameController.actionHandler?.();
 
-    if (args.payload.value === 'close') {
-      await this.frameService.close();
-
-      return {
-        value: `${args.props.value}:${args.payload.value}`,
-      };
+    if (TestFrameController.runtimeException) {
+      this.runtimeExceptionService.raise(TestFrameController.runtimeException);
     }
 
-    if (args.payload.value === 'back') {
-      await this.frameService.back();
+    if (args.payload.value === 'close') {
+      await this.navigate.frame.close();
 
       return {
-        value: `${args.props.value}:${args.payload.value}`,
+        value: `${args.params.value}:${args.payload.value}`,
       };
     }
 
     if (args.payload.value === 'open') {
-      await this.frameService.open(NextTestFrame, {
-        value: 'next',
-      });
+      await this.navigate.frame.open('/next');
 
       return {
-        value: `${args.props.value}:${args.payload.value}`,
+        value: `${args.params.value}:${args.payload.value}`,
       };
     }
 
@@ -440,17 +417,21 @@ class TestFrameController extends FrameControllerInterface<TestFrameProps> {
     await this.revalidateService.revalidate();
 
     return {
-      value: `${args.props.value}:${args.payload.value}`,
+      value: `${args.params.value}:${args.payload.value}`,
     };
   }
 
   @UseGuards(TestFrameLoaderGuardInterface)
-  async loader(args: FrameControllerLoaderArgs<TestFrameProps>): Promise<unknown> {
+  async loader(args: TestFrameLoaderArgs): Promise<unknown> {
+    if (TestFrameController.loaderRuntimeException) {
+      this.runtimeExceptionService.raise(TestFrameController.loaderRuntimeException);
+    }
+
     const suffix = TestFrameController.loaderSuffix ? `:${TestFrameController.loaderSuffix}` : '';
 
     return {
       params: args.params,
-      value: `${args.props.value}${suffix}`,
+      value: `${args.params.value}${suffix}`,
     };
   }
 }
@@ -494,20 +475,19 @@ class TestFrameLayoutProvider {
   }
 }
 
-class TestFrameBindings extends BindingModuleInterface {
+class TestFrameBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(TestFrameController).toSelf().inSingletonScope();
     registry.bind(TestFrameLoaderGuardInterface).to(TestFrameLoaderGuard).inSingletonScope();
-    registry.bind(TestFramePolicyInterface).to(TestFramePolicy).inSingletonScope();
   }
 }
 
 @UseBindings(TestFrameBindings)
-@Frame<TestFrameProps>({
+@Frame({
   providers: [TestFrameProvider],
   view: () => null,
 })
-class TestFrame extends FrameDefinition<TestFrameProps> {}
+class TestFrame {}
 
 @Layout({
   providers: [TestFrameLayoutProvider],
@@ -516,86 +496,59 @@ class TestFrame extends FrameDefinition<TestFrameProps> {}
 class TestFrameLayout {}
 
 @UseBindings(TestFrameBindings)
-@Frame<TestFrameProps>({
+@Frame({
   layouts: [TestFrameLayout],
   providers: [TestFrameProvider],
   view: () => null,
 })
-class TestFrameWithLayout extends FrameDefinition<TestFrameProps> {}
+class TestFrameWithLayout {}
 
-@UseBindings(TestFrameBindings)
-@Frame<TestFrameProps>({
-  canActivate: [TestFramePolicy],
-  providers: [TestFrameProvider],
-  view: () => null,
-})
-class GuardedFrame extends FrameDefinition<TestFrameProps> {}
+class TestNavigateService implements NavigateServiceInterface {
+  static closeFrameMock = vi.fn();
+  static openFrameMock = vi.fn();
 
-@Frame<TestFrameProps>({
-  source: HashFrameSource.create('next-test-frame'),
-  view: () => null,
-})
-class NextTestFrame extends FrameDefinition<TestFrameProps> {}
+  readonly frame: NavigateFrame = {
+    close: async (options) => {
+      await TestNavigateService.closeFrameMock(options);
+    },
+    open: async (source, options) => {
+      await TestNavigateService.openFrameMock(source, options);
+    },
+  };
 
-class TestRootFrameService extends FrameServiceInterface {
-  static backMock = vi.fn();
-  static openFromFrameMock = vi.fn();
+  async back(): Promise<void> {}
 
-  async back(): Promise<void>;
-  async back<TFrame extends FrameConstructor>(frame: TFrame): Promise<void>;
-  async back(): Promise<void> {
-    TestRootFrameService.backMock();
-  }
+  async hashParams(_to: RouterHashObject, _options?: RouterHashNavigateOptions): Promise<void> {}
 
-  async close(): Promise<void>;
-  async close<TFrame extends FrameConstructor>(frame: TFrame): Promise<void>;
-  async close(): Promise<void> {}
+  async replace(_to: string, _options?: Omit<RouterNavigateOptions, 'replace'>): Promise<void> {}
 
-  hasParent(): boolean;
-  hasParent<TFrame extends FrameConstructor>(frame: TFrame): boolean;
-  hasParent(): boolean {
-    return false;
-  }
+  async searchParams(_to: RouterSearchObject, _options?: RouterSearchNavigateOptions): Promise<void> {}
 
-  async open<TFrame extends FrameConstructor>(_frame: TFrame, ..._args: FrameOpenArgs<TFrame>): Promise<void> {}
-
-  async openFromFrame<TFrame extends FrameConstructor>(
-    _parentEntry: ReturnType<typeof createFrameNavigationEntry>,
-    _frame: TFrame,
-    ..._args: FrameOpenArgs<TFrame>
-  ): Promise<void> {
-    TestRootFrameService.openFromFrameMock(_parentEntry, _frame, ..._args);
-  }
+  async to(_to: string, _options?: RouterNavigateOptions): Promise<void> {}
 }
 
-class TestRuntimeBindings extends BindingModuleInterface {
+class TestRuntimeBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
-    registry.bind(FrameServiceInterface).toConstantValue(new TestRootFrameService());
+    registry.bind(NavigateServiceInterface).toConstantValue(new TestNavigateService());
   }
 }
 
 @UseBindings(TestRuntimeBindings)
 class TestRuntimeOwner {}
 
-const createFrameRuntime = (
-  props: TestFrameProps,
-  frame: FrameConstructor<TestFrameProps> = TestFrame,
-): FrameRuntime<TestFrameProps> => {
+const createFrameRuntime = (frame: FrameConstructor = TestFrame): FrameRuntime => {
   const scope = new ApplicationScope();
 
+  scope.bindSession(new SessionRuntimeState());
   scope.activate(TestRuntimeOwner);
 
-  return new FrameRuntime(scope, frame, props);
+  return new FrameRuntime(scope, frame);
 };
 
 const createLoadOptions = (session = new SessionRuntimeState()) => {
-  const close = vi.fn(async () => {}) as ReturnType<typeof vi.fn> & FrameSourceCloseHandler;
-
   return {
     app: createApplicationController(),
-    close,
     location: createLocation(),
-    navigateService: createNavigateService(),
     session,
   };
 };
@@ -616,21 +569,12 @@ const createLocation = (): RouterLocationSnapshot => {
     key: 'test',
     params: {
       routeId: '42',
+      value: 'ready',
     },
     pathname: '/',
     search: '',
     searchParams: {},
     state: null,
-  };
-};
-
-const createNavigateService = (): NavigateServiceInterface => {
-  return {
-    back: vi.fn(async () => {}),
-    hashParams: vi.fn(async () => {}),
-    replace: vi.fn(async () => {}),
-    searchParams: vi.fn(async () => {}),
-    to: vi.fn(async () => {}),
   };
 };
 

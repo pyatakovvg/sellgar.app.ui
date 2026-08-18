@@ -10,7 +10,7 @@ import {
 } from '../router-params-converter/router-params-converter.interface.ts';
 
 @Injectable()
-export class ClassTransformerRouterParamsConverter extends RouterParamsConverterInterface {
+export class ClassTransformerRouterParamsConverter implements RouterParamsConverterInterface {
   toObject<TValue extends object>(
     target: RouterParamsConstructor<TValue>,
     params: Record<string, unknown>,

@@ -15,15 +15,13 @@ import { ApplicationEventBusInterface } from './application-event-bus.interface.
 type ApplicationEventSubscriptionSet = Set<ApplicationEventHandlerDeclaration<object>>;
 
 @Injectable()
-export class ApplicationEventBus extends ApplicationEventBusInterface {
+export class ApplicationEventBus implements ApplicationEventBusInterface {
   private readonly subscriptions = new Map<ApplicationEventToken<object>, ApplicationEventSubscriptionSet>();
 
   constructor(
     @Inject(RuntimeFailureReporterInterface)
     private readonly reporter: RuntimeFailureReporterInterface,
-  ) {
-    super();
-  }
+  ) {}
 
   clear(): void {
     this.subscriptions.clear();
@@ -56,7 +54,7 @@ export class ApplicationEventBus extends ApplicationEventBusInterface {
           },
         });
 
-        if (result.type === 'failed') {
+        if (result.type === 'failed' || result.type === 'escalated') {
           await reportRuntimeFailure(this.reporter, result.failure, owner, 'event-handler.contained', 'ready');
         }
       }),

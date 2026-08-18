@@ -204,4 +204,3 @@ pagination или неизвестного набора изменений.
 
 - [Reactive entities](../18-reactive-entities.md)
 - [Application events](../07-di-runtime-state-events.md#event-bus-приложения)
-

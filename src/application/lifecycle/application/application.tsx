@@ -1,11 +1,12 @@
 import React from 'react';
 
 import { UseBindings } from '../../../di/composition/use-bindings';
-import { FrameBindings } from '../../../frame/service/frame-service';
 import { createReactRouterView } from '../../../react/router/adapter';
 import { ExceptionProvider } from '../../../react/router/exception';
 import { RevalidateBindings } from '../../../revalidate/binding/revalidate-bindings';
 import { RouterRuntime } from '../../../router/runtime/router-runtime';
+import { getRouterDefinition } from '../../../router/declaration/router';
+import { getRouteDefinition, type Route } from '../../../router/declaration/route';
 import { RouterServiceBindings } from '../../../router/service/router-service';
 import {
   captureRuntimeFailure,
@@ -18,6 +19,7 @@ import {
   createRuntimeRevisionGuard,
   executeRuntimeOperation,
   executeRuntimeParticipant,
+  RuntimeOperationCoordinator,
 } from '../../../runtime/operation';
 import { ApplicationScope } from '../../../runtime/scope/kind';
 import { WidgetRuntimeFactoryBindings } from '../../../widget/runtime/widget-runtime-factory';
@@ -35,7 +37,7 @@ import {
 } from '../../initializer/application-initializer';
 import { ApplicationInitializerGroup } from '../../initializer/application-initializer-group';
 import { DisposableRegistry } from '../../disposable/disposable-registry';
-import { RequestExecutorInterface } from '../../request';
+import { RequestExecutor } from '../../request';
 import type {
   ApplicationConfiguratorInterface,
   ApplicationInitializerDeclaration,
@@ -55,12 +57,11 @@ interface AutoBindableApplicationScope {
 @UseBindings(
   ApplicationEventBusBindings,
   ApplicationStoreBindings,
-  FrameBindings,
   RevalidateBindings,
   RouterServiceBindings,
   WidgetRuntimeFactoryBindings,
 )
-export abstract class Application extends ApplicationControllerInterface {
+export abstract class Application implements ApplicationControllerInterface {
   private readonly config = new ApplicationConfig();
   private readonly disposables = new DisposableRegistry();
   private readonly listeners = new Set<ApplicationLifecycleListener>();
@@ -96,6 +97,7 @@ export abstract class Application extends ApplicationControllerInterface {
       this.scope.bindRouterRuntime(this.routerRuntime);
       this.scope.activate(this);
       this.configure(this.config);
+      this.assertFrameConfiguration();
 
       for (const feature of this.config.featuresValue) {
         this.scope.activate(feature);
@@ -148,9 +150,10 @@ export abstract class Application extends ApplicationControllerInterface {
     this.setState('disposing');
     this.initializerAbortController?.abort();
     if (this.scope.has(SessionRuntimeStateInterface)) {
-      this.scope.get(RequestExecutorInterface).cancelAll();
+      this.scope.get(RequestExecutor).cancelAll();
     }
     await this.routerRuntime.dispose();
+    this.scope.get(RuntimeOperationCoordinator).dispose();
     await this.disposables.dispose((error) => {
       const failure = captureRuntimeFailure(error, {
         operation: 'dispose',
@@ -166,6 +169,16 @@ export abstract class Application extends ApplicationControllerInterface {
 
   protected abstract configure(app: ApplicationConfiguratorInterface): void;
 
+  private assertFrameConfiguration(): void {
+    if (this.config.framesValue !== null) {
+      return;
+    }
+
+    if (hasFrameRouters(getRouterDefinition(this.config.routerValue).routes)) {
+      throw new Error('FrameRouter требует глобальную настройку app.frames({ shell }).');
+    }
+  }
+
   createView(): React.FC {
     if (this.state === 'created' || this.state === 'composing') {
       throw new Error('Приложение нужно скомпоновать перед createView.');
@@ -173,6 +186,7 @@ export abstract class Application extends ApplicationControllerInterface {
 
     const router = this.config.routerValue;
     const components = this.config.componentsValue;
+    const frames = this.config.framesValue;
     const features = this.config.featuresValue;
     const layouts = this.config.layoutsValue;
     let RouterView: React.FC | null = null;
@@ -197,6 +211,7 @@ export abstract class Application extends ApplicationControllerInterface {
         components,
         layouts,
         features,
+        frames,
         this,
         this.session,
         this.routerRuntime,
@@ -303,6 +318,8 @@ export abstract class Application extends ApplicationControllerInterface {
         throw new ApplicationInitializerRejected(result.error);
       case 'failed':
         return throwRuntimeOperationError(result.failure.cause, result.failure.source);
+      case 'escalated':
+        return throwRuntimeOperationError(result.failure.cause, result.failure.source);
     }
   }
 
@@ -380,6 +397,14 @@ const createApplicationRuntimeSource = (operation: string): RuntimeFailureSource
     owner: { kind: 'application' },
     participant: { kind: 'runtime' },
   };
+};
+
+const hasFrameRouters = (routes: readonly Route[]): boolean => {
+  return routes.some((route) => {
+    const definition = getRouteDefinition(route);
+
+    return definition.frames.length > 0 || hasFrameRouters(definition.routes);
+  });
 };
 
 class ApplicationInitializerRejected extends Error {

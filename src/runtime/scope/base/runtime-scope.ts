@@ -24,7 +24,7 @@ export interface RuntimeScopeBindingsLease {
   dispose(): void;
 }
 
-export abstract class RuntimeScope extends RuntimeScopeInterface {
+export abstract class RuntimeScope implements RuntimeScopeInterface {
   private readonly controllerTokens = new Set<DependencyToken<unknown>>();
   private readonly retainedModules = new Map<BindingModuleConstructor, RetainedBindingModule>();
   private readonly retainedOrder: BindingModuleConstructor[] = [];
@@ -33,8 +33,6 @@ export abstract class RuntimeScope extends RuntimeScopeInterface {
   protected readonly container: Container;
 
   constructor(parent?: RuntimeScope) {
-    super();
-
     this.container = new Container({
       parent: parent?.container,
     });

@@ -7,14 +7,12 @@ import { RuntimeErrorReporterSinkInterface } from '../runtime-error-reporter-sin
 import { RuntimeErrorReporterInterface } from './runtime-error-reporter.interface.ts';
 
 @Injectable()
-export class RuntimeErrorReporter extends RuntimeErrorReporterInterface {
+export class RuntimeErrorReporter implements RuntimeErrorReporterInterface {
   constructor(
     @MultiInject(RuntimeErrorReporterSinkInterface)
     @Optional()
     private readonly sinks: RuntimeErrorReporterSinkInterface[] = [],
-  ) {
-    super();
-  }
+  ) {}
 
   async report(report: RuntimeErrorReport): Promise<void> {
     const normalizedReport = normalizeRuntimeErrorReport(report);

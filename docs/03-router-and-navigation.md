@@ -99,6 +99,14 @@ module import, controller loaders и frame preload. Поэтому группа 
 layout/route boundary, а фактические процессы запускаются уже на целевом child
 route.
 
+При прямом входе и F5 router loader заранее сопоставляет hash с `FrameRouter`
+целевой Route-ветки. Загрузка Module и активного Frame запускается параллельно,
+до первого render, но только после успешного завершения `canMatch` и
+`canActivate` этой Route-ветки. React Router снимает общий splash только после
+завершения обеих цепочек, включая их providers и widget preload. FrameRouter
+runtime принадлежит стабильному Route scope; он не зависит от появления или
+disposal Module scope.
+
 Для групп, где статический default может быть недоступен из-за `canMatch`
 дочерних routes, используй `Router.firstAvailable()`:
 
@@ -157,7 +165,12 @@ redirect/forbidden side effects проверяет `canMatch` дочерних r
 new Route({
   path: '/',
   canMatch: [RequireAuthenticatedSessionPolicy],
-  frames: [OrderDetailsFrame],
+  frames: [
+    new FrameRouter({
+      baseSource: 'orders/:orderId',
+      routes: [new FrameRoute({ load: () => import('@frame/order-details') })],
+    }),
+  ],
   layouts: [MainLayout],
   routes: [
     new Route({
@@ -344,8 +357,21 @@ location.search;
 location.searchParams;
 location.hash;
 location.hashParams;
-location.params;
 ```
+
+Параметры активного runtime во view читаются единым hook для Module и Frame:
+
+```tsx
+interface OrderViewParams {
+  readonly orderId: string;
+}
+
+const params = useParams<OrderViewParams>();
+```
+
+В Module hook возвращает параметры активного `Route`. Во Frame — объединённые
+параметры обычного `Route` и активного `FrameRoute`, то есть тот же объект,
+который controller получает как `args.params`.
 
 Матчинг текущего route без прямого импорта router adapter-а:
 
@@ -417,6 +443,47 @@ const filter = location.searchToObject(OrdersFilterParams, {
   enableTypeConversion: true,
 });
 ```
+
+### Массивы В Query DTO
+
+`navigate.searchParams()` сериализует массив повторяющимися параметрами:
+
+```text
+status=active&status=disabled
+```
+
+Несколько одинаковых параметров парсер возвращает массивом, но единственный
+`status=active` возвращается скаляром. URL сам по себе не содержит информации,
+что одно значение относится к массивному полю. Поэтому владеющий query-контрактом
+DTO обязан нормализовать одиночное значение до массива и отдельно проверить
+сам контейнер и его элементы.
+
+```ts
+import { Expose, Transform, type TransformFnParams } from 'class-transformer';
+import { IsArray, IsIn } from 'class-validator';
+
+const normalizeArrayValue = ({ value }: TransformFnParams): unknown => {
+  return value === undefined || Array.isArray(value) ? value : [value];
+};
+
+class OrdersFilterParams {
+  @Expose()
+  @Transform(normalizeArrayValue)
+  @IsArray()
+  @IsIn(['active', 'disabled'], { each: true })
+  readonly status?: Array<'active' | 'disabled'>;
+}
+```
+
+Теперь и `?status=active`, и `?status=active&status=disabled` дают `status` типа
+`string[]`. Одного валидатора с `{ each: true }` недостаточно: он проверяет
+элементы, но не преобразует скаляр в массив и не гарантирует `@IsArray()`.
+
+Для числовых массивов вызывай `searchToObject(..., {
+enableTypeConversion: true })` и используй `@IsNumber({}, { each: true })` вместе
+с той же нормализацией. Эта адаптация принадлежит query DTO модуля. Доменный
+Input/DTO и gateway должны продолжать принимать строгий массив и не знать об
+неоднозначности URL.
 
 DTO conversion для hash:
 
@@ -535,11 +602,27 @@ export class OrdersNavigationService {
 
 ```ts
 navigateService.to('/orders');
+navigateService.frame.open('/orders/100');
+navigateService.frame.close();
 navigateService.replace('/sign-in');
 navigateService.back();
 navigateService.searchParams({ page: 1 });
 navigateService.hashParams({ 'order-details': { id: '100' } });
 ```
+
+Обычный route и frame route используют один navigation port, но frame-операции
+сгруппированы в отдельном namespace:
+
+```ts
+await navigateService.to('/orders');
+await navigateService.frame.open('/orders/100');
+await navigateService.frame.close();
+await navigateService.back();
+```
+
+`frame.open()` и `frame.close()` сохраняют текущие pathname, search и navigation
+state. Опция `{ replace: true }` не создаёт новую browser history entry. Деталь
+реализации через URL hash остаётся внутри navigation adapter-а.
 
 ## Навигация Не Равна Revalidate
 

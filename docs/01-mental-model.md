@@ -19,7 +19,7 @@ Application
 Router / Route
   URL matching
   route policies
-  loader/action transport
+  loader scheduling и controller runtime port
   route-level layouts, frames и exceptions
 
 Module
@@ -124,12 +124,10 @@ export class OrdersSummaryWidget extends WidgetDefinition<OrdersSummaryWidgetPro
 и для frame:
 
 ```ts
-@Frame<OrderDetailsFrameParams>({
-  source: HashFrameSource.create('order-details', OrderDetailsFrameParams),
-  shell: OrderDetailsFrameShell,
+@Frame({
   view: FrameView,
 })
-export class OrderDetailsFrame extends FrameDefinition<OrderDetailsFrameParams> {}
+export class OrderDetailsFrame {}
 ```
 
 ## View-Слой
@@ -139,10 +137,9 @@ View-код использует hooks и declarative adapters:
 ```tsx
 const navigate = useNavigate();
 const orders = useLoaderData(OrdersControllerInterface);
-const orderDetailsFrame = useFrame(OrderDetailsFrame);
 
 return (
-  <button type="button" onClick={() => orderDetailsFrame.open({ id: orders.items[0].id })}>
+  <button type="button" onClick={() => navigate.frame.open(`/orders/${orders.items[0].id}`)}>
     Открыть детали
   </button>
 );
@@ -158,7 +155,7 @@ injection:
 
 ```ts
 @Controller()
-export class OrdersController extends OrdersControllerInterface {
+export class OrdersController implements OrdersControllerInterface {
   constructor(
     @Inject(NavigateServiceInterface)
     private readonly navigateService: NavigateServiceInterface,
@@ -166,9 +163,9 @@ export class OrdersController extends OrdersControllerInterface {
 }
 ```
 
-Runtime-код не должен зависеть от React hooks. Если нужно выполнить navigation,
-используй `NavigateServiceInterface`. Если нужно открыть frame, используй
-`FrameServiceInterface`.
+Runtime-код не должен зависеть от React hooks. Обычная navigation, browser
+history и frame transition выполняются через единый `NavigateServiceInterface`.
+Frame-операции сгруппированы в `navigate.frame`.
 
 ## Основные Потоки Данных
 
@@ -186,10 +183,22 @@ Route/module action:
 
 ```text
 useSubmit(ControllerToken)
--> React Router action
 -> RouteRuntime
 -> ModuleRuntime
 -> Controller.action(args)
+```
+
+React Router не используется как transport action. Payload остаётся обычным
+значением JavaScript и передаётся в controller по исходной ссылке.
+
+Произвольный метод controller:
+
+```text
+useController(ControllerToken).method(...args)
+-> typed controller facade
+-> nearest runtime
+-> application RuntimeOperationCoordinator
+-> Controller.method(...args)
 ```
 
 `useSubmit(ControllerToken)` отдает общий action state для активного runtime
@@ -219,12 +228,18 @@ useSubmit(WidgetControllerToken)
 Frame activation:
 
 ```text
-URL hash or frame.open(...)
--> FrameSourceInterface
--> RouterRuntime resolves active frame
+URL hash
+-> active Route branch provides FrameRouter
+-> FrameRouter matches FrameRoute
 -> FrameRuntime runs providers and controllers
 -> FrameLayer renders shell and view
 ```
+
+На первом входе Route branch определяется до render. Route/Module и
+FrameRouter/Frame начинают preload параллельно под общим application splash;
+`FrameLayer` затем хостит уже подготовленный runtime. При hash-переходе после
+первого render FrameLayer запускает новую frame-цепочку и показывает её
+fallback.
 
 Frame loader:
 

@@ -41,16 +41,16 @@ interface ApplyOrdersFilterPayload {
   query: string;
 }
 
-abstract class ApplyOrdersFilterControllerInterface implements ControllerInterface {
-  abstract action(args: ControllerActionArgs<ApplyOrdersFilterPayload>): Promise<void>;
+abstract class ApplyOrdersFilterControllerInterface {
+  abstract action(args: ControllerArgs<WithPayload<ApplyOrdersFilterPayload>>): Promise<void>;
 }
 ```
 
 ### Заметки Ведущего
 
 Если actions независимы, несколько маленьких controllers понятнее большого
-switch по `actionType`. Token одновременно адресует action transport и его
-submit state.
+switch по `actionType`. Token одновременно адресует action в nearest runtime и
+его submit state; HTTP-подобной сериализации между view и controller нет.
 
 ---
 
@@ -60,15 +60,13 @@ submit state.
 
 ```ts
 @Controller()
-export class ApplyOrdersFilterController extends ApplyOrdersFilterControllerInterface {
+export class ApplyOrdersFilterController implements ApplyOrdersFilterControllerInterface {
   constructor(
     @Inject(NavigateServiceInterface)
     private readonly navigate: NavigateServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async action({ payload }: ControllerActionArgs<ApplyOrdersFilterPayload>) {
+  async action({ payload }: ControllerArgs<WithPayload<ApplyOrdersFilterPayload>>) {
     await this.navigate.searchParams({ query: payload.query, page: 1 }, { merge: true });
   }
 }
@@ -134,6 +132,10 @@ Submit — function со state: `inProcess`, `data`, `error`. View вызыва�
 Ошибки submit остаются recoverable в hook state. Runtime action boundary
 сформирует diagnostic report, но application-level reaction через глобальную
 подписку не запускается; локальная форма показывает собственное сообщение.
+Promise submit при этом завершается `undefined`, а не rejected promise.
+Явная фатальная эскалация делается через injected
+`RuntimeExceptionServiceInterface.raise(error)` и принимается ближайшим
+runtime owner.
 
 ---
 

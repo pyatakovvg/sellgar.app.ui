@@ -8,7 +8,7 @@ const DEFAULT_NOTIFICATION_TIMEOUT_MS = 5000;
 const DEFAULT_NOTIFICATION_PLACEMENT = 'bottom-right';
 const DEFAULT_NOTIFICATION_STATUS = 'info';
 
-export class NotificationRuntime extends NotificationRuntimeInterface {
+export class NotificationRuntime implements NotificationRuntimeInterface {
   private readonly listeners = new Set<NotificationRuntimeListener>();
   private readonly timers = new Map<string, NotificationTimer>();
   private notifications: NotificationRequest[] = [];

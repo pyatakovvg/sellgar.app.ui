@@ -193,12 +193,7 @@ policies.
 ### На Экране
 
 ```tsx
-import {
-  Application,
-  Route,
-  Router,
-  type ApplicationConfiguratorInterface,
-} from '@tiyn/app';
+import { Application, Route, Router, type ApplicationConfiguratorInterface } from '@tiyn/app';
 
 export class OrdersTrainingApplication extends Application {
   protected configure(app: ApplicationConfiguratorInterface): void {
@@ -393,4 +388,3 @@ Module
 - [структура module package](../13-module-package-structure.md);
 - [структура application host](../16-application-host-structure.md);
 - [граница public API](../17-public-api-boundary.md).
-

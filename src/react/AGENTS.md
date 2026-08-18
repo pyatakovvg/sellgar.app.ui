@@ -9,6 +9,11 @@ renderable view helper.
 ## Границы
 
 - React Router internals скрыты за adapter и services.
+- React Router не является transport для controller action: route objects не
+  содержат framework action bridge, а controller payload не проходит через
+  `Request`, `FormData` или `useFetcher`.
+- Adapter предоставляет coordinator-у единственный route refresh handler; ему
+  запрещено эвристически выводить владельца refresh из navigation/fetcher state.
 - Публичный фича code использует hooks/services из корня пакета.
 - Adapter code не должен знать business domain или concrete route packages.
 - Shared render helpers должны оставаться framework-level.

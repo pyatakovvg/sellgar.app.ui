@@ -1,6 +1,6 @@
 # Аудит Публичного API `@tiyn/app`
 
-Дата сверки: 2026-07-28.
+Дата сверки: 2026-08-16.
 
 Документ фиксирует результат размещения документации в `library/tiyn-app/docs`
 и сверки с текущим пакетом `library/tiyn-app`.
@@ -22,16 +22,15 @@
   initializers, `ApplicationStoreInterface`, `SessionRuntimeStateInterface`;
 - DI facade: `BindingModuleInterface`, `BindingRegistryInterface`,
   `UseBindings`, `Inject`, `Injectable`, `Optional`, `MultiInject`;
-- Router: `Router`, `Route`, route policies, location/navigate services,
-  search/hash utils;
+- Router: `Router`, `Route`, route policies и location/navigate services;
 - Modules/controllers: `@Module`, controller loader/action contracts,
-  `useController`, `useLoaderData`, `useSubmit`, `useRevalidate`,
+  `useController`, `useLoaderData`, `useParams`, `useSubmit`, `useRevalidate`,
   `RevalidateServiceInterface`;
-- Widgets: `@Widget`, `WidgetDefinition`, `WidgetHost`, widget runtime factory,
+- Widgets: `@Widget`, `WidgetDefinition`, `WidgetHost`, widget preloader,
   unified controller hooks and runtime-local revalidate;
-- Frames: `@Frame`, `FrameDefinition`, `FrameShellInterface`,
-  `HashFrameSource`, `FrameServiceInterface`, unified controller hooks и
-  runtime-local revalidate;
+- Frames: `@Frame`, `FrameRouter`, `FrameRoute`,
+  `FrameShellInterface`, absolute hash navigation через общий
+  `NavigateServiceInterface`/`useNavigate` и runtime-local revalidate;
 - Runtime providers: `@Provider`, `RuntimeProviderInterface`,
   `@SingletonProvider`, `SingletonProviderInterface`,
   `RuntimeProviderResult`, `RuntimeProviderCleanup`;
@@ -41,7 +40,7 @@
   `Guard`, `GuardInterface`, `UseGuards`, `useGuard`, `Guarded`;
 - Reactive entities: `Entity`, `EntityConstructor`, `EntityIdentity`,
   `EntityMetadata`, `EntityOptions`, `updateEntity`, `reactive`;
-- Встроенные features: notification и user-request.
+- Встроенные features: notification, user-request и navigation-blocker.
 
 ## Граница Публичного API
 
@@ -62,6 +61,11 @@ import { Application, Module, Route, Router } from '@tiyn/app';
   implementations и metadata readers;
 - direct scope access, включая `useRuntimeScope`; React-код получает dependency
   через `useDependency(...)`;
+- normalized state деклараций `Route`/`Router`, runtime id и служебные getters;
+- concrete widget runtime/factory и административные
+  операции сервисов (`register`, `unregister`, `cancelAll`, `cancelScope`);
+- низкоуровневые функции сериализации и разбора search/hash; внешний код
+  работает через `LocationServiceInterface` и `NavigateServiceInterface`;
 - framework-owned adapter components, lifecycle helpers и default
   implementations: `RevalidateBridge`, `renderView`,
   `ApplicationInitializerGroup`, router continuation service и concrete
@@ -81,7 +85,7 @@ import { Application, Module, Route, Router } from '@tiyn/app';
 - `src/widget/AGENTS.md` - `@Widget`, `WidgetHost`, widget runtime/factory/hooks.
 - `src/frame/AGENTS.md` - `@Frame`, sources, navigation state, service/runtime.
 - `src/runtime/AGENTS.md` - scopes, providers, operation flow и context.
-- `src/controller/AGENTS.md` - generic controller contracts, action transport,
+- `src/controller/AGENTS.md` - generic controller contracts, runtime invocation,
   loader data и hooks.
 - `src/di/AGENTS.md` - DI facade, tokens, bindings, `UseBindings`, decorators.
 - `src/policy/AGENTS.md` - policy contracts, descriptors, handlers, runner.
@@ -94,18 +98,20 @@ import { Application, Module, Route, Router } from '@tiyn/app';
   observable runtime.
 - `src/features/AGENTS.md` - встроенные features.
 - `src/features/notification/AGENTS.md` - notification фича.
+- `src/features/navigation-blocker/AGENTS.md` - navigation blocker фича.
 - `src/features/user-request/AGENTS.md` - user request фича.
 
 ## Что Требует Осторожности
 
 - `FrameLayer` упоминается в документах как внутренний механизм render layer.
   Его не нужно импортировать из кода фич.
-- Frame navigation history принадлежит `frame-navigation-state` в
-  `sessionStorage`, с областью по `router.baseUrl`; `history.state` не является
-  источником истины.
-- `WidgetRuntimeFactoryInterface.preload(...)` готовит widget runtime для
-  владельца scope и `runtimeKey`; `WidgetHost` может использовать подготовленный
-  runtime, но не должен знать детали его реализации.
+- Frame navigation использует общий URL и browser history. Отдельного
+  frame-history state, frame-specific `back()` и вычисления родительского
+  frame route нет.
+- `WidgetPreloaderInterface.preload(...)` готовит widget runtime для текущего
+  provider owner и `runtimeKey`; provider передаёт исходный context и не получает
+  прямой доступ к scope. `WidgetHost` может использовать подготовленный runtime,
+  но не должен знать детали его реализации.
 - Revalidate использует единый service token, но конкретная реализация берётся
   из ближайшего module/frame/widget runtime scope.
 - Guards - local capability checks внутри активного runtime; route boundary

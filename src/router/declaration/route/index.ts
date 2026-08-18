@@ -1,2 +1,2 @@
-export { Route, createFirstAvailableRouteDefault, isFirstAvailableRouteDefault } from './route.ts';
-export type { FirstAvailableRouteDefault, RouteDefaultTo, RouteOptions } from './route.ts';
+export { Route, createFirstAvailableRouteDefault, getRouteDefinition, isFirstAvailableRouteDefault } from './route.ts';
+export type { FirstAvailableRouteDefault, RouteDefaultTo, RouteDefinition, RouteOptions } from './route.ts';

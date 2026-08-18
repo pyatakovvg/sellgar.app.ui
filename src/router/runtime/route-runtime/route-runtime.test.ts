@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router';
+import { redirect, replace } from 'react-router';
 import { describe, expect, it, vi, type MockInstance } from 'vitest';
 
 import { Controller } from '../../../controller/contract/controller';
@@ -14,25 +14,18 @@ import {
   type ApplicationLifecycleSnapshot,
 } from '../../../application/lifecycle/application-lifecycle';
 import { SessionRuntimeState, SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
-import type {
-  ControllerActionArgs,
-  ControllerInterface,
-  ControllerLoaderArgs,
-} from '../../../controller/contract/controller';
-import { MODULE_ACTION_ID_FIELD } from '../../../module/runtime/module-runtime';
+import type { ControllerArgs, WithParams, WithPayload, WithProps } from '../../../controller/contract/controller';
 import { BindingModuleInterface } from '../../../di/binding/binding-module';
 import { Inject, Injectable } from '../../../di/injection/decorators';
 import { UseBindings } from '../../../di/composition/use-bindings';
 import type { BindingRegistryInterface } from '../../../di/binding/binding-registry';
 import type { DependencyToken } from '../../../di/token/dependency-token';
-import { Frame, FrameDefinition } from '../../../frame/declaration/frame';
-import { FrameBindings } from '../../../frame/service/frame-service';
-import { HashFrameSource } from '../../../frame/source/hash-frame-source';
-import type { FrameConstructor } from '../../../frame/declaration/frame';
 import { Module } from '../../../module/declaration/module';
 import type { PolicyResult } from '../../../policy/contract/policy-result';
-import { ApplicationScope, FrameScope, RouteScope } from '../../../runtime/scope/kind';
+import { ApplicationScope } from '../../../runtime/scope/kind';
 import { RuntimeFailureReporterInterface } from '../../../runtime/failure';
+import { RuntimeOperationCoordinator } from '../../../runtime/operation';
+import { RuntimeExceptionServiceInterface } from '../../../runtime/exception';
 import {
   Provider,
   RuntimeProviderInterface,
@@ -51,11 +44,13 @@ import { RouterServiceBindings } from '../../service/router-service';
 import { RoutePolicyInterface } from '../route-policy';
 import { RouterRuntime } from '../router-runtime';
 import type { RoutePolicyDeclarations } from '../route-runtime-context';
+import { parseHashToObject } from '../../utils/hash-utils';
+import { parseSearchParams } from '../../utils/search-utils';
 
-import { RouteRuntime } from './';
+import { isRouteRuntimeNavigationException, RouteRuntime, type RouteRuntimeLoadContext } from './';
 
 describe('RouteRuntime', () => {
-  it('выполняет зарегистрированный module action через React Router request без передачи payload', async () => {
+  it('выполняет module action напрямую через route runtime без сериализации payload', async () => {
     const file = new File(['image'], 'image.png', { type: 'image/png' });
     const payload = { file, name: 'Товар' };
     const actionResult = { uuid: 'product:1' };
@@ -71,24 +66,10 @@ describe('RouteRuntime', () => {
     await fixture.runtime.loader(createLoaderArgs());
     fixture.runtime.commit();
 
-    const moduleRuntime = fixture.runtime.getModuleRuntime();
-    const operation = moduleRuntime.startAction(fixture.controllerToken, payload);
-    const formData = new FormData();
-
-    formData.set(MODULE_ACTION_ID_FIELD, operation.id);
-
-    await expect(
-      fixture.runtime.action({
-        params: {},
-        request: new Request('https://tiyn-app.test/route', {
-          body: formData,
-          method: 'post',
-        }),
-      } as ActionFunctionArgs),
-    ).resolves.toBeNull();
+    const result = await fixture.runtime.action(fixture.controllerToken, payload);
 
     expect(fixture.action).toHaveBeenCalledTimes(1);
-    expect(moduleRuntime.finishAction(operation)).toBe(actionResult);
+    expect(result).toBe(actionResult);
   });
 
   it('сохраняет ошибку module action в runtime submit state', async () => {
@@ -103,22 +84,8 @@ describe('RouteRuntime', () => {
     fixture.runtime.commit();
 
     const moduleRuntime = fixture.runtime.getModuleRuntime();
-    const operation = moduleRuntime.startAction(fixture.controllerToken, { name: 'Товар' });
-    const formData = new FormData();
+    await expect(fixture.runtime.action(fixture.controllerToken, { name: 'Товар' })).resolves.toBeUndefined();
 
-    formData.set(MODULE_ACTION_ID_FIELD, operation.id);
-
-    await expect(
-      fixture.runtime.action({
-        params: {},
-        request: new Request('https://tiyn-app.test/route', {
-          body: formData,
-          method: 'post',
-        }),
-      } as ActionFunctionArgs),
-    ).resolves.toBeNull();
-
-    expect(() => moduleRuntime.finishAction(operation)).toThrow(actionError);
     expect(moduleRuntime.getActionState(fixture.controllerToken)).toEqual({
       data: undefined,
       error: actionError,
@@ -132,14 +99,47 @@ describe('RouteRuntime', () => {
     );
   });
 
-  it('прерывает module action до policy redirect при изменении session', async () => {
+  it('переводит module в failed при явной runtime exception из action', async () => {
+    const error = new Error('Критическая ошибка модуля.');
+    const fixture = createRouteRuntimeFixture({ runtimeException: error });
+
+    await fixture.runtime.loader(createLoaderArgs());
+    fixture.runtime.commit();
+
+    await expect(fixture.runtime.action(fixture.controllerToken, {})).resolves.toBeUndefined();
+
+    const snapshot = fixture.runtime.getModuleRuntime().getSnapshot();
+
+    expect(snapshot).toEqual({
+      error,
+      phase: 'failed',
+    });
+    expect(fixture.runtime.getModuleRuntime().getSnapshot()).toBe(snapshot);
+    expect(fixture.runtime.getActionState(fixture.controllerToken).error).toBeUndefined();
+    expect(fixture.reportFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        disposition: 'module.failed',
+        failure: expect.objectContaining({
+          cause: error,
+          source: expect.objectContaining({
+            operation: 'action',
+            participant: { kind: 'controller', token: fixture.controllerToken },
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('завершает module action при изменении session и не запускает policy локально повторно', async () => {
     const session = new SessionRuntimeState();
+    const routeCanMatch = vi.fn((): PolicyResult =>
+      session.phase === 'anonymous' ? { type: 'pass' } : { reason: 'authenticated', type: 'fail' },
+    );
     const fixture = createRouteRuntimeFixture({
       action: () => {
         session.setAuthenticated();
       },
-      routeCanMatch: () =>
-        session.phase === 'anonymous' ? { type: 'pass' } : { reason: 'authenticated', type: 'fail' },
+      routeCanMatch,
       actionPolicyOnFail: Router.redirectTo('/', { replace: true }),
       session,
     });
@@ -148,25 +148,46 @@ describe('RouteRuntime', () => {
 
     await fixture.runtime.loader(createLoaderArgs());
     fixture.runtime.commit();
+    const refresh = vi.fn();
 
-    const moduleRuntime = fixture.runtime.getModuleRuntime();
-    const operation = moduleRuntime.startAction(fixture.controllerToken, {});
-    const formData = new FormData();
+    fixture.applicationScope.get(RuntimeOperationCoordinator).attachRefresh(refresh);
 
-    formData.set(MODULE_ACTION_ID_FIELD, operation.id);
+    await expect(fixture.runtime.action(fixture.controllerToken, {})).resolves.toBeUndefined();
 
-    const redirect = await catchRedirect(
-      fixture.runtime.action({
-        params: {},
-        request: new Request('https://tiyn-app.test/sign-in', {
-          body: formData,
-          method: 'post',
-        }),
-      } as ActionFunctionArgs),
-    );
+    expect(routeCanMatch).toHaveBeenCalledOnce();
+    expect(refresh).toHaveBeenCalledOnce();
+  });
 
-    expect(redirect.headers.get('Location')).toBe('/');
-    expect(moduleRuntime.finishAction(operation)).toBeUndefined();
+  it('запускает одну refresh wave после изменения session в произвольном методе контроллера', async () => {
+    const session = new SessionRuntimeState();
+    const directMethod = vi.fn(() => {
+      session.setAuthenticated();
+      return 'authenticated';
+    });
+    const fixture = createRouteRuntimeFixture({ directMethod, session });
+
+    session.setAnonymous();
+    await fixture.runtime.loader(createLoaderArgs());
+    fixture.runtime.commit();
+
+    const refresh = vi.fn();
+    fixture.applicationScope.get(RuntimeOperationCoordinator).attachRefresh(refresh);
+
+    expect(fixture.runtime.invoke(fixture.controllerToken, 'directMethod', [])).toBe('authenticated');
+
+    await vi.waitFor(() => {
+      expect(refresh).toHaveBeenCalledOnce();
+    });
+  });
+
+  it('вызывает метод controller из подготовленного view module до commit', async () => {
+    const directMethod = vi.fn(() => 'pending-view');
+    const fixture = createRouteRuntimeFixture({ directMethod });
+
+    await fixture.runtime.loader(createLoaderArgs());
+
+    expect(fixture.runtime.invoke(fixture.controllerToken, 'directMethod', [])).toBe('pending-view');
+    expect(directMethod).toHaveBeenCalledOnce();
   });
 
   it('reports route provider setup errors with provider phase code', async () => {
@@ -271,98 +292,6 @@ describe('RouteRuntime', () => {
     );
   });
 
-  it('loads active frame providers before route loader resolves', async () => {
-    const frameProviderDeferred = createDeferred<void>();
-    const frameProviderBeforeRender = vi.fn(async (context: RuntimeProviderContextInterface) => {
-      expect(context.phase).toBe('beforeRender');
-      expect(context.scope).toBeInstanceOf(FrameScope);
-      await frameProviderDeferred.promise;
-    });
-    const fixture = createRouteRuntimeFixture({
-      frameProviderBeforeRender,
-      frames: [TestFrame],
-      routePathname: '/route',
-    });
-    let isResolved = false;
-    const loaderPromise = fixture.runtime.loader(createLoaderArgs('#test-frame')).then(() => {
-      isResolved = true;
-    });
-
-    await vi.waitFor(() => {
-      expect(frameProviderBeforeRender).toHaveBeenCalledTimes(1);
-    });
-    expect(isResolved).toBe(false);
-
-    frameProviderDeferred.resolve();
-    await loaderPromise;
-
-    expect(fixture.routerRuntime.getPreparedFrameRuntime(TestFrame, 'test-frame:"null"')?.getSnapshot().phase).toBe(
-      'ready',
-    );
-  });
-
-  it('loads an active frame before a deeply nested route loader resolves', async () => {
-    const frameProviderDeferred = createDeferred<void>();
-    const frameProviderBeforeRender = vi.fn(async () => {
-      await frameProviderDeferred.promise;
-    });
-    const fixture = createRouteRuntimeFixture({
-      basePath: '/terminals-management',
-      frameProviderBeforeRender,
-      frames: [TestFrame],
-      routePathname: '/terminals/registrations/archive',
-    });
-    let isResolved = false;
-    const loaderPromise = fixture.runtime
-      .loader(createLoaderArgs('/terminals-management/terminals/registrations/archive#test-frame'))
-      .then(() => {
-        isResolved = true;
-      });
-
-    await vi.waitFor(() => {
-      expect(frameProviderBeforeRender).toHaveBeenCalledTimes(1);
-    });
-    expect(isResolved).toBe(false);
-
-    frameProviderDeferred.resolve();
-    await loaderPromise;
-
-    expect(fixture.routerRuntime.getPreparedFrameRuntime(TestFrame, 'test-frame:"null"')?.getSnapshot().phase).toBe(
-      'ready',
-    );
-  });
-
-  it('does not reload existing active frame runtime during route revalidation', async () => {
-    const frameProviderBeforeRender = vi.fn();
-    const fixture = createRouteRuntimeFixture({
-      frameProviderBeforeRender,
-      frames: [TestFrame],
-      routePathname: '/route',
-    });
-
-    await fixture.runtime.loader(createLoaderArgs('#test-frame'));
-    await fixture.runtime.loader(createLoaderArgs('#test-frame'));
-
-    expect(frameProviderBeforeRender).toHaveBeenCalledTimes(1);
-    expect(fixture.routerRuntime.getPreparedFrameRuntime(TestFrame, 'test-frame:"null"')?.getSnapshot().phase).toBe(
-      'ready',
-    );
-  });
-
-  it('does not preload inherited frame runtime from a non-current route pathname', async () => {
-    const frameProviderBeforeRender = vi.fn();
-    const fixture = createRouteRuntimeFixture({
-      frameProviderBeforeRender,
-      frames: [TestFrame],
-      routePathname: '/parent',
-    });
-
-    await fixture.runtime.loader(createLoaderArgs('/child#test-frame'));
-
-    expect(frameProviderBeforeRender).not.toHaveBeenCalled();
-    expect(fixture.routerRuntime.getPreparedFrameRuntime(TestFrame, 'test-frame:"null"')).toBeNull();
-  });
-
   it('redirects default route before running route providers', async () => {
     const routeCanMatch = vi.fn<() => PolicyResult>(() => ({ type: 'fail' }));
     const routeProviderBeforeRender = vi.fn((context: RuntimeProviderContextInterface) => {
@@ -379,81 +308,19 @@ describe('RouteRuntime', () => {
     });
 
     await expect(fixture.runtime.loader(createLoaderArgs(''))).rejects.toMatchObject({
-      status: 302,
+      decision: { replace: true, to: '/terminals', type: 'redirect' },
     });
 
     expect(routeProviderBeforeRender).not.toHaveBeenCalled();
     expect(routeCanMatch).not.toHaveBeenCalled();
   });
 
-  it('keeps frame load errors inside prepared frame runtime', async () => {
-    const frameError = new Error('beforeRender фрейма завершился с ошибкой.');
-    const fixture = createRouteRuntimeFixture({
-      frameProviderBeforeRender: () => {
-        throw frameError;
-      },
-      frames: [TestFrame],
-      routePathname: '/route',
-    });
-
-    await expect(fixture.runtime.loader(createLoaderArgs('#test-frame'))).resolves.toBeDefined();
-
-    const runtime = fixture.routerRuntime.getPreparedFrameRuntime(TestFrame, 'test-frame:"null"');
-
-    expect(runtime?.getSnapshot()).toEqual({
-      error: frameError,
-      phase: 'failed',
-    });
-    expect(runtime?.getActiveRuntimeOrNull()).not.toBeNull();
-    expect(fixture.reportFailure).toHaveBeenCalledWith(
-      expect.objectContaining({
-        disposition: 'frame.failed',
-        failure: expect.objectContaining({
-          cause: frameError,
-          source: expect.objectContaining({
-            operation: 'beforeRender',
-            owner: expect.objectContaining({ kind: 'frame' }),
-            participant: expect.objectContaining({ kind: 'provider' }),
-          }),
-        }),
-      }),
-    );
-  });
-
-  it('redirects through policies when session changes during frame load', async () => {
-    const session = new TestSessionRuntimeState();
-    const frameError = new Error('Сессия фрейма устарела.');
-
-    session.setAuthenticated();
-
-    const fixture = createRouteRuntimeFixture({
-      frameProviderBeforeRender: () => {
-        session.setAnonymous();
-        throw frameError;
-      },
-      frames: [TestFrame],
-      routeCanMatch: () => (session.phase === 'authenticated' ? { type: 'pass' } : { type: 'fail' }),
-      routePolicyOnFail: Router.redirectTo('/sign-in', {
-        replace: true,
-        saveCurrentLocation: true,
-      }),
-      routePathname: '/route',
-      session,
-    });
-
-    const error = await catchRedirect(fixture.runtime.loader(createLoaderArgs("#test-frame(id='42')")));
-
-    expect(error.headers.get('Location')).toBe('/sign-in');
-    expect(fixture.reportFailure).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        failure: expect.objectContaining({ cause: frameError }),
-      }),
-    );
-  });
-
-  it('redirects through policies when session changes during module loader', async () => {
+  it('interrupts module loader without locally rerunning policies when session changes', async () => {
     const session = new TestSessionRuntimeState();
     const loaderError = new Error('Сессия модуля устарела.');
+    const routeCanMatch = vi.fn((): PolicyResult =>
+      session.phase === 'authenticated' ? { type: 'pass' } : { type: 'fail' },
+    );
 
     session.setAuthenticated();
 
@@ -462,7 +329,7 @@ describe('RouteRuntime', () => {
         session.setAnonymous();
         throw loaderError;
       },
-      routeCanMatch: () => (session.phase === 'authenticated' ? { type: 'pass' } : { type: 'fail' }),
+      routeCanMatch,
       routePolicyOnFail: Router.redirectTo('/sign-in', {
         replace: true,
         saveCurrentLocation: true,
@@ -470,9 +337,13 @@ describe('RouteRuntime', () => {
       session,
     });
 
-    const error = await catchRedirect(fixture.runtime.loader(createLoaderArgs('/terminals')));
-
-    expect(error.headers.get('Location')).toBe('/sign-in');
+    await expect(fixture.runtime.loader(createLoaderArgs('/terminals'))).resolves.toBeNull();
+    expect(fixture.reportFailure).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        failure: expect.objectContaining({ cause: loaderError }),
+      }),
+    );
+    expect(routeCanMatch).toHaveBeenCalledOnce();
   });
 
   it('syncs request location before module controller loaders', async () => {
@@ -497,7 +368,7 @@ describe('RouteRuntime', () => {
       },
     });
 
-    await fixture.runtime.loader(createLoaderArgs('/terminals-management/users'));
+    await fixture.runtime.loader(createLoaderArgs('/terminals-management/users', '/terminals-management'));
 
     expect(loaderPathname).toBe('/users');
   });
@@ -513,7 +384,9 @@ describe('RouteRuntime', () => {
     });
 
     const error = await catchRedirect(
-      fixture.runtime.loader(createLoaderArgs("/terminals-management/terminals?status=active#terminal(id='1')")),
+      fixture.runtime.loader(
+        createLoaderArgs("/terminals-management/terminals?status=active#terminal(id='1')", '/terminals-management'),
+      ),
     );
 
     expect(error.headers.get('Location')).toBe('/sign-in');
@@ -540,7 +413,9 @@ describe('RouteRuntime', () => {
         basePath: '/terminals-management',
       });
 
-    const error = await catchRedirect(fixture.runtime.loader(createLoaderArgs('/terminals-management/sign-in')));
+    const error = await catchRedirect(
+      fixture.runtime.loader(createLoaderArgs('/terminals-management/sign-in', '/terminals-management')),
+    );
 
     expect(error.headers.get('Location')).toBe("/terminals/registrations#registrationReview(id='44')");
   });
@@ -620,7 +495,7 @@ describe('RouteRuntime', () => {
     });
 
     await expect(fixture.runtime.loader(createLoaderArgs('/'))).rejects.toMatchObject({
-      status: 403,
+      decision: { type: 'forbidden' },
     });
   });
 
@@ -670,7 +545,7 @@ describe('RouteRuntime', () => {
     const routeProviderDispose = vi.fn();
     const routeProviderBeforeRender = vi.fn((context: RuntimeProviderContextInterface) => {
       expect(context.phase).toBe('beforeRender');
-      expect(context.scope).toBeInstanceOf(RouteScope);
+      expect(context).not.toHaveProperty('scope');
 
       return () => routeProviderDispose();
     });
@@ -690,7 +565,7 @@ describe('RouteRuntime', () => {
     const routeProviderDispose = vi.fn();
     const routeProviderSetup = vi.fn((context: RuntimeProviderContextInterface) => {
       expect(context.phase).toBe('setup');
-      expect(context.scope).toBeInstanceOf(RouteScope);
+      expect(context).not.toHaveProperty('scope');
 
       return () => routeProviderDispose();
     });
@@ -730,7 +605,7 @@ describe('RouteRuntime', () => {
     const layoutProviderDispose = vi.fn();
     const layoutProviderBeforeRender = vi.fn((context: RuntimeProviderContextInterface) => {
       expect(context.phase).toBe('beforeRender');
-      expect(context.scope).toBeInstanceOf(RouteScope);
+      expect(context).not.toHaveProperty('scope');
 
       return () => layoutProviderDispose();
     });
@@ -749,17 +624,21 @@ describe('RouteRuntime', () => {
   });
 });
 
+type TestControllerContext = ControllerArgs<WithParams<Record<string, string | undefined>, WithProps<object>>>;
+type TestControllerActionContext = ControllerArgs<
+  WithPayload<unknown, WithParams<Record<string, string | undefined>, WithProps<object>>>
+>;
+
 interface RouteRuntimeFixtureOptions {
-  readonly action?: (args: ControllerActionArgs) => unknown | Promise<unknown>;
+  readonly action?: (args: TestControllerActionContext) => unknown | Promise<unknown>;
   readonly actionPolicyOnFail?: ReturnType<typeof Router.redirectTo>;
   readonly beforeRender?: (context: RuntimeProviderContextInterface) => void | Promise<void>;
   readonly dispose?: () => void | Promise<void>;
-  readonly frameProviderBeforeRender?: (context: RuntimeProviderContextInterface) => void | Promise<void>;
+  readonly directMethod?: () => unknown;
   readonly routePolicyOnFail?: ReturnType<typeof Router.redirectTo>;
   readonly basePath?: string;
-  readonly frames?: readonly FrameConstructor[];
   readonly loader?: (
-    args: ControllerLoaderArgs,
+    args: TestControllerContext,
     locationService: LocationServiceInterface,
   ) => unknown | Promise<unknown>;
   readonly layouts?: readonly LayoutConstructor[];
@@ -774,6 +653,7 @@ interface RouteRuntimeFixtureOptions {
     context: RuntimeProviderContextInterface,
   ) => RuntimeProviderResult | Promise<RuntimeProviderResult>;
   readonly routeProviders?: readonly DependencyToken<RuntimeProviderInterface>[];
+  readonly runtimeException?: Error;
   readonly session?: SessionRuntimeStateInterface;
   readonly setup?: (context: RuntimeProviderContextInterface) => void | Promise<void>;
 }
@@ -792,39 +672,47 @@ const createRouteRuntimeFixture = (options: RouteRuntimeFixtureOptions = {}): Ro
   const beforeRender = vi.fn(options.beforeRender ?? (() => {}));
   const dispose = vi.fn(options.dispose ?? (() => {}));
   const setup = vi.fn(options.setup ?? (() => {}));
-  const frameProviderBeforeRender = vi.fn(options.frameProviderBeforeRender ?? (() => {}));
   const routeCanMatch = vi.fn(options.routeCanMatch ?? (() => ({ type: 'pass' as const })));
 
-  TestFrameProvider.beforeRenderHandler = frameProviderBeforeRender;
   TestRouteProvider.beforeRenderHandler = vi.fn(options.routeProviderBeforeRender ?? (() => () => {}));
   TestRouteProvider.setupHandler = vi.fn(options.routeProviderSetup ?? (() => {}));
 
-  abstract class TestControllerInterface implements ControllerInterface {
-    abstract action(args: ControllerActionArgs): unknown | Promise<unknown>;
+  abstract class TestControllerInterface {
+    abstract action(args: TestControllerActionContext): unknown | Promise<unknown>;
 
-    abstract loader(args: ControllerLoaderArgs): unknown | Promise<unknown>;
+    abstract loader(args: TestControllerContext): unknown | Promise<unknown>;
+
+    abstract directMethod(): unknown;
   }
 
   @Controller()
-  class TestController extends TestControllerInterface {
+  class TestController implements TestControllerInterface {
     constructor(
       @Inject(LocationServiceInterface)
       private readonly locationService: LocationServiceInterface,
-    ) {
-      super();
-    }
+      @Inject(RuntimeExceptionServiceInterface)
+      private readonly runtimeExceptionService: RuntimeExceptionServiceInterface,
+    ) {}
 
-    action(args: ControllerActionArgs): unknown | Promise<unknown> {
+    action(args: TestControllerActionContext): unknown | Promise<unknown> {
+      if (options.runtimeException) {
+        this.runtimeExceptionService.raise(options.runtimeException);
+      }
+
       return action(args);
     }
 
-    loader(args: ControllerLoaderArgs): unknown | Promise<unknown> {
+    loader(args: TestControllerContext): unknown | Promise<unknown> {
       return options.loader?.(args, this.locationService);
+    }
+
+    directMethod(): unknown {
+      return options.directMethod?.();
     }
   }
 
   @Provider()
-  class TestProvider extends RuntimeProviderInterface {
+  class TestProvider implements RuntimeProviderInterface {
     setup(context: RuntimeProviderContextInterface): void | Promise<void> {
       return setup(context);
     }
@@ -838,7 +726,7 @@ const createRouteRuntimeFixture = (options: RouteRuntimeFixtureOptions = {}): Ro
 
   TestRoutePolicy.executeHandler = routeCanMatch;
 
-  class TestBindings extends BindingModuleInterface {
+  class TestBindings implements BindingModuleInterface {
     register(registry: BindingRegistryInterface): void {
       registry.bind(TestControllerInterface).to(TestController).inSingletonScope();
     }
@@ -883,18 +771,19 @@ const createRouteRuntimeFixture = (options: RouteRuntimeFixtureOptions = {}): Ro
         };
 
   const routerRuntime = new RouterRuntime();
+  const session = options.session ?? new TestSessionRuntimeState();
 
   applicationScope.bindRouterRuntime(routerRuntime);
+  applicationScope.bindSession(session);
   applicationScope.activate(TestApplicationOwner);
 
   const runtime = new RouteRuntime(
     route,
     app,
-    options.session ?? new TestSessionRuntimeState(),
+    session,
     applicationScope,
     loaderPolicies,
     actionPolicies,
-    options.frames,
     options.routePathname,
     options.basePath,
   );
@@ -935,21 +824,51 @@ const createFixtureRoute = (
   });
 };
 
-const createLoaderArgs = (pathOrHash = ''): LoaderFunctionArgs => {
+const createLoaderArgs = (pathOrHash = '', basePath?: string): RouteRuntimeLoadContext => {
   const path = pathOrHash.startsWith('#') || pathOrHash.startsWith('?') ? `/route${pathOrHash}` : pathOrHash || '/';
+  const url = new URL(`https://tiyn-app.test${path}`);
+  const hash = url.hash;
 
   return {
-    params: {},
-    request: new Request(`https://tiyn-app.test${path}`),
-  } as LoaderFunctionArgs;
+    location: {
+      hash,
+      hashParams: parseHashToObject(hash),
+      key: url.href,
+      params: {},
+      pathname: removeBasePath(url.pathname, basePath),
+      search: url.search,
+      searchParams: parseSearchParams(url.search),
+      state: null,
+    },
+    signal: new AbortController().signal,
+  };
+};
+
+const removeBasePath = (pathname: string, basePath: string | undefined): string => {
+  if (!basePath || basePath === '/') {
+    return pathname;
+  }
+
+  if (pathname === basePath) {
+    return '/';
+  }
+
+  return pathname.startsWith(`${basePath}/`) ? pathname.slice(basePath.length) : pathname;
 };
 
 const catchRedirect = async (promise: Promise<unknown>): Promise<Response> => {
   try {
     await promise;
   } catch (error) {
-    if (error instanceof Response) {
-      return error;
+    if (isRouteRuntimeNavigationException(error)) {
+      switch (error.decision.type) {
+        case 'redirect':
+          return error.decision.replace ? replace(error.decision.to) : redirect(error.decision.to);
+        case 'forbidden':
+          return new Response(null, { status: 403 });
+        case 'not-found':
+          return new Response(null, { status: 404 });
+      }
     }
 
     throw error;
@@ -958,28 +877,9 @@ const catchRedirect = async (promise: Promise<unknown>): Promise<Response> => {
   throw new Error('Ожидался redirect из loader маршрута.');
 };
 
-const TestFrameView = (): null => null;
-
-@Provider()
-class TestFrameProvider extends RuntimeProviderInterface {
-  static beforeRenderHandler: (context: RuntimeProviderContextInterface) => void | Promise<void> = () => {};
-
-  beforeRender(context: RuntimeProviderContextInterface): void | Promise<void> {
-    return TestFrameProvider.beforeRenderHandler(context);
-  }
-}
-
-@Frame({
-  providers: [TestFrameProvider],
-  source: HashFrameSource.create('test-frame'),
-  view: TestFrameView,
-})
-class TestFrame extends FrameDefinition {}
-
-class TestApplicationBindings extends BindingModuleInterface {
+class TestApplicationBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     new RouterServiceBindings().register(registry);
-    new FrameBindings().register(registry);
     registry.bind(TestRoutePolicy).toSelf().inSingletonScope();
     registry.bind(FirstAvailableAllowedPolicy).toSelf().inSingletonScope();
     registry.bind(SecondFirstAvailableAllowedPolicy).toSelf().inSingletonScope();
@@ -991,7 +891,7 @@ class TestApplicationBindings extends BindingModuleInterface {
 class TestApplicationOwner {}
 
 @Provider()
-class TestLayoutProvider extends RuntimeProviderInterface {
+class TestLayoutProvider implements RuntimeProviderInterface {
   static beforeRenderHandler: (
     context: RuntimeProviderContextInterface,
   ) => RuntimeProviderResult | Promise<RuntimeProviderResult> = () => () => {};
@@ -1046,7 +946,7 @@ class SecondFirstAvailableAllowedPolicy extends RoutePolicyInterface {
 }
 
 @Provider()
-class TestRouteProvider extends RuntimeProviderInterface {
+class TestRouteProvider implements RuntimeProviderInterface {
   static setupHandler: (
     context: RuntimeProviderContextInterface,
   ) => RuntimeProviderResult | Promise<RuntimeProviderResult> = () => {};
@@ -1069,14 +969,14 @@ const EMPTY_ROUTE_POLICY_DECLARATIONS: RoutePolicyDeclarations = {
   canMatch: [],
 };
 
-class TestApplicationController extends ApplicationControllerInterface {
+class TestApplicationController implements ApplicationControllerInterface {
   readonly lifecycle: ApplicationLifecycleSnapshot = {
     error: null,
     phase: 'ready',
   };
 }
 
-class TestSessionRuntimeState extends SessionRuntimeStateInterface {
+class TestSessionRuntimeState implements SessionRuntimeStateInterface {
   private currentRevision = 0;
   private currentPhase: SessionRuntimePhase = 'unknown';
 
@@ -1112,21 +1012,4 @@ class TestSessionRuntimeState extends SessionRuntimeStateInterface {
     this.currentPhase = phase;
     this.currentRevision += 1;
   }
-}
-
-interface Deferred<TValue = void> {
-  readonly promise: Promise<TValue>;
-  readonly resolve: (value?: TValue) => void;
-}
-
-function createDeferred<TValue = void>(): Deferred<TValue> {
-  let resolve: Deferred<TValue>['resolve'] = () => {};
-  const promise = new Promise<TValue>((promiseResolve) => {
-    resolve = promiseResolve as Deferred<TValue>['resolve'];
-  });
-
-  return {
-    promise,
-    resolve,
-  };
 }

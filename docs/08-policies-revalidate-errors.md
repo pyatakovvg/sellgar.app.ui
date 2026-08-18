@@ -39,7 +39,7 @@ Policy contract:
 
 ```ts
 @Policy()
-export class RequireAuthenticatedSessionPolicy extends PolicyInterface {
+export class RequireAuthenticatedSessionPolicy extends RoutePolicyInterface {
   constructor(
     @Inject(SessionRuntimeStateInterface)
     private readonly session: SessionRuntimeStateInterface,
@@ -106,11 +106,18 @@ new Route({
 Builder поддерживает:
 
 ```ts
-Policy.configure().withOptions(options);
-Policy.configure().onPass(handler);
-Policy.configure().onFail(handler);
-Policy.configure().onError(handler);
+ConcretePolicy.configure().withOptions(options);
+ConcretePolicy.configure().onPass(handler);
+ConcretePolicy.configure().onFail(handler);
+ConcretePolicy.configure().onError(handler);
 ```
+
+`configure()` вызывается на concrete policy token. Наследование
+`RoutePolicyInterface<TOptions>` переносит в этот token static builder API и тип
+`TOptions`, поэтому `withOptions()` проверяет параметры конкретной policy. Это
+техническое наследование нельзя заменять на `implements PolicyInterface`:
+`implements` проверяет только instance contract и не добавляет class token
+статический метод `configure()`.
 
 Handler может быть прямым `PolicyBoundaryDecision` или DI token, реализующим
 `PolicyResultHandlerInterface`.
@@ -126,6 +133,9 @@ completed
 
 failed
   операция упала, lifecycle не изменился
+
+escalated
+  feature явно запросила переход ближайшего runtime owner в failed
 
 interrupted
   операция устарела после смены runtime revision или session recovery
@@ -152,6 +162,10 @@ failed
   оставить обычное error behavior: state failed, reporter, exception UI или
   submit error state в зависимости от runtime boundary
 
+escalated
+  перевести ближайший module/widget/frame owner в failed
+  показать его exception UI с исходной cause
+
 interrupted
   не показывать exception UI для старого runtime flow
   не записывать stale loader data
@@ -162,9 +176,14 @@ rejected
   передать HTTP result ближайшему owner для локального представления
 ```
 
-Route runtime при `interrupted` повторно применяет policies к текущему session
-state. Protected branch может редиректить на sign-in через обычный
-`Router.redirectTo(...)` policy handler.
+Каждое изменение session revision после запуска router регистрируется в
+application-scoped `RuntimeOperationCoordinator`. Он является единственным
+владельцем refresh generation: схлопывает invalidations одной event-loop wave,
+сериализует следующие waves и вызывает один handler router adapter-а. Механизм
+одинаков для action, произвольного метода controller, loader, provider, request
+recovery и application service. React Router post-action lifecycle в этом
+контракте не участвует, поэтому один transition не создаёт конкурирующие policy
+flows и не удваивает loader-запросы.
 
 Frame и widget runtime при `interrupted` сохраняют корректное локальное
 состояние:
@@ -203,8 +222,8 @@ Feature-код использует обычные controller/provider contracts
 локальные validation/action errors своим state-механизмом.
 
 Abort, смена session revision и dispose являются interruption и не создают
-failure report. `Response`, обработанный router/request contract, также не
-превращается в runtime failure.
+failure report. Ожидаемое navigation decision adapter-а также не превращается
+в runtime failure.
 
 ## HTTP Exceptions И Unauthorized Recovery
 
@@ -223,10 +242,8 @@ class TerminalConflictException extends ConflictException<TerminalErrorEntity> {
 
 ```ts
 @Injectable()
-class SessionExpirationNotifier extends SessionExpirationNotifierInterface {
-  constructor(@Inject(UserRequestServiceInterface) private readonly requests: UserRequestServiceInterface) {
-    super();
-  }
+class SessionExpirationNotifier implements SessionExpirationNotifierInterface {
+  constructor(@Inject(UserRequestServiceInterface) private readonly requests: UserRequestServiceInterface) {}
 
   notify(): Promise<void> {
     return this.requests.alert({
@@ -249,6 +266,14 @@ revalidate сохраняет ранее committed data, action не запус�
 ошибки контроллера. Для anonymous session `401` не запускает recovery и остаётся
 локальной ожидаемой ошибкой, например неверным логином.
 
+Runtime coordinator подписан на все изменения revision, а не только на переход
+в `anonymous`. Поэтому `setAuthenticated()`, `setAnonymous()` и `setUnknown()`
+приводят к переоценке route policies независимо от источника. Router adapter
+подключает к coordinator ровно один refresh handler и не анализирует navigation
+или fetcher state. Если phase была установлена initializer-ом до подключения
+router, отдельная revalidation не нужна: initial load сразу использует
+актуальное состояние.
+
 Сохранение и восстановление текущего URL также принадлежит route policy
 handlers:
 
@@ -270,7 +295,8 @@ RequireAnonymousSessionPolicy.configure().onFail(
 
 Sign-in module не должен самостоятельно читать сохранённый URL и выполнять
 дополнительный redirect после `session.setAuthenticated()`. Возврат на
-сохранённый URL выполняется policy flow.
+сохранённый URL выполняется policy flow во время router revalidation. Также не
+нужно вручную вызывать `revalidate()` после смены session phase.
 
 ## Revalidate Runtime Entity
 
@@ -298,13 +324,11 @@ export const OrdersView: React.FC = () => {
 
 ```ts
 @Provider()
-export class RefreshOrdersProvider extends RuntimeProviderInterface {
+export class RefreshOrdersProvider implements RuntimeProviderInterface {
   constructor(
     @Inject(RevalidateServiceInterface)
     private readonly revalidateService: RevalidateServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
   async afterRender(): Promise<void> {
     await this.revalidateService.revalidate(OrdersController);
@@ -348,15 +372,15 @@ await revalidate();
 
 ```ts
 @Controller()
-export class OrdersSummaryWidgetController extends OrdersSummaryWidgetControllerInterface {
+export class OrdersSummaryWidgetController implements OrdersSummaryWidgetControllerInterface {
   constructor(
     @Inject(RevalidateServiceInterface)
     private readonly revalidateService: RevalidateServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async action(args: WidgetControllerActionArgs<OrdersSummaryWidgetProps, { readonly reason: string }>): Promise<void> {
+  async action(
+    args: ControllerArgs<WithPayload<{ readonly reason: string }, WithProps<OrdersSummaryWidgetProps>>>,
+  ): Promise<void> {
     await this.revalidateService.revalidate({
       signal: args.signal,
     });
@@ -381,16 +405,16 @@ await revalidate();
 
 ```ts
 @Controller()
-export class OrderDetailsController extends OrderDetailsControllerInterface {
+export class OrderDetailsController implements OrderDetailsControllerInterface {
   constructor(
     @Inject(RevalidateServiceInterface)
     private readonly revalidateService: RevalidateServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async action(args: FrameControllerActionArgs<OrderDetailsFrameParams, { readonly reason: string }>): Promise<void> {
-    await updateOrder(args.props.id, args.payload.reason);
+  async action(
+    args: ControllerArgs<WithPayload<{ readonly reason: string }, WithParams<OrderDetailsFrameParams>>>,
+  ): Promise<void> {
+    await updateOrder(args.params.id, args.payload.reason);
     await this.revalidateService.revalidate({
       signal: args.signal,
     });
@@ -428,6 +452,7 @@ interface RuntimeFailureSource {
 application.activation-failed
 route.activation-failed
 module.activation-failed
+module.failed
 widget.failed
 frame.failed
 action.failed
@@ -445,7 +470,7 @@ operation прервана из-за смены session revision, это expecte
 Output-only sink можно добавить через DI bindings:
 
 ```ts
-export class AppRuntimeErrorBindings extends BindingModuleInterface {
+export class AppRuntimeErrorBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(RuntimeFailureSinkInterface).to(AppRuntimeFailureSink).inSingletonScope();
   }
@@ -455,6 +480,29 @@ export class AppRuntimeErrorBindings extends BindingModuleInterface {
 Sink не возвращает framework action и не управляет lifecycle state. Ошибка sink
 изолируется fallback-reporting и не меняет исходный disposition. Если sink отправляет ошибки на
 server endpoint, он не должен создавать recursion через тот же request pipeline.
+
+## Explicit Runtime Exception
+
+Controller action может явно прекратить работу ближайшего runtime owner:
+
+```ts
+constructor(
+  @Inject(RuntimeExceptionServiceInterface)
+  private readonly runtimeException: RuntimeExceptionServiceInterface,
+) {}
+
+async action(): Promise<void> {
+  try {
+    await this.service.execute();
+  } catch (error) {
+    this.runtimeException.raise(error);
+  }
+}
+```
+
+`raise` имеет тип `never`: после него controller flow не продолжается.
+Сервис не является global error bus и не позволяет feature-коду выбирать
+disposition. Это делает runtime owner, который выполняет controller.
 
 ## Exception UI
 

@@ -41,9 +41,7 @@ View не должна знать:
 
 ```ts
 export abstract class OrdersServiceInterface {
-  abstract getOrders(options: {
-    signal?: AbortSignal;
-  }): Promise<readonly OrderEntity[]>;
+  abstract getOrders(options: { signal?: AbortSignal }): Promise<readonly OrderEntity[]>;
 }
 ```
 
@@ -61,8 +59,7 @@ token.
 
 ```ts
 @Injectable()
-export class DemoOrdersService
-  extends OrdersServiceInterface {
+export class DemoOrdersService implements OrdersServiceInterface {
   async getOrders(): Promise<readonly OrderEntity[]> {
     return demoOrders;
   }
@@ -85,11 +82,8 @@ export interface OrdersLoaderData {
   items: readonly OrderEntity[];
 }
 
-export abstract class OrdersControllerInterface
-  implements ControllerInterface {
-  abstract loader(
-    args: ControllerLoaderArgs,
-  ): Promise<OrdersLoaderData>;
+export abstract class OrdersControllerInterface {
+  abstract loader(args: ControllerArgs): Promise<OrdersLoaderData>;
 }
 ```
 
@@ -106,19 +100,16 @@ boundary loader/action для ближайшего runtime entity.
 
 ```ts
 @Controller()
-export class OrdersController
-  extends OrdersControllerInterface {
+export class OrdersController implements OrdersControllerInterface {
   constructor(
     @Inject(OrdersServiceInterface)
     private readonly orders: OrdersServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async loader(args: ControllerLoaderArgs) {
+  async loader(args: ControllerArgs) {
     return {
       items: await this.orders.getOrders({
-        signal: args.request.signal,
+        signal: args.signal,
       }),
     };
   }
@@ -127,7 +118,7 @@ export class OrdersController
 
 ### Заметки Ведущего
 
-`args.request.signal` связывает request с lifecycle route/module. Controller не
+`args.signal` связывает controller operation с lifecycle route/module. Controller не
 создаёт service и не решает его lifetime.
 
 ---
@@ -137,14 +128,11 @@ export class OrdersController
 ### На Экране
 
 ```ts
-export class OrdersBindings extends BindingModuleInterface {
+export class OrdersBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
-    registry.bind(OrdersServiceInterface)
-      .to(DemoOrdersService)
-      .inSingletonScope();
+    registry.bind(OrdersServiceInterface).to(DemoOrdersService).inSingletonScope();
 
-    registry.bind(OrdersControllerInterface)
-      .to(OrdersController);
+    registry.bind(OrdersControllerInterface).to(OrdersController);
   }
 }
 ```
@@ -176,9 +164,7 @@ framework runtime через bindings активного module scope.
 export const OrdersView: React.FC = () => {
   const data = useLoaderData(OrdersControllerInterface);
 
-  return data.items.map((order) => (
-    <div key={order.id}>{order.number}</div>
-  ));
+  return data.items.map((order) => <div key={order.id}>{order.number}</div>);
 };
 ```
 
@@ -245,4 +231,3 @@ ApplicationScope
 - [DI facade и scopes](../07-di-runtime-state-events.md)
 - [Controller loader](../04-modules-controllers-providers.md)
 - [Module package structure](../13-module-package-structure.md)
-

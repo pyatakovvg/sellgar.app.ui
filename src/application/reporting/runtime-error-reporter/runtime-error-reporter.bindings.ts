@@ -7,7 +7,7 @@ import { RuntimeErrorReporterSinkInterface } from '../runtime-error-reporter-sin
 import { RuntimeErrorReporter } from './runtime-error-reporter.ts';
 import { RuntimeErrorReporterInterface } from './runtime-error-reporter.interface.ts';
 
-export class RuntimeErrorReporterBindings extends BindingModuleInterface {
+export class RuntimeErrorReporterBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(RuntimeErrorReporterInterface).to(RuntimeErrorReporter).inSingletonScope();
     registry.bind(RuntimeErrorReporterSinkInterface).to(ConsoleRuntimeErrorReporter).inSingletonScope();

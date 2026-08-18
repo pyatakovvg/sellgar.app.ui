@@ -1,5 +1,6 @@
 export {
   createRuntimeRevisionGuard,
+  createRuntimeCompletionRevisionGuard,
   executeRuntimeParticipant,
   executeRuntimeOperation,
   type RuntimeOperationGuard,
@@ -7,6 +8,7 @@ export {
   type RuntimeOperationResult,
   type RuntimeRevisionSource,
 } from './runtime-operation.ts';
+export { RuntimeOperationCoordinator } from './runtime-operation-coordinator.ts';
 export {
   createRuntimeInterruption,
   isRuntimeInterruption,

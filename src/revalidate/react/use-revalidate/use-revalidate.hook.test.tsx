@@ -2,9 +2,11 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ControllerRuntimeProvider } from '../../../controller/react/controller-runtime-context';
-import type { DependencyToken } from '../../../di/token/dependency-token';
-import type { ModuleRuntime } from '../../../module/runtime/module-runtime';
+import {
+  ControllerRuntimeProvider,
+  type ControllerRuntimeContextValue,
+  type ControllerRuntimeRevalidateOptions,
+} from '../../../controller/react/controller-runtime-context';
 
 import { useRevalidate } from './';
 
@@ -65,48 +67,35 @@ describe('useRevalidate', () => {
 });
 
 interface UseRevalidateFixtureOptions {
-  readonly revalidate?: ModuleRuntime['revalidate'];
+  readonly revalidate?: (options?: ControllerRuntimeRevalidateOptions) => Promise<void>;
 }
 
 const createUseRevalidateFixture = (options: UseRevalidateFixtureOptions = {}) => {
   const revalidate = options.revalidate ?? vi.fn(async () => {});
-  const runtime = {
+  const runtime: ControllerRuntimeContextValue = {
+    action: vi.fn(),
+    getActionState: vi.fn(() => ({ data: undefined, error: undefined, inProcess: false })),
+    getController: vi.fn(() => new TestController()),
+    getLoaderData: vi.fn(),
+    getParams: vi.fn(() => ({})),
+    getRevalidateRevision: vi.fn(() => 0),
+    getRevalidateState: vi.fn(() => ({ error: undefined, inProcess: false })),
+    invoke: vi.fn(),
     revalidate,
     subscribe: vi.fn(() => {
       return () => {};
     }),
-  } as unknown as ModuleRuntime;
+  };
 
   return {
     revalidate,
     wrapper: ({ children }: React.PropsWithChildren) => {
-      return (
-        <ControllerRuntimeProvider
-          value={{
-            controllers: createControllerRegistry(TestController, new TestController()),
-            kind: 'module',
-            runtime,
-          }}
-        >
-          {children}
-        </ControllerRuntimeProvider>
-      );
+      return <ControllerRuntimeProvider value={runtime}>{children}</ControllerRuntimeProvider>;
     },
   };
 };
 
 class TestController {}
-
-const createControllerRegistry = <TController,>(
-  token: DependencyToken<TController>,
-  controller: TController,
-): ReadonlyMap<DependencyToken<unknown>, unknown> => {
-  const controllers = new Map<DependencyToken<unknown>, unknown>();
-
-  controllers.set(token, controller);
-
-  return controllers;
-};
 
 interface Deferred<TValue> {
   readonly promise: Promise<TValue>;

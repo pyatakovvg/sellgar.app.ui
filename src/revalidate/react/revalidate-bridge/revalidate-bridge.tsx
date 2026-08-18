@@ -3,7 +3,7 @@ import { useRevalidator } from 'react-router';
 
 import type { DependencyToken } from '../../../di/token/dependency-token';
 import { useDependency } from '../../../runtime/react';
-import { RevalidateServiceInterface } from '../../contract/revalidate-service';
+import { RevalidateRegistryInterface } from '../../contract/revalidate-service';
 
 export interface RevalidateBridgeProps {
   readonly children?: React.ReactNode;
@@ -19,7 +19,7 @@ export const RevalidateBridge: React.FC<RevalidateBridgeProps> = ({
   revalidate,
 }) => {
   const revalidator = useRevalidator();
-  const revalidateService = useDependency(RevalidateServiceInterface);
+  const revalidateRegistry = useDependency(RevalidateRegistryInterface);
   const pendingResolversRef = React.useRef<Array<() => void>>([]);
 
   React.useEffect(() => {
@@ -78,18 +78,18 @@ export const RevalidateBridge: React.FC<RevalidateBridgeProps> = ({
 
     const handler = () => handleRevalidate();
 
-    revalidateService.registerFallback(handler);
+    revalidateRegistry.registerFallback(handler);
 
     return () => {
-      revalidateService.unregisterFallback(handler);
+      revalidateRegistry.unregisterFallback(handler);
     };
-  }, [fallback, handleRevalidate, revalidateService]);
+  }, [fallback, handleRevalidate, revalidateRegistry]);
 
   React.useEffect(() => {
     const handlers = controllerTokens.map((controllerToken) => {
       const handler = () => handleRevalidate(controllerToken);
 
-      revalidateService.register(controllerToken, handler);
+      revalidateRegistry.register(controllerToken, handler);
 
       return {
         controllerToken,
@@ -99,10 +99,10 @@ export const RevalidateBridge: React.FC<RevalidateBridgeProps> = ({
 
     return () => {
       handlers.forEach(({ controllerToken, handler }) => {
-        revalidateService.unregister(controllerToken, handler);
+        revalidateRegistry.unregister(controllerToken, handler);
       });
     };
-  }, [controllerTokens, handleRevalidate, revalidateService]);
+  }, [controllerTokens, handleRevalidate, revalidateRegistry]);
 
   return <>{children}</>;
 };

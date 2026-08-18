@@ -16,10 +16,8 @@ export interface BindingRegistryObserver {
   ) => void;
 }
 
-class InversifyBindingScopeBuilder<TValue> extends BindingScopeBuilderInterface {
-  constructor(private readonly syntax: BindInWhenOnFluentSyntax<TValue>) {
-    super();
-  }
+class InversifyBindingScopeBuilder<TValue> implements BindingScopeBuilderInterface {
+  constructor(private readonly syntax: BindInWhenOnFluentSyntax<TValue>) {}
 
   inSingletonScope(): void {
     this.syntax.inSingletonScope();
@@ -34,14 +32,12 @@ class InversifyBindingScopeBuilder<TValue> extends BindingScopeBuilderInterface 
   }
 }
 
-class InversifyBindingBuilder<TValue> extends BindingBuilderInterface<TValue> {
+class InversifyBindingBuilder<TValue> implements BindingBuilderInterface<TValue> {
   constructor(
     private readonly token: DependencyToken<TValue>,
     private readonly syntax: BindToFluentSyntax<TValue>,
     private readonly observer?: BindingRegistryObserver,
-  ) {
-    super();
-  }
+  ) {}
 
   to(constructor: DependencyConstructor<TValue>): BindingScopeBuilderInterface {
     this.observer?.bindConstructor?.(this.token, constructor);
@@ -66,13 +62,11 @@ class InversifyBindingBuilder<TValue> extends BindingBuilderInterface<TValue> {
   }
 }
 
-export class InversifyBindingRegistry extends BindingRegistryInterface {
+export class InversifyBindingRegistry implements BindingRegistryInterface {
   constructor(
     private readonly bindToken: Bind,
     private readonly observer?: BindingRegistryObserver,
-  ) {
-    super();
-  }
+  ) {}
 
   bind<TValue>(token: DependencyToken<TValue>): BindingBuilderInterface<TValue> {
     return new InversifyBindingBuilder(token, this.bindToken(token as ServiceIdentifier<TValue>), this.observer);

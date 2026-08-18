@@ -90,19 +90,13 @@ loaders и providers. `defaultTo` принадлежит branch route. Боле�
 ```tsx
 const navigate = useNavigate();
 
-<button onClick={() => navigate.to('/orders')}>
-  Заказы
-</button>
+<button onClick={() => navigate.to('/orders')}>Заказы</button>;
 ```
 
 ```tsx
 <NavItem to="/orders">
   {({ isActive, isPending, to }) => (
-    <button
-      data-active={isActive}
-      data-pending={isPending}
-      onClick={() => navigate.to(to)}
-    >
+    <button data-active={isActive} data-pending={isPending} onClick={() => navigate.to(to)}>
       Заказы
     </button>
   )}
@@ -153,10 +147,7 @@ const location = useLocation();
 const navigate = useNavigate();
 const query = location.searchParams.get('query') ?? '';
 
-await navigate.searchParams(
-  { query: 'paid', page: 1 },
-  { merge: true },
-);
+await navigate.searchParams({ query: 'paid', page: 1 }, { merge: true });
 ```
 
 ### Заметки Ведущего
@@ -230,4 +221,3 @@ widget и frame, чтобы слушатель увидел разные runtime
 
 - [Router и навигация](../03-router-and-navigation.md)
 - [Ментальная модель](../01-mental-model.md)
-

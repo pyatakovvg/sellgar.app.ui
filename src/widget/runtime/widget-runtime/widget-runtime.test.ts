@@ -1,3 +1,4 @@
+import type { ControllerArgs, WithProps, WithPayload } from '../../../controller/contract/controller';
 import 'reflect-metadata';
 
 import React from 'react';
@@ -14,6 +15,7 @@ import { GuardInterface } from '../../../guard/contract/guard';
 import { GuardRejectedException } from '../../../guard/contract/guard-rejected-exception';
 import { UseGuards } from '../../../guard/declaration/use-guards';
 import { ApplicationScope } from '../../../runtime/scope/kind';
+import { RuntimeExceptionServiceInterface } from '../../../runtime/exception';
 import { Provider, RuntimeProviderInterface } from '../../../runtime/provider/runtime-provider';
 import type {
   RuntimeProviderContextInterface,
@@ -22,11 +24,6 @@ import type {
 
 import { Widget, WidgetDefinition } from '../../declaration/widget';
 
-import {
-  WidgetControllerInterface,
-  type WidgetControllerActionArgs,
-  type WidgetControllerLoaderArgs,
-} from '../widget-controller';
 import { RevalidateServiceInterface } from '../../../revalidate/contract/revalidate-service';
 import { WidgetRuntime } from './';
 
@@ -91,7 +88,8 @@ describe('WidgetRuntime', () => {
       runtime.action(TestWidgetController, {
         suffix: 'submitted',
       }),
-    ).rejects.toBeInstanceOf(GuardRejectedException);
+    ).resolves.toBeUndefined();
+    expect(runtime.getActionState(TestWidgetController).error).toBeInstanceOf(GuardRejectedException);
     expect(TestWidgetController.actionHandler).not.toHaveBeenCalled();
   });
 
@@ -237,6 +235,77 @@ describe('WidgetRuntime', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('keeps widget action error in submit state without rejecting', async () => {
+    resetWidgetTestState();
+
+    const error = new Error('Действие виджета завершилось с ошибкой.');
+    const runtime = createWidgetRuntime({
+      value: 'ready',
+    });
+
+    TestWidgetController.actionHandler = () => {
+      throw error;
+    };
+    await runtime.load();
+
+    await expect(
+      runtime.action(TestWidgetController, {
+        suffix: 'submitted',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(runtime.getActionState(TestWidgetController)).toEqual({
+      data: undefined,
+      error,
+      inProcess: false,
+    });
+    expect(runtime.getSnapshot()).toEqual({
+      error: null,
+      phase: 'ready',
+    });
+  });
+
+  it('moves widget to failed when action explicitly raises runtime exception', async () => {
+    resetWidgetTestState();
+
+    const error = new Error('Критическая ошибка виджета.');
+    const runtime = createWidgetRuntime({
+      value: 'ready',
+    });
+
+    TestWidgetController.runtimeException = error;
+    await runtime.load();
+
+    await expect(
+      runtime.action(TestWidgetController, {
+        suffix: 'submitted',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(runtime.getActionState(TestWidgetController).error).toBeUndefined();
+    expect(runtime.getSnapshot()).toEqual({
+      error,
+      phase: 'failed',
+    });
+  });
+
+  it('moves widget to failed when loader explicitly raises runtime exception', async () => {
+    resetWidgetTestState();
+
+    const error = new Error('Критическая loader-ошибка виджета.');
+    const runtime = createWidgetRuntime({
+      value: 'ready',
+    });
+
+    TestWidgetController.loaderRuntimeException = error;
+
+    await expect(runtime.load()).rejects.toBe(error);
+    expect(runtime.getSnapshot()).toEqual({
+      error,
+      phase: 'failed',
+    });
+  });
+
   it('rejects when widget controller action is not available', async () => {
     resetWidgetTestState();
 
@@ -324,7 +393,12 @@ const createWidgetRuntime = (
   props: TestWidgetProps,
   session: SessionRuntimeState | null = null,
 ): WidgetRuntime<TestWidgetProps> => {
-  return new WidgetRuntime(new ApplicationScope(), TestWidget, props, session);
+  const scope = new ApplicationScope();
+  const runtimeSession = session ?? new SessionRuntimeState();
+
+  scope.bindSession(runtimeSession);
+
+  return new WidgetRuntime(scope, TestWidget, props, runtimeSession);
 };
 
 const resetWidgetTestState = (): void => {
@@ -333,6 +407,8 @@ const resetWidgetTestState = (): void => {
   TestWidgetController.deferred = null;
   TestWidgetController.disposeCount = 0;
   TestWidgetController.loaderHandler = null;
+  TestWidgetController.loaderRuntimeException = null;
+  TestWidgetController.runtimeException = null;
   TestWidgetActionGuard.result = true;
   TestWidgetProvider.events = [];
 };
@@ -350,7 +426,7 @@ interface TestWidgetActionResult {
 }
 
 abstract class TestWidgetActionGuardInterface extends GuardInterface<
-  WidgetControllerActionArgs<TestWidgetProps, TestWidgetActionPayload>
+  ControllerArgs<WithPayload<TestWidgetActionPayload, WithProps<TestWidgetProps>>>
 > {}
 
 @Injectable()
@@ -363,27 +439,33 @@ class TestWidgetActionGuard extends TestWidgetActionGuardInterface {
 }
 
 @Controller()
-class TestWidgetController extends WidgetControllerInterface<TestWidgetProps> {
+class TestWidgetController {
   static actionHandler: (() => void) | null = null;
   static constructorError: Error | null = null;
   static deferred: Deferred<void> | null = null;
   static disposeCount = 0;
   static loaderHandler: (() => void) | null = null;
+  static loaderRuntimeException: Error | null = null;
+  static runtimeException: Error | null = null;
 
   constructor(
     @Inject(RevalidateServiceInterface)
     private readonly revalidateService: RevalidateServiceInterface,
+    @Inject(RuntimeExceptionServiceInterface)
+    private readonly runtimeExceptionService: RuntimeExceptionServiceInterface,
   ) {
-    super();
-
     if (TestWidgetController.constructorError) {
       throw TestWidgetController.constructorError;
     }
   }
 
-  async loader(args: WidgetControllerLoaderArgs<TestWidgetProps>): Promise<string> {
+  async loader(args: ControllerArgs<WithProps<TestWidgetProps>>): Promise<string> {
     await TestWidgetController.deferred?.promise;
     TestWidgetController.loaderHandler?.();
+
+    if (TestWidgetController.loaderRuntimeException) {
+      this.runtimeExceptionService.raise(TestWidgetController.loaderRuntimeException);
+    }
 
     if (args.props.value === 'fail') {
       throw new Error('Загрузка виджета завершилась с ошибкой.');
@@ -394,9 +476,13 @@ class TestWidgetController extends WidgetControllerInterface<TestWidgetProps> {
 
   @UseGuards(TestWidgetActionGuardInterface)
   async action(
-    args: WidgetControllerActionArgs<TestWidgetProps, TestWidgetActionPayload>,
+    args: ControllerArgs<WithPayload<TestWidgetActionPayload, WithProps<TestWidgetProps>>>,
   ): Promise<TestWidgetActionResult> {
     TestWidgetController.actionHandler?.();
+
+    if (TestWidgetController.runtimeException) {
+      this.runtimeExceptionService.raise(TestWidgetController.runtimeException);
+    }
 
     if (args.payload.suffix === 'revalidate') {
       await this.revalidateService.revalidate();
@@ -413,10 +499,10 @@ class TestWidgetController extends WidgetControllerInterface<TestWidgetProps> {
 }
 
 @Controller()
-class TestWidgetWithoutActionController extends WidgetControllerInterface<TestWidgetProps> {}
+class TestWidgetWithoutActionController {}
 
 @Provider()
-class TestWidgetProvider extends RuntimeProviderInterface<TestWidgetProps> {
+class TestWidgetProvider implements RuntimeProviderInterface<TestWidgetProps> {
   static events: string[] = [];
 
   setup({ props }: RuntimeProviderContextInterface<TestWidgetProps>): RuntimeProviderResult {
@@ -436,7 +522,7 @@ class TestWidgetProvider extends RuntimeProviderInterface<TestWidgetProps> {
   }
 }
 
-class TestWidgetBindings extends BindingModuleInterface {
+class TestWidgetBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(TestWidgetController).toSelf().inSingletonScope();
     registry.bind(TestWidgetActionGuardInterface).to(TestWidgetActionGuard).inSingletonScope();

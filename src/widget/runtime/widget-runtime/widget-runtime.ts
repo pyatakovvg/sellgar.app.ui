@@ -1,4 +1,11 @@
 import type { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
+import type {
+  ControllerArgs,
+  RuntimeController,
+  WithParams,
+  WithPayload,
+  WithProps,
+} from '../../../controller/contract/controller';
 import {
   createControllerLoaderData,
   getControllerLoaderData,
@@ -6,6 +13,7 @@ import {
   type ControllerLoaderData,
 } from '../../../controller/data/controller-loader-data';
 import type { DependencyToken } from '../../../di/token/dependency-token';
+import { invokeControllerMethod } from '../../../controller/runtime';
 import { executeGuardedMethod } from '../../../guard/runtime/guard-method-executor';
 import {
   RuntimeProviderPipeline,
@@ -15,8 +23,10 @@ import { WidgetScope } from '../../../runtime/scope/kind';
 import type { RuntimeScope } from '../../../runtime/scope/base';
 import {
   createRuntimeRevisionGuard,
+  createRuntimeCompletionRevisionGuard,
   executeRuntimeParticipant,
   executeRuntimeOperation,
+  RuntimeOperationCoordinator,
   type RuntimeOperationGuard,
   type RuntimeOperationResult,
 } from '../../../runtime/operation';
@@ -35,15 +45,10 @@ import { RuntimeRevalidateService } from '../../../revalidate/runtime/revalidate
 import { getWidgetMetadata } from '../../declaration/widget';
 import type { WidgetConstructor, WidgetMetadata } from '../../declaration/widget';
 
-import type {
-  WidgetControllerActionArgs,
-  WidgetControllerInterface,
-  WidgetControllerLoaderArgs,
-} from '../widget-controller';
 import { WidgetStateMachine, type WidgetRuntimePhase } from '../widget-state-machine';
 
 export interface ActiveWidgetRuntime<TProps extends object = object> {
-  readonly controllers: Map<DependencyToken<unknown>, WidgetControllerInterface<TProps>>;
+  readonly controllers: Map<DependencyToken<unknown>, RuntimeController>;
   readonly loaderData: ControllerLoaderData;
   readonly metadata: WidgetMetadata<TProps>;
   readonly providerPipeline: RuntimeProviderPipeline<TProps>;
@@ -119,6 +124,16 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
     payload: TPayload,
     options: WidgetRuntimeActionOptions = {},
   ): Promise<unknown> {
+    return this.ownerScope
+      .get(RuntimeOperationCoordinator)
+      .run(() => this.executeAction(controllerToken, payload, options));
+  }
+
+  private async executeAction<TPayload = unknown>(
+    controllerToken: DependencyToken<unknown>,
+    payload: TPayload,
+    options: WidgetRuntimeActionOptions = {},
+  ): Promise<unknown> {
     const widgetRuntime = this.currentWidgetRuntime;
     const controller = widgetRuntime?.controllers.get(controllerToken);
 
@@ -157,7 +172,7 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
 
     try {
       const result = await executeRuntimeOperation({
-        guard: this.createOperationGuard(),
+        guard: this.session === null ? null : createRuntimeCompletionRevisionGuard(this.session),
         operation: async () => {
           this.throwIfAborted(abortController.signal, 'Widget action был прерван.');
 
@@ -192,12 +207,12 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
       const actionResult = await this.applyActionOperationResult(result);
 
       this.setActionState(controllerToken, {
-        data: actionResult,
-        error: undefined,
+        data: actionResult.data,
+        error: actionResult.error,
         inProcess: false,
       });
 
-      return actionResult;
+      return actionResult.data;
     } catch (error) {
       this.setActionState(controllerToken, {
         data: undefined,
@@ -254,8 +269,22 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
     return controller as TController;
   }
 
-  getControllers(): ReadonlyMap<DependencyToken<unknown>, WidgetControllerInterface<TProps>> {
+  getControllers(): ReadonlyMap<DependencyToken<unknown>, RuntimeController> {
     return this.currentWidgetRuntime?.controllers ?? new Map();
+  }
+
+  invoke<TValue>(controllerToken: DependencyToken<unknown>, method: string | symbol, args: readonly unknown[]): TValue {
+    const controller = this.getController(controllerToken) as object;
+
+    return this.ownerScope.get(RuntimeOperationCoordinator).run(() =>
+      invokeControllerMethod<TValue>({
+        args,
+        controller,
+        method,
+        owner: this.owner,
+        token: controllerToken,
+      }),
+    );
   }
 
   getLoaderData<TValue>(controllerToken: DependencyToken<unknown>): TValue {
@@ -266,6 +295,10 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
     }
 
     return getControllerLoaderData<TValue>(loaderData, controllerToken);
+  }
+
+  getParams(): Readonly<Record<string, string | undefined>> {
+    return EMPTY_PARAMS;
   }
 
   getProps(): TProps {
@@ -397,7 +430,7 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
           return;
         }
 
-        if (result.type === 'failed') {
+        if (result.type === 'failed' || result.type === 'escalated') {
           if (this.stateMachine.toFailed(sessionId, result.failure.cause)) {
             this.currentWidgetRuntime = null;
             this.emit();
@@ -520,7 +553,6 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
     return {
       params: {},
       props: this.props,
-      request: createWidgetProviderRequest(signal),
       scope,
       signal,
     };
@@ -670,8 +702,11 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
     });
   }
 
-  private createWidgetControllerArgs(signal: AbortSignal): WidgetControllerLoaderArgs<TProps> {
+  private createWidgetControllerArgs(
+    signal: AbortSignal,
+  ): ControllerArgs<WithProps<TProps, WithParams<Record<string, never>>>> {
     return {
+      params: {},
       props: this.props,
       signal,
     };
@@ -680,19 +715,20 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
   private createWidgetControllerActionArgs<TPayload>(
     payload: TPayload,
     signal: AbortSignal,
-  ): WidgetControllerActionArgs<TProps, TPayload> {
+  ): ControllerArgs<WithPayload<TPayload, WithProps<TProps, WithParams<Record<string, never>>>>> {
     return {
+      params: {},
       payload,
       props: this.props,
       signal,
     };
   }
 
-  private resolveControllers(scope: WidgetScope): Map<DependencyToken<unknown>, WidgetControllerInterface<TProps>> {
-    const controllers = new Map<DependencyToken<unknown>, WidgetControllerInterface<TProps>>();
+  private resolveControllers(scope: WidgetScope): Map<DependencyToken<unknown>, RuntimeController> {
+    const controllers = new Map<DependencyToken<unknown>, RuntimeController>();
 
     for (const controllerToken of scope.getControllerTokens()) {
-      controllers.set(controllerToken, scope.get(controllerToken) as WidgetControllerInterface<TProps>);
+      controllers.set(controllerToken, scope.get(controllerToken) as RuntimeController);
     }
 
     return controllers;
@@ -719,17 +755,30 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
     }
   }
 
-  private async applyActionOperationResult(result: RuntimeOperationResult<unknown>): Promise<unknown> {
+  private async applyActionOperationResult(result: RuntimeOperationResult<unknown>): Promise<ActionOperationResult> {
     switch (result.type) {
       case 'completed':
-        return result.value;
+        return { data: result.value, error: undefined };
       case 'interrupted':
-        return void 0;
+        return { data: undefined, error: undefined };
       case 'rejected':
-        throw result.error;
+        return { data: undefined, error: result.error };
       case 'failed':
         await this.reportFailure(result.failure, 'action.failed', 'active');
-        throw result.failure.cause;
+        return { data: undefined, error: result.failure.cause };
+      case 'escalated': {
+        const widgetRuntime = this.currentWidgetRuntime;
+
+        if (this.stateMachine.toRuntimeFailed(result.failure.cause)) {
+          this.currentWidgetRuntime = null;
+          this.emit();
+        }
+
+        await this.reportFailure(result.failure, 'widget.failed', 'failed');
+        await this.disposeWidgetRuntime(widgetRuntime);
+
+        return { data: undefined, error: undefined };
+      }
     }
   }
 
@@ -755,6 +804,14 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
       case 'failed':
         await this.reportFailure(result.failure, 'revalidate.failed', 'active');
         throw result.failure.cause;
+      case 'escalated':
+        if (this.stateMachine.toRuntimeFailed(result.failure.cause)) {
+          this.currentWidgetRuntime = null;
+          this.emit();
+        }
+        await this.reportFailure(result.failure, 'widget.failed', 'failed');
+        await this.disposeWidgetRuntime(widgetRuntime);
+        return;
     }
   }
 
@@ -799,15 +856,16 @@ const DEFAULT_ACTION_STATE: WidgetRuntimeActionState = {
   inProcess: false,
 };
 
+const EMPTY_PARAMS: Readonly<Record<string, string | undefined>> = {};
+
+interface ActionOperationResult {
+  readonly data: unknown;
+  readonly error: unknown;
+}
+
 const DEFAULT_REVALIDATE_STATE: WidgetRuntimeRevalidateState = {
   error: undefined,
   inProcess: false,
-};
-
-const createWidgetProviderRequest = (signal: AbortSignal): Request => {
-  return new Request('http://localhost/widget-runtime', {
-    signal,
-  });
 };
 
 const getControllerEntries = <TController>(

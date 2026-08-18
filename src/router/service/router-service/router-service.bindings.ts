@@ -12,7 +12,7 @@ import { RouterServiceControllerInterface } from '../router-service-controller';
 
 import { RouterService } from './router.service.ts';
 
-export class RouterServiceBindings extends BindingModuleInterface {
+export class RouterServiceBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     new RouterParamsConverterBindings().register(registry);
     registry.bind(RouterService).toSelf().inSingletonScope();

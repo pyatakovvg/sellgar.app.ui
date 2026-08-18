@@ -32,6 +32,11 @@ export class CanViewOrdersGuard extends GuardInterface<CanViewOrdersGuardContext
 }
 ```
 
+`GuardInterface<TContext>` наследуется намеренно: кроме instance contract
+`execute`, он передаёт concrete guard token статический builder
+`configure()`. Замена на `implements` допустила бы обычное использование token,
+но сломала бы `ConcreteGuard.configure().failureStrategy(...)`.
+
 Guard возвращает `true` или `false`. Исключение внутри guard считается настоящей
 ошибкой выполнения guard, а не отказом доступа. Для отказа доступа возвращай
 `false`.
@@ -43,14 +48,14 @@ guards. `@UseGuards(...)` также принимает несколько decla
 
 ```ts
 @UseGuards([CanViewOrdersGuard, CanViewArchivedOrdersGuard])
-async loader(args: ControllerLoaderArgs): Promise<OrdersLoaderData> {
+async loader(args: ControllerArgs): Promise<OrdersLoaderData> {
   return this.ordersService.getOrders(args);
 }
 ```
 
 ```ts
 @UseGuards(CanViewOrdersGuard, CanViewArchivedOrdersGuard)
-async loader(args: ControllerLoaderArgs): Promise<OrdersLoaderData> {
+async loader(args: ControllerArgs): Promise<OrdersLoaderData> {
   return this.ordersService.getOrders(args);
 }
 ```
@@ -110,18 +115,16 @@ frame controller loader/action
 
 ```ts
 @Injectable()
-export class OrdersController extends OrdersControllerInterface {
+export class OrdersController implements OrdersControllerInterface {
   constructor(
     @Inject(OrdersServiceInterface)
     private readonly ordersService: OrdersServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
   @UseGuards(CanViewOrdersGuard)
-  async loader(args: ControllerLoaderArgs): Promise<OrdersLoaderData> {
+  async loader(args: ControllerArgs): Promise<OrdersLoaderData> {
     return this.ordersService.getOrders({
-      signal: args.request.signal,
+      signal: args.signal,
     });
   }
 }

@@ -1,3 +1,4 @@
+import type { ControllerArgs, WithProps } from '../../../controller/contract/controller';
 import 'reflect-metadata';
 
 import { render, screen, waitFor } from '@testing-library/react';
@@ -16,9 +17,7 @@ import { RuntimeFailureReporterInterface } from '../../../runtime/failure';
 import { RuntimeScopeProvider } from '../../../runtime/react';
 
 import { Widget, WidgetDefinition } from '../../declaration/widget';
-import { WidgetControllerInterface } from '../../runtime/widget-controller';
 import { WidgetRuntimeFactoryBindings, WidgetRuntimeFactoryInterface } from '../../runtime/widget-runtime-factory';
-import type { WidgetControllerLoaderArgs } from '../../runtime/widget-controller';
 import { useLoaderData } from '../../../controller/react/use-controller-loader-data';
 import { useWidgetProps } from '../use-widget-props';
 
@@ -43,6 +42,22 @@ describe('WidgetHost', () => {
     expect(screen.getByText('Loading widget')).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText('Widget loaded: loaded')).toBeInTheDocument();
+    });
+  });
+
+  it('renders a widget without a props attribute when it has no required props', async () => {
+    const scope = new ApplicationScope();
+
+    scope.activate(TestApplicationOwner);
+
+    render(
+      <RuntimeScopeProvider scope={scope}>
+        <WidgetHost token={TestWidgetWithoutProps} />
+      </RuntimeScopeProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Widget without props')).toBeInTheDocument();
     });
   });
 
@@ -238,9 +253,16 @@ describe('WidgetHost', () => {
 
 const createTypedWidgetHostFixture = (): React.ReactElement => {
   const valid = <WidgetHost token={TestWidget} props={{ value: 'typed' }} />;
+  const validWithoutProps = <WidgetHost token={TestWidgetWithoutProps} />;
+  const validWithoutOptionalProps = <WidgetHost token={TestWidgetWithOptionalProps} />;
+  // @ts-expect-error WidgetHost requires props when the widget has required props.
+  const missingRequiredProps = <WidgetHost token={TestWidget} />;
   // @ts-expect-error WidgetHost props are inferred from widget token.
   const invalid = <WidgetHost token={TestWidget} props={{ missing: 'typed' }} />;
 
+  void validWithoutProps;
+  void validWithoutOptionalProps;
+  void missingRequiredProps;
   void invalid;
 
   return valid;
@@ -250,9 +272,13 @@ interface TestWidgetProps {
   readonly value: string;
 }
 
+interface TestWidgetOptionalProps {
+  readonly value?: string;
+}
+
 @Controller()
-class TestWidgetController extends WidgetControllerInterface<TestWidgetProps> {
-  async loader(args: WidgetControllerLoaderArgs<TestWidgetProps>): Promise<string> {
+class TestWidgetController {
+  async loader(args: ControllerArgs<WithProps<TestWidgetProps>>): Promise<string> {
     return args.props.value;
   }
 }
@@ -264,7 +290,7 @@ const TestWidgetView: React.FC = () => {
   return <div>{`Widget ${props.value}: ${value}`}</div>;
 };
 
-class TestWidgetBindings extends BindingModuleInterface {
+class TestWidgetBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(TestWidgetController).toSelf().inSingletonScope();
   }
@@ -283,14 +309,24 @@ class TestWidget extends WidgetDefinition<TestWidgetProps> {}
 })
 class TestWidgetWithoutFallback extends WidgetDefinition<TestWidgetProps> {}
 
+@Widget({
+  view: <div>Widget without props</div>,
+})
+class TestWidgetWithoutProps extends WidgetDefinition {}
+
+@Widget<TestWidgetOptionalProps>({
+  view: <div>Widget with optional props</div>,
+})
+class TestWidgetWithOptionalProps extends WidgetDefinition<TestWidgetOptionalProps> {}
+
 @Controller()
-class TestFailedWidgetController extends WidgetControllerInterface<TestWidgetProps> {
+class TestFailedWidgetController {
   async loader(): Promise<string> {
     throw new Error('Widget loader failed.');
   }
 }
 
-class TestFailedWidgetBindings extends BindingModuleInterface {
+class TestFailedWidgetBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(TestFailedWidgetController).toSelf().inSingletonScope();
   }
@@ -338,7 +374,7 @@ const TestRenderFailedWidgetView: React.FC = () => {
 })
 class TestRenderFailedWidget extends WidgetDefinition<TestWidgetProps> {}
 
-class TestApplicationBindings extends BindingModuleInterface {
+class TestApplicationBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     new WidgetRuntimeFactoryBindings().register(registry);
   }

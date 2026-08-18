@@ -37,6 +37,7 @@ export type RuntimeFailureDisposition =
   | 'application.activation-failed'
   | 'route.activation-failed'
   | 'module.activation-failed'
+  | 'module.failed'
   | 'widget.failed'
   | 'frame.failed'
   | 'action.failed'

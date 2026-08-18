@@ -8,7 +8,7 @@ import {
   NotificationService,
 } from '../runtime/notification-runtime';
 
-export class NotificationBindings extends BindingModuleInterface {
+export class NotificationBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(NotificationRuntimeInterface).to(NotificationRuntime).inSingletonScope();
     registry.bind(NotificationServiceInterface).to(NotificationService).inSingletonScope();

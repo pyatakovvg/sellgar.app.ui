@@ -42,8 +42,7 @@ Business operation остаётся controller action или service. Provider �
 
 ```ts
 @Provider()
-export class OrdersEventsProvider
-  extends RuntimeProviderInterface {
+export class OrdersEventsProvider implements RuntimeProviderInterface {
   setup(): RuntimeProviderResult {
     const subscription = subscribeToOrders();
     return () => subscription.dispose();
@@ -93,8 +92,7 @@ beforeLoad
 interface RuntimeProviderContextInterface {
   params: Record<string, string | undefined>;
   phase: string;
-  request: Request;
-  scope: RuntimeScope;
+  props: object;
   signal: AbortSignal;
 }
 ```
@@ -103,7 +101,8 @@ interface RuntimeProviderContextInterface {
 
 ProviderScope — соседняя ветка для module/frame/widget scopes. Provider не
 получает их local bindings constructor injection. Runtime-specific `params`,
-`scope`, `request` и `signal` приходят через context.
+`props` и `signal` приходят через context; сам runtime scope остаётся внутренней
+деталью framework.
 
 ---
 
@@ -114,14 +113,11 @@ ProviderScope — соседняя ветка для module/frame/widget scopes.
 ```ts
 @UseBindings(OrdersEventsBindings)
 @Provider()
-export class OrdersEventsProvider
-  extends RuntimeProviderInterface {
+export class OrdersEventsProvider implements RuntimeProviderInterface {
   constructor(
     @Inject(OrdersEventsSourceInterface)
     private readonly source: OrdersEventsSourceInterface,
-  ) {
-    super();
-  }
+  ) {}
 }
 ```
 
@@ -138,14 +134,11 @@ Owner module не дублирует provider bindings. Не bind-ите сам 
 
 ```ts
 @Provider()
-class OrdersSummaryPreloadProvider
-  extends RuntimeProviderInterface {
+class OrdersSummaryPreloadProvider implements RuntimeProviderInterface {
   constructor(
-    @Inject(WidgetRuntimeFactoryInterface)
-    private readonly widgets: WidgetRuntimeFactoryInterface,
-  ) {
-    super();
-  }
+    @Inject(WidgetPreloaderInterface)
+    private readonly widgets: WidgetPreloaderInterface,
+  ) {}
 
   beforeRender(context: RuntimeProviderContextInterface) {
     return this.widgets.preload(context, OrdersSummaryWidget, {
@@ -158,7 +151,8 @@ class OrdersSummaryPreloadProvider
 ### Заметки Ведущего
 
 Prepared runtime найдётся только при совпадении owner scope, widget token и
-runtimeKey. `context.scope/signal` не дублируются в props.
+runtimeKey. Provider передаёт исходный `context`, а owner scope preloader
+определяет внутри framework. `signal` не дублируется в props.
 
 ---
 
@@ -186,8 +180,7 @@ enter again   -> new pipeline -> setup снова
 
 ```ts
 @SingletonProvider()
-class OrdersUpdatesProvider
-  implements SingletonProviderInterface {
+class OrdersUpdatesProvider implements SingletonProviderInterface {
   setup(): RuntimeProviderResult {
     return this.source.subscribe(handleUpdate);
   }
@@ -227,4 +220,3 @@ Provider умеет владеть subscription, но нужен framework-level
 - [Provider contract и phases](../04-modules-controllers-providers.md)
 - [Runtime scopes](../07-di-runtime-state-events.md)
 - [Ментальная модель ownership](../01-mental-model.md)
-

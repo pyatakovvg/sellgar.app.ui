@@ -4,11 +4,7 @@ import { describe, expect, it, vi, type MockInstance } from 'vitest';
 
 import { Controller } from '../../../controller/contract/controller';
 
-import type {
-  ControllerActionArgs,
-  ControllerInterface,
-  ControllerLoaderArgs,
-} from '../../../controller/contract/controller';
+import type { ControllerArgs, WithParams, WithPayload, WithProps } from '../../../controller/contract/controller';
 import { BindingModuleInterface } from '../../../di/binding/binding-module';
 import { Injectable } from '../../../di/injection/decorators';
 import { UseBindings } from '../../../di/composition/use-bindings';
@@ -16,7 +12,6 @@ import type { BindingRegistryInterface } from '../../../di/binding/binding-regis
 import type { DependencyToken } from '../../../di/token/dependency-token';
 import { GuardInterface } from '../../../guard/contract/guard';
 import { GuardRejectedException } from '../../../guard/contract/guard-rejected-exception';
-import { ConflictException } from '../../../http';
 import { UseGuards } from '../../../guard/declaration/use-guards';
 import { ApplicationScope, ModuleScope } from '../../../runtime/scope/kind';
 import { captureRuntimeFailure, RuntimeFailureReporterInterface } from '../../../runtime/failure';
@@ -51,12 +46,16 @@ const createDeferred = <TValue>(): Deferred<TValue> => {
   };
 };
 
-const createLoaderArgs = (signal?: AbortSignal): ControllerLoaderArgs => {
+type TestControllerContext = ControllerArgs<WithParams<Record<string, string | undefined>, WithProps<object>>>;
+type TestControllerActionContext = ControllerArgs<
+  WithPayload<unknown, WithParams<Record<string, string | undefined>, WithProps<object>>>
+>;
+
+const createLoaderArgs = (signal?: AbortSignal): TestControllerContext => {
   return {
     params: {},
-    request: new Request('https://tiyn-app.test/route', {
-      signal,
-    }),
+    props: {},
+    signal: signal ?? new AbortController().signal,
   };
 };
 
@@ -85,22 +84,13 @@ describe('ModuleRuntime', () => {
     await fixture.runtime.load(createLoaderArgs());
     fixture.runtime.commit();
 
-    const operation = fixture.runtime.startAction(fixture.controllerToken, payload);
-
-    expect(fixture.runtime.getActionState(fixture.controllerToken)).toEqual({
-      data: undefined,
-      error: undefined,
-      inProcess: true,
-    });
-
-    const actionResult = await fixture.runtime.runAction(operation.id, {
+    const actionResult = await fixture.runtime.action(fixture.controllerToken, payload, {
       params: {},
-      request: new Request('https://tiyn-app.test/route', { method: 'post' }),
+      props: {},
+      signal: new AbortController().signal,
     });
 
-    fixture.runtime.completeAction(operation.id, actionResult);
-
-    expect(fixture.runtime.finishAction(operation)).toBe(result);
+    expect(actionResult).toBe(result);
     expect(fixture.runtime.getActionState(fixture.controllerToken)).toEqual({
       data: result,
       error: undefined,
@@ -116,14 +106,37 @@ describe('ModuleRuntime', () => {
     await fixture.runtime.load(createLoaderArgs());
     fixture.runtime.commit();
 
-    const operation = fixture.runtime.startAction(fixture.controllerToken, { name: 'Первый' });
+    const deferred = createDeferred<void>();
+    fixture.action.mockReturnValueOnce(deferred.promise);
+    const firstAction = fixture.runtime.action(fixture.controllerToken, { name: 'Первый' }, createLoaderArgs());
 
-    expect(() => fixture.runtime.startAction(fixture.controllerToken, { name: 'Второй' })).toThrow(
-      'Действие контроллера уже выполняется.',
-    );
+    await expect(
+      fixture.runtime.action(fixture.controllerToken, { name: 'Второй' }, createLoaderArgs()),
+    ).rejects.toThrow('Действие контроллера уже выполняется.');
 
-    fixture.runtime.interruptAction(operation.id);
-    expect(fixture.runtime.finishAction(operation)).toBeUndefined();
+    deferred.resolve();
+    await firstAction;
+  });
+
+  it('сохраняет ошибку action в submit state без rejected promise', async () => {
+    const error = new Error('Action модуля завершился с ошибкой.');
+    const fixture = createModuleRuntimeFixture({
+      action: () => {
+        throw error;
+      },
+    });
+
+    fixture.moduleDeferred.resolve(fixture.moduleExports);
+    await fixture.runtime.load(createLoaderArgs());
+    fixture.runtime.commit();
+
+    await expect(fixture.runtime.action(fixture.controllerToken, {}, createLoaderArgs())).resolves.toBeUndefined();
+
+    expect(fixture.runtime.getActionState(fixture.controllerToken)).toEqual({
+      data: undefined,
+      error,
+      inProcess: false,
+    });
   });
 
   it('moves successful navigation from loading to pending and then active', async () => {
@@ -349,14 +362,14 @@ describe('ModuleRuntime', () => {
     const fixture = createModuleRuntimeFixture({
       beforeLoad: (context) => {
         expect(context.phase).toBe('beforeLoad');
-        expect(context.scope).toBeInstanceOf(ModuleScope);
-        expect(context.signal).toBe(context.request.signal);
+        expect(context).not.toHaveProperty('scope');
+        expect(context.signal).toBeInstanceOf(AbortSignal);
         order.push('beforeLoad');
       },
       beforeRender: (context) => {
         expect(context.phase).toBe('beforeRender');
-        expect(context.scope).toBeInstanceOf(ModuleScope);
-        expect(context.signal).toBe(context.request.signal);
+        expect(context).not.toHaveProperty('scope');
+        expect(context.signal).toBeInstanceOf(AbortSignal);
         order.push('beforeRender');
       },
       loader: () => {
@@ -365,8 +378,8 @@ describe('ModuleRuntime', () => {
       },
       setup: (context) => {
         expect(context.phase).toBe('setup');
-        expect(context.scope).toBeInstanceOf(ModuleScope);
-        expect(context.signal).toBe(context.request.signal);
+        expect(context).not.toHaveProperty('scope');
+        expect(context.signal).toBeInstanceOf(AbortSignal);
         order.push('setup');
       },
     });
@@ -375,44 +388,6 @@ describe('ModuleRuntime', () => {
     await fixture.runtime.load(createLoaderArgs());
 
     expect(order).toEqual(['beforeLoad', 'loader', 'setup', 'beforeRender']);
-  });
-
-  it('runs provider setup once across module revalidation', async () => {
-    const fixture = createModuleRuntimeFixture();
-
-    fixture.moduleDeferred.resolve(fixture.moduleExports);
-    await fixture.runtime.load(createLoaderArgs());
-    fixture.runtime.commit();
-    await fixture.runtime.revalidate();
-
-    expect(fixture.setup).toHaveBeenCalledTimes(1);
-    expect(fixture.beforeLoad).toHaveBeenCalledTimes(2);
-    expect(fixture.beforeRender).toHaveBeenCalledTimes(2);
-  });
-
-  it('keeps committed data and does not report RuntimeFailure when revalidation receives HTTP 4xx', async () => {
-    const error = new ConflictException({ title: 'Conflict' });
-    let attempt = 0;
-    const fixture = createModuleRuntimeFixture({
-      loader: () => {
-        attempt++;
-
-        if (attempt > 1) {
-          throw error;
-        }
-
-        return 'committed';
-      },
-    });
-
-    fixture.moduleDeferred.resolve(fixture.moduleExports);
-    await fixture.runtime.load(createLoaderArgs());
-    fixture.runtime.commit();
-
-    await expect(fixture.runtime.revalidate()).rejects.toBe(error);
-
-    expect(fixture.runtime.getLoaderData(fixture.controllerToken)).toBe('committed');
-    expect(fixture.reportFailure).not.toHaveBeenCalled();
   });
 
   it('disposes controllers, providers and then module scope', async () => {
@@ -547,7 +522,7 @@ describe('ModuleRuntime', () => {
 });
 
 interface ModuleRuntimeFixtureOptions {
-  readonly action?: (args: ControllerActionArgs) => unknown | Promise<unknown>;
+  readonly action?: (args: TestControllerActionContext) => unknown | Promise<unknown>;
   readonly beforeLoad?: (
     context: RuntimeProviderContextInterface,
   ) => RuntimeProviderResult | Promise<RuntimeProviderResult>;
@@ -556,7 +531,7 @@ interface ModuleRuntimeFixtureOptions {
   ) => RuntimeProviderResult | Promise<RuntimeProviderResult>;
   readonly dispose?: () => void | Promise<void>;
   readonly guard?: boolean;
-  readonly loader?: (args: ControllerLoaderArgs) => unknown | Promise<unknown>;
+  readonly loader?: (args: TestControllerContext) => unknown | Promise<unknown>;
   readonly providerDispose?: () => void | Promise<void>;
   readonly setup?: (context: RuntimeProviderContextInterface) => RuntimeProviderResult | Promise<RuntimeProviderResult>;
 }
@@ -588,15 +563,15 @@ const createModuleRuntimeFixture = (options: ModuleRuntimeFixtureOptions = {}): 
   const providerDispose = vi.fn(options.providerDispose ?? (() => {}));
   const setup = vi.fn(options.setup ?? (() => {}));
 
-  abstract class TestControllerInterface implements ControllerInterface {
-    abstract action(args: ControllerActionArgs): unknown | Promise<unknown>;
+  abstract class TestControllerInterface {
+    abstract action(args: TestControllerActionContext): unknown | Promise<unknown>;
 
     abstract dispose(): void | Promise<void>;
 
-    abstract loader(args: ControllerLoaderArgs): unknown | Promise<unknown>;
+    abstract loader(args: TestControllerContext): unknown | Promise<unknown>;
   }
 
-  abstract class TestGuardInterface extends GuardInterface<ControllerLoaderArgs> {}
+  abstract class TestGuardInterface extends GuardInterface<TestControllerContext> {}
 
   @Injectable()
   class TestGuard extends TestGuardInterface {
@@ -606,8 +581,8 @@ const createModuleRuntimeFixture = (options: ModuleRuntimeFixtureOptions = {}): 
   }
 
   @Controller()
-  class TestController extends TestControllerInterface {
-    action(args: ControllerActionArgs): unknown | Promise<unknown> {
+  class TestController implements TestControllerInterface {
+    action(args: TestControllerActionContext): unknown | Promise<unknown> {
       return action(args);
     }
 
@@ -616,13 +591,13 @@ const createModuleRuntimeFixture = (options: ModuleRuntimeFixtureOptions = {}): 
     }
 
     @UseGuards(TestGuardInterface)
-    loader(args: ControllerLoaderArgs): unknown | Promise<unknown> {
+    loader(args: TestControllerContext): unknown | Promise<unknown> {
       return loader(args);
     }
   }
 
   @Provider()
-  class TestProvider extends RuntimeProviderInterface {
+  class TestProvider implements RuntimeProviderInterface {
     setup(context: RuntimeProviderContextInterface): RuntimeProviderResult | Promise<RuntimeProviderResult> {
       setup(context);
 
@@ -638,7 +613,7 @@ const createModuleRuntimeFixture = (options: ModuleRuntimeFixtureOptions = {}): 
     }
   }
 
-  class TestBindings extends BindingModuleInterface {
+  class TestBindings implements BindingModuleInterface {
     register(registry: BindingRegistryInterface): void {
       registry.bind(TestControllerInterface).to(TestController).inSingletonScope();
       registry.bind(TestGuardInterface).to(TestGuard).inSingletonScope();

@@ -27,8 +27,16 @@ runtime providers, React scope context и runtime scopes.
   runtime pipeline получает отдельный runtime provider instance и локальный
   context. Singleton provider instance и его bindings живут до dispose
   application scope.
-- Runtime operation flow должен различать completed, failed и interrupted
-  operations.
+- Runtime operation flow должен различать completed, rejected, failed,
+  escalated и interrupted operations. Escalated является явным запросом
+  controller action перевести ближайшего runtime owner в failed, а не
+  глобальной публикацией ошибки.
+- Application scope владеет единственным `RuntimeOperationCoordinator`. Любая
+  session revision или явная invalidation создаёт generation; coordinator
+  схлопывает invalidations одной event-loop wave, сериализует refresh и не
+  допускает второго владельца route revalidation.
+- Controller actions и произвольные методы выполняются через coordinator.
+  Прямой controller instance не выдаётся view наружу.
 - Framework создаёт failure с исходным owner/participant/operation и передаёт его
   ближайшему lifecycle boundary. Boundary сначала принимает terminal
   disposition и только затем отправляет output-only report.

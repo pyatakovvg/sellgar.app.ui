@@ -4,7 +4,7 @@ import type { BindingRegistryInterface } from '../../../di/binding/binding-regis
 import { ApplicationStoreInterface } from './application-store.interface.ts';
 import { ApplicationStore } from './application-store.ts';
 
-export class ApplicationStoreBindings extends BindingModuleInterface {
+export class ApplicationStoreBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(ApplicationStoreInterface).to(ApplicationStore).inSingletonScope();
   }

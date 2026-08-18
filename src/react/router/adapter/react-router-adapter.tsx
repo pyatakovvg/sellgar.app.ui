@@ -1,5 +1,13 @@
 import React from 'react';
-import { createBrowserRouter, Outlet, useLocation, useMatches, useNavigation } from 'react-router';
+import {
+  createBrowserRouter,
+  matchRoutes,
+  Outlet,
+  useLocation,
+  useMatches,
+  type LoaderFunction,
+  type RouteObject,
+} from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 
 import { ApplicationComponentsProvider } from '../../../application/react/application-components-context';
@@ -7,43 +15,96 @@ import { FrameLayer } from '../../../frame/react/frame-layer';
 import { renderLayouts } from '../../../layout/rendering/layout-renderer';
 import type { LayoutConstructor } from '../../../layout/declaration/layout';
 import type { ApplicationFeatureInterface } from '../../../application/feature/application-feature';
-import type { ApplicationComponents } from '../../../application/config/application-configurator';
+import type {
+  ApplicationComponents,
+  ResolvedApplicationFrames,
+} from '../../../application/config/application-configurator';
 import type { ApplicationControllerInterface } from '../../../application/lifecycle/application-lifecycle';
 import type { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
+import { NavigationBlockerBridge } from '../../../features/navigation-blocker/react/navigation-blocker-bridge';
+import { NavigationBlockerRuntimeInterface } from '../../../features/navigation-blocker/runtime/navigation-blocker-runtime';
 import { RevalidateBridge } from '../../../revalidate/react/revalidate-bridge';
-import type { Router } from '../../../router/declaration/router';
+import { getRouterDefinition, type Router } from '../../../router/declaration/router';
 import { RouterRuntime } from '../../../router/runtime/router-runtime';
 import { RouterServiceControllerInterface } from '../../../router/service/router-service-controller';
+import { NavigateServiceInterface } from '../../../router/service/navigate-service';
 import { RuntimeScopeProvider } from '../../../runtime/react';
+import { RuntimeOperationCoordinator } from '../../../runtime/operation';
 import type { ApplicationScope } from '../../../runtime/scope/kind';
 
 import { RouteExceptionBoundary } from '../exception';
 
-import { createEmptyRoutePolicies, createRouteObjects } from './route-object-builder.tsx';
+import {
+  createEmptyRoutePolicies,
+  createRouteObjects,
+  createRouteRuntimeLoadContext,
+} from './route-object-builder.tsx';
 
 export const createReactRouterView = (
   router: Router,
   components: ApplicationComponents,
   layouts: LayoutConstructor[],
   features: readonly ApplicationFeatureInterface[],
+  frames: ResolvedApplicationFrames | null,
   app: ApplicationControllerInterface,
   session: SessionRuntimeStateInterface,
   routerRuntime: RouterRuntime,
   applicationScope: ApplicationScope,
 ): React.FC => {
+  const definition = getRouterDefinition(router);
   const routerService = applicationScope.get(RouterServiceControllerInterface);
-  routerRuntime.setFrameNavigationScope(router.baseUrl?.replace(/\/$/, ''));
-  const browserRouter = createBrowserRouter(
+  const operationCoordinator = applicationScope.get(RuntimeOperationCoordinator);
+  const navigateService = applicationScope.get(NavigateServiceInterface);
+  const navigationBlockerRuntime = applicationScope.has(NavigationBlockerRuntimeInterface)
+    ? applicationScope.get(NavigationBlockerRuntimeInterface)
+    : null;
+  const basePath = definition.baseUrl?.replace(/\/$/, '');
+  const routeObjects = createRouteObjects({
+    app,
+    applicationScope,
+    appendNotFoundRoute: true,
+    basePath,
+    components,
+    inheritedException: components.exception,
+    inheritedFallback: components.fallback,
+    inheritedForbidden: components.forbidden,
+    inheritedNotFound: components.notFound,
+    inheritedPolicies: createEmptyRoutePolicies(),
+    parentKey: 'root',
+    routerRuntime,
+    routes: definition.routes,
+    session,
+  });
+  const preloadFrame = createFramePreloadLoader({
+    app,
+    basePath,
+    navigateService,
+    routeObjects,
+    routerRuntime,
+    session,
+  });
+  let browserRouter: ReturnType<typeof createBrowserRouter>;
+
+  connectRuntimeRefresh(operationCoordinator, routerRuntime, () => browserRouter.revalidate());
+  browserRouter = createBrowserRouter(
     [
       {
         path: '/',
         element: renderLayouts(
           layouts,
           <RouterServiceLocationBoundary routerService={routerService}>
-            <RevalidateBridge fallback>
+            {navigationBlockerRuntime && (
+              <NavigationBlockerBridge
+                basePath={basePath}
+                routeObjects={routeObjects}
+                routerRuntime={routerRuntime}
+                runtime={navigationBlockerRuntime}
+              />
+            )}
+            <RevalidateBridge fallback revalidate={() => operationCoordinator.invalidateAndWait()}>
               <ActiveRouteRuntimeBoundary routerRuntime={routerRuntime}>
                 <Outlet />
-                <RouteFrameLayer app={app} routerRuntime={routerRuntime} />
+                <RouteFrameLayer app={app} configuration={frames} routerRuntime={routerRuntime} />
               </ActiveRouteRuntimeBoundary>
             </RevalidateBridge>
           </RouterServiceLocationBoundary>,
@@ -56,35 +117,20 @@ export const createReactRouterView = (
           />
         ),
         hydrateFallbackElement: components.splash,
-        children: createRouteObjects({
-          app,
-          applicationScope,
-          appendNotFoundRoute: true,
-          basePath: router.baseUrl?.replace(/\/$/, ''),
-          components,
-          inheritedException: components.exception,
-          inheritedFallback: components.fallback,
-          inheritedForbidden: components.forbidden,
-          inheritedFrames: [],
-          inheritedNotFound: components.notFound,
-          inheritedPolicies: createEmptyRoutePolicies(),
-          parentKey: 'root',
-          routerRuntime,
-          routes: router.routes,
-          session,
-        }),
+        loader: preloadFrame,
+        shouldRevalidate: ({ currentUrl, nextUrl }) => !isHashOnlyNavigation(currentUrl, nextUrl),
+        children: routeObjects,
       },
     ],
     {
-      basename: router.baseUrl?.replace(/\/$/, ''),
+      basename: basePath,
     },
   );
-
   return () => {
     React.useEffect(() => {
       return routerService.attachNavigator({
         back: () => {
-          globalThis.history.back();
+          return browserRouter.navigate(-1);
         },
         navigate: (to, options) => {
           return browserRouter.navigate(to, options);
@@ -95,13 +141,7 @@ export const createReactRouterView = (
     return (
       <ApplicationComponentsProvider components={components}>
         <RuntimeScopeProvider scope={applicationScope}>
-          <SessionRevalidationBoundary
-            revalidate={() => browserRouter.revalidate()}
-            routerRuntime={routerRuntime}
-            session={session}
-          >
-            <RouterProvider router={browserRouter} />
-          </SessionRevalidationBoundary>
+          <RouterProvider router={browserRouter} />
           {features.map((feature, index) => {
             return <React.Fragment key={index}>{feature.createLayer()}</React.Fragment>;
           })}
@@ -113,40 +153,73 @@ export const createReactRouterView = (
 
 interface RouteFrameLayerProps {
   readonly app: ApplicationControllerInterface;
+  readonly configuration: ResolvedApplicationFrames | null;
   readonly routerRuntime: RouterRuntime;
 }
 
-const RouteFrameLayer: React.FC<RouteFrameLayerProps> = ({ app, routerRuntime }) => {
-  const navigation = useNavigation();
+const RouteFrameLayer: React.FC<RouteFrameLayerProps> = ({ app, configuration, routerRuntime }) => {
+  const matches = useMatches();
 
-  return <FrameLayer app={app} deferIdleFrameLoad={navigation.state !== 'idle'} routerRuntime={routerRuntime} />;
+  return (
+    <FrameLayer
+      app={app}
+      configuration={configuration}
+      routeIds={matches.map((match) => match.id)}
+      routerRuntime={routerRuntime}
+    />
+  );
 };
 
-interface SessionRevalidationBoundaryProps {
-  readonly children: React.ReactNode;
-  readonly revalidate: () => void;
+interface FramePreloadLoaderOptions {
+  readonly app: ApplicationControllerInterface;
+  readonly basePath?: string;
+  readonly navigateService: NavigateServiceInterface;
+  readonly routeObjects: RouteObject[];
   readonly routerRuntime: RouterRuntime;
   readonly session: SessionRuntimeStateInterface;
 }
 
-export const SessionRevalidationBoundary: React.FC<SessionRevalidationBoundaryProps> = ({
-  children,
-  revalidate,
-  routerRuntime,
-  session,
-}) => {
-  React.useEffect(() => {
-    return session.subscribe((change) => {
-      if (change.phase !== 'anonymous') {
-        return;
-      }
+export const createFramePreloadLoader = (options: FramePreloadLoaderOptions): LoaderFunction => {
+  return async (args) => {
+    const context = createRouteRuntimeLoadContext(args, options.basePath);
+    const matches = matchRoutes(options.routeObjects, context.location.pathname);
+    const routeIds = matches?.flatMap((match) => (typeof match.route.id === 'string' ? [match.route.id] : [])) ?? [];
+    const params =
+      matches?.reduce<Record<string, string | undefined>>((result, match) => {
+        Object.assign(result, match.params);
+        return result;
+      }, {}) ?? context.location.params;
 
-      routerRuntime.invalidateActiveRoutes();
-      revalidate();
+    await options.routerRuntime.preloadFrame(routeIds, context.location.hash, {
+      app: options.app,
+      location: {
+        ...context.location,
+        params,
+      },
+      navigateService: options.navigateService,
+      session: options.session,
+      signal: args.request.signal,
     });
-  }, [revalidate, routerRuntime, session]);
 
-  return <>{children}</>;
+    return null;
+  };
+};
+
+const isHashOnlyNavigation = (currentUrl: URL, nextUrl: URL): boolean => {
+  return (
+    currentUrl.pathname === nextUrl.pathname && currentUrl.search === nextUrl.search && currentUrl.hash !== nextUrl.hash
+  );
+};
+
+export const connectRuntimeRefresh = (
+  coordinator: RuntimeOperationCoordinator,
+  routerRuntime: RouterRuntime,
+  revalidate: () => void | Promise<void>,
+): (() => void) => {
+  return coordinator.attachRefresh(() => {
+    routerRuntime.invalidateActiveRoutes();
+    return revalidate();
+  });
 };
 
 interface ActiveRouteRuntimeBoundaryProps {

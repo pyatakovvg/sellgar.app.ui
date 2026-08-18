@@ -31,10 +31,10 @@ describe('RequestExecutor', () => {
   it('does not bind shared session recovery to the first request signal', async () => {
     const session = new SessionRuntimeState();
     const notification = createDeferred<void>();
-    let recoverySignal: AbortSignal | null = null;
+    const recoverySignals: AbortSignal[] = [];
     const notifier = {
       notify: vi.fn(({ signal }) => {
-        recoverySignal = signal;
+        recoverySignals.push(signal);
         return notification.promise;
       }),
     } as SessionExpirationNotifierInterface;
@@ -52,7 +52,13 @@ describe('RequestExecutor', () => {
     await vi.waitFor(() => expect(notifier.notify).toHaveBeenCalledTimes(1));
     executor.cancelScope('first-owner');
 
-    expect(recoverySignal?.aborted).toBe(false);
+    const activeRecoverySignal = recoverySignals[0];
+
+    if (activeRecoverySignal === undefined) {
+      throw new Error('Session recovery signal was not captured.');
+    }
+
+    expect(activeRecoverySignal.aborted).toBe(false);
 
     notification.resolve();
     await vi.waitFor(() => expect(session.phase).toBe('anonymous'));
@@ -135,12 +141,12 @@ describe('RequestExecutor', () => {
     const notifier = { notify: vi.fn(() => notification.promise) } as SessionExpirationNotifierInterface;
     const executor = new RequestExecutor(session, notifier);
     const protectedRequestSettled = vi.fn();
-    let protectedRequestSignal: AbortSignal | null = null;
+    const protectedRequestSignals: AbortSignal[] = [];
 
     session.setAuthenticated();
 
     const protectedRequest = executor.run(({ signal }) => {
-      protectedRequestSignal = signal;
+      protectedRequestSignals.push(signal);
 
       return new Promise<never>((_resolve, reject) => {
         signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
@@ -152,7 +158,13 @@ describe('RequestExecutor', () => {
 
     await vi.waitFor(() => expect(notifier.notify).toHaveBeenCalledTimes(1));
 
-    expect(protectedRequestSignal?.aborted).toBe(true);
+    const activeProtectedRequestSignal = protectedRequestSignals[0];
+
+    if (activeProtectedRequestSignal === undefined) {
+      throw new Error('Protected request signal was not captured.');
+    }
+
+    expect(activeProtectedRequestSignal.aborted).toBe(true);
     expect(session.phase).toBe('authenticated');
     expect(protectedRequestSettled).not.toHaveBeenCalled();
 

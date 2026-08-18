@@ -5,7 +5,7 @@ import {
   type SessionRuntimeStateListener,
 } from './session-runtime-state.interface.ts';
 
-export class SessionRuntimeState extends SessionRuntimeStateInterface {
+export class SessionRuntimeState implements SessionRuntimeStateInterface {
   private listeners = new Set<SessionRuntimeStateListener>();
   private currentRevision = 0;
   private value: SessionRuntimePhase = 'unknown';

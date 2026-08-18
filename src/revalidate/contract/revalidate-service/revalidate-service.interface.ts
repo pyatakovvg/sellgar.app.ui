@@ -8,13 +8,15 @@ export interface RevalidateOptions {
 }
 
 export abstract class RevalidateServiceInterface {
-  abstract register(key: RevalidateKey, handler: RevalidateHandler): void;
-
-  abstract registerFallback(handler: RevalidateHandler): void;
-
   abstract revalidate(options?: RevalidateOptions): Promise<void>;
 
   abstract revalidate(key: RevalidateKey, options?: RevalidateOptions): Promise<void>;
+}
+
+export abstract class RevalidateRegistryInterface {
+  abstract register(key: RevalidateKey, handler: RevalidateHandler): void;
+
+  abstract registerFallback(handler: RevalidateHandler): void;
 
   abstract unregister(key: RevalidateKey, handler: RevalidateHandler): void;
 

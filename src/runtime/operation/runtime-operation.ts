@@ -1,4 +1,5 @@
 import { isHttpException } from '../../http';
+import { isRuntimeExceptionSignal } from '../exception/runtime-exception-signal.ts';
 import { captureRuntimeFailure, getRuntimeOperationError, throwRuntimeOperationError } from '../failure';
 import type { RuntimeFailure, RuntimeFailureSource } from '../failure';
 import { isRuntimeInterruption, type RuntimeInterruptionReason } from './runtime-interruption.ts';
@@ -33,6 +34,10 @@ export type RuntimeOperationResult<TValue> =
       readonly error: unknown;
       readonly source: RuntimeFailureSource;
       readonly type: 'rejected';
+    }
+  | {
+      readonly failure: RuntimeFailure;
+      readonly type: 'escalated';
     };
 
 export interface RuntimeOperationOptions<TValue> {
@@ -56,6 +61,15 @@ export const createRuntimeRevisionGuard = (source: RuntimeRevisionSource): Runti
               if (source.revision !== revision) listener();
             })
         : undefined,
+  };
+};
+
+export const createRuntimeCompletionRevisionGuard = (source: RuntimeRevisionSource): RuntimeOperationGuard => {
+  const revision = source.revision;
+
+  return {
+    isInterrupted: () => source.revision !== revision,
+    revision,
   };
 };
 
@@ -103,6 +117,13 @@ const executeRuntimeOperationBody = async <TValue>(
         cause: operationError.cause,
         reason: 'guard-interrupted',
         type: 'interrupted',
+      };
+    }
+
+    if (isRuntimeExceptionSignal(error)) {
+      return {
+        failure: captureRuntimeFailure(error, options.source),
+        type: 'escalated',
       };
     }
 
@@ -161,13 +182,29 @@ const createGuardInterruption = <TValue>(
   };
 };
 
-export const executeRuntimeParticipant = async <TValue>(
+export const executeRuntimeParticipant = <TValue>(
   source: RuntimeFailureSource,
   operation: () => TValue | Promise<TValue>,
-): Promise<TValue> => {
+): TValue | Promise<TValue> => {
   try {
-    return await operation();
+    const value = operation();
+
+    if (isPromiseLike(value)) {
+      return value.catch((error) => {
+        return throwRuntimeOperationError(error, source);
+      });
+    }
+
+    return value;
   } catch (error) {
     return throwRuntimeOperationError(error, source);
   }
+};
+
+const isPromiseLike = <TValue>(value: TValue): value is TValue & Promise<Awaited<TValue>> => {
+  return (
+    ((typeof value === 'object' && value !== null) || typeof value === 'function') &&
+    'then' in value &&
+    typeof value.then === 'function'
+  );
 };

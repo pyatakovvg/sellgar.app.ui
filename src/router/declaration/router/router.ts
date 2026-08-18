@@ -3,16 +3,24 @@ import { createFirstAvailableRouteDefault, type FirstAvailableRouteDefault, type
 
 export interface RouterOptions {
   readonly baseUrl?: string;
-  readonly routes: Route[];
+  readonly routes: readonly Route[];
 }
 
-export class Router {
+export interface RouterDefinition {
   readonly baseUrl: string | undefined;
-  readonly routes: Route[];
+  readonly routes: readonly Route[];
+}
+
+const routerDefinitions = new WeakMap<Router, RouterDefinition>();
+
+export class Router {
+  declare private readonly routerBrand: void;
 
   constructor(options: RouterOptions) {
-    this.baseUrl = options.baseUrl;
-    this.routes = options.routes;
+    routerDefinitions.set(this, {
+      baseUrl: options.baseUrl,
+      routes: [...options.routes],
+    });
   }
 
   static continue(): PolicyBoundaryDecision {
@@ -63,6 +71,16 @@ export class Router {
     };
   }
 }
+
+export const getRouterDefinition = (router: Router): RouterDefinition => {
+  const definition = routerDefinitions.get(router);
+
+  if (!definition) {
+    throw new Error('Декларация роутера не определена.');
+  }
+
+  return definition;
+};
 
 export interface RouterRedirectOptions {
   readonly key?: string;

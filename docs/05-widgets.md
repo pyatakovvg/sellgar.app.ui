@@ -137,24 +137,22 @@ export interface RefreshOrdersSummaryPayload {
   readonly reason: string;
 }
 
-export abstract class OrdersSummaryWidgetControllerInterface extends WidgetControllerInterface<OrdersSummaryWidgetProps> {
-  abstract loader(args: WidgetControllerLoaderArgs<OrdersSummaryWidgetProps>): Promise<OrdersSummaryData>;
+export abstract class OrdersSummaryWidgetControllerInterface {
+  abstract loader(args: ControllerArgs<WithProps<OrdersSummaryWidgetProps>>): Promise<OrdersSummaryData>;
 
   abstract action(
-    args: WidgetControllerActionArgs<OrdersSummaryWidgetProps, RefreshOrdersSummaryPayload>,
+    args: ControllerArgs<WithPayload<RefreshOrdersSummaryPayload, WithProps<OrdersSummaryWidgetProps>>>,
   ): Promise<OrdersSummaryData>;
 }
 
 @Controller()
-export class OrdersSummaryWidgetController extends OrdersSummaryWidgetControllerInterface {
+export class OrdersSummaryWidgetController implements OrdersSummaryWidgetControllerInterface {
   constructor(
     @Inject(OrdersServiceInterface)
     private readonly ordersService: OrdersServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async loader(args: WidgetControllerLoaderArgs<OrdersSummaryWidgetProps>): Promise<OrdersSummaryData> {
+  async loader(args: ControllerArgs<WithProps<OrdersSummaryWidgetProps>>): Promise<OrdersSummaryData> {
     return {
       count: await this.ordersService.count({
         signal: args.signal,
@@ -163,7 +161,7 @@ export class OrdersSummaryWidgetController extends OrdersSummaryWidgetController
   }
 
   async action(
-    args: WidgetControllerActionArgs<OrdersSummaryWidgetProps, RefreshOrdersSummaryPayload>,
+    args: ControllerArgs<WithPayload<RefreshOrdersSummaryPayload, WithProps<OrdersSummaryWidgetProps>>>,
   ): Promise<OrdersSummaryData> {
     await this.ordersService.refresh({
       reason: args.payload.reason,
@@ -175,14 +173,14 @@ export class OrdersSummaryWidgetController extends OrdersSummaryWidgetController
 }
 ```
 
-`WidgetControllerLoaderArgs<TProps>` содержит:
+`ControllerArgs<WithProps<TProps>>` содержит:
 
 ```ts
 args.props;
 args.signal;
 ```
 
-`WidgetControllerActionArgs<TProps, TPayload>` содержит:
+`ControllerArgs<WithPayload<TPayload, WithProps<TProps>>>` содержит:
 
 ```ts
 args.props;
@@ -240,21 +238,28 @@ Submit state общий для активного widget runtime и controller t
 submit. Повторный вызов из любого hook instance во время active submit вернет
 rejected promise.
 
+Ошибка controller action является recoverable submit result: вызов
+`submit(...)` завершается значением `undefined`, исходная ошибка доступна в
+`submit.error`, а widget остаётся в `ready`. Если продолжать работу widget
+нельзя, controller явно вызывает внедрённый
+`RuntimeExceptionServiceInterface.raise(error)`. Тогда widget переходит в
+`failed`, показывает exception UI и не записывает ошибку в `submit.error`.
+
 ## Revalidate Из Controller
 
 Widget controller может запускать revalidate своего widget runtime через DI.
 
 ```ts
 @Controller()
-export class OrdersSummaryWidgetController extends OrdersSummaryWidgetControllerInterface {
+export class OrdersSummaryWidgetController implements OrdersSummaryWidgetControllerInterface {
   constructor(
     @Inject(RevalidateServiceInterface)
     private readonly revalidateService: RevalidateServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async action(args: WidgetControllerActionArgs<OrdersSummaryWidgetProps, RefreshOrdersSummaryPayload>): Promise<void> {
+  async action(
+    args: ControllerArgs<WithPayload<RefreshOrdersSummaryPayload, WithProps<OrdersSummaryWidgetProps>>>,
+  ): Promise<void> {
     await this.revalidateService.revalidate({
       signal: args.signal,
     });
@@ -275,16 +280,14 @@ widget props. Если provider запускается в route/layout/module ru
 
 ```ts
 @Provider()
-export class OrdersSummaryWidgetPreloadProvider extends RuntimeProviderInterface {
+export class OrdersSummaryWidgetPreloadProvider implements RuntimeProviderInterface {
   constructor(
-    @Inject(WidgetRuntimeFactoryInterface)
-    private readonly widgetRuntimeFactory: WidgetRuntimeFactoryInterface,
-  ) {
-    super();
-  }
+    @Inject(WidgetPreloaderInterface)
+    private readonly widgetPreloader: WidgetPreloaderInterface,
+  ) {}
 
   beforeRender(context: RuntimeProviderContextInterface): Promise<RuntimeProviderResult> {
-    return this.widgetRuntimeFactory.preload(context, OrdersSummaryWidget, {
+    return this.widgetPreloader.preload(context, OrdersSummaryWidget, {
       props: {
         title: 'Orders',
       },

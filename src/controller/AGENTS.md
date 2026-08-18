@@ -2,7 +2,7 @@
 
 ## Назначение
 
-`controller` владеет generic controller contracts, module action bridge,
+`controller` владеет generic controller contracts, controller invocation,
 loader data envelope, nearest-runtime context и React hooks
 `useController`/`useLoaderData`/`useSubmit`.
 
@@ -10,14 +10,13 @@ loader data envelope, nearest-runtime context и React hooks
 
 - Здесь нет конкретных фича controllers.
 - Controller token является runtime identity для loader/action data.
-- Module action payload хранится в `ModuleRuntime` по исходной ссылке и не
-  сериализуется.
-- `useFetcher` передаёт route action только одноразовый action id и сохраняет
-  React Router lifecycle, policies, cancellation и revalidation.
+- Controller action вызывается напрямую через nearest runtime; payload
+  передаётся по исходной ссылке и не сериализуется.
+- `useController` возвращает типизированный facade. Вызов любого метода facade
+  проходит через runtime coordinator; raw controller остаётся внутри runtime.
 - Submit state принадлежит runtime и является общим для controller token.
 - Loader data читается через публичный hooks, а не через raw DI.
-- Widget/frame controller contracts живут в `src/widget` и `src/frame`, но
-  view использует единые controller hooks из этого owner.
+- Module/frame/widget используют единый controller runtime port и единые hooks.
 
 ## Проверка
 

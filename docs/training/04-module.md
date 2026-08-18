@@ -113,7 +113,7 @@ export { OrdersModule } from './orders.module';
 ```
 
 ```ts
-load: () => import('@module/orders')
+load: () => import('@module/orders');
 ```
 
 ### Заметки Ведущего
@@ -148,12 +148,12 @@ exception presentation.
 
 ### На Экране
 
-| Сценарий | Выбор |
-|---|---|
-| Основной экран `/orders` | Module |
-| Статическая карточка внутри экрана | React component |
-| Переиспользуемый блок со своим loader | Widget — позже |
-| Drawer поверх экрана | Frame — позже |
+| Сценарий                              | Выбор           |
+| ------------------------------------- | --------------- |
+| Основной экран `/orders`              | Module          |
+| Статическая карточка внутри экрана    | React component |
+| Переиспользуемый блок со своим loader | Widget — позже  |
+| Drawer поверх экрана                  | Frame — позже   |
 
 ### Заметки Ведущего
 
@@ -180,4 +180,3 @@ Orders view всё ещё содержит захардкоженный масс
 - [Modules, controllers и providers](../04-modules-controllers-providers.md)
 - [Структура module package](../13-module-package-structure.md)
 - [Public API boundary](../17-public-api-boundary.md)
-

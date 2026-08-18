@@ -1,14 +1,26 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Location, UIMatch } from 'react-router';
+import {
+  RouterContextProvider,
+  type LoaderFunctionArgs,
+  type Location,
+  type RouteObject,
+  type UIMatch,
+} from 'react-router';
 
 import { SessionRuntimeState } from '../../../application/session/session-runtime-state';
 import { RouterRuntime } from '../../../router/runtime/router-runtime';
 import { RouterService } from '../../../router/service/router-service';
 import { ClassTransformerRouterParamsConverter } from '../../../router/params/class-transformer-router-params-converter';
+import { RuntimeOperationCoordinator } from '../../../runtime/operation';
 
-import { ActiveRouteRuntimeBoundary, RouterServiceLocationBoundary, SessionRevalidationBoundary } from './index.ts';
+import {
+  ActiveRouteRuntimeBoundary,
+  connectRuntimeRefresh,
+  createFramePreloadLoader,
+  RouterServiceLocationBoundary,
+} from './index.ts';
 
 const useMatchesMock = vi.hoisted(() => {
   return vi.fn<() => UIMatch[]>();
@@ -133,19 +145,16 @@ describe('React router adapter boundaries', () => {
     });
   });
 
-  it('revalidates active routes when session becomes anonymous', async () => {
+  it('подключает coordinator к единственному route refresh handler', async () => {
     const session = new SessionRuntimeState();
+    const coordinator = new RuntimeOperationCoordinator(session);
     const routerRuntime = new RouterRuntime();
     const invalidateActiveRoutes = vi.spyOn(routerRuntime, 'invalidateActiveRoutes');
     const revalidate = vi.fn();
 
     session.setAuthenticated();
 
-    render(
-      <SessionRevalidationBoundary revalidate={revalidate} routerRuntime={routerRuntime} session={session}>
-        <div>Route content</div>
-      </SessionRevalidationBoundary>,
-    );
+    connectRuntimeRefresh(coordinator, routerRuntime, revalidate);
 
     session.setAnonymous();
     session.setAuthenticated();
@@ -155,12 +164,76 @@ describe('React router adapter boundaries', () => {
       expect(revalidate).toHaveBeenCalledOnce();
     });
   });
+
+  it('схлопывает несколько session transitions внутри одной operation в одну route wave', async () => {
+    const session = new SessionRuntimeState();
+    const coordinator = new RuntimeOperationCoordinator(session);
+    const routerRuntime = new RouterRuntime();
+    const invalidateActiveRoutes = vi.spyOn(routerRuntime, 'invalidateActiveRoutes');
+    const revalidate = vi.fn();
+
+    connectRuntimeRefresh(coordinator, routerRuntime, revalidate);
+
+    await coordinator.run(async () => {
+      session.setAnonymous();
+      session.setAuthenticated();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(invalidateActiveRoutes).toHaveBeenCalledOnce();
+      expect(revalidate).toHaveBeenCalledOnce();
+    });
+  });
+
+  it('preloads the frame for the destination route branch during router loading', async () => {
+    const routerRuntime = new RouterRuntime();
+    const preloadFrame = vi.spyOn(routerRuntime, 'preloadFrame').mockResolvedValue();
+    const session = new SessionRuntimeState();
+    const routeObjects: RouteObject[] = [
+      {
+        id: 'root.employees',
+        path: 'employees',
+        children: [{ id: 'root.employees.details', path: ':employeeId' }],
+      },
+    ];
+    const loader = createFramePreloadLoader({
+      app: {} as never,
+      basePath: '/terminals-management',
+      navigateService: {} as never,
+      routeObjects,
+      routerRuntime,
+      session,
+    });
+    const url = new URL('https://example.test/terminals-management/employees/28#employees/28');
+    const request = new Request(url);
+
+    await loader({
+      context: new RouterContextProvider(),
+      params: {},
+      pattern: '/',
+      request,
+      url,
+    } satisfies LoaderFunctionArgs);
+
+    expect(preloadFrame).toHaveBeenCalledWith(
+      ['root.employees', 'root.employees.details'],
+      '#employees/28',
+      expect.objectContaining({
+        location: expect.objectContaining({
+          params: { employeeId: '28' },
+          pathname: '/employees/28',
+        }),
+        session,
+        signal: request.signal,
+      }),
+    );
+  });
 });
 
 const createMatch = (id: string, params: UIMatch['params'] = {}): UIMatch => {
   return {
     id,
-    data: void 0,
     handle: void 0,
     loaderData: void 0,
     params,

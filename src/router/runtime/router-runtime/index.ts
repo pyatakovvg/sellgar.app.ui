@@ -1,6 +1,6 @@
 export {
   RouterRuntime,
-  type ActiveFrameRuntime,
+  type ActiveFrameRouterRuntime,
   type RouteRuntimeHandle,
   type RouteRuntimeId,
   type RouteRuntimeRegistrationOptions,

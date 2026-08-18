@@ -5,6 +5,8 @@ import type { ApplicationInitializerToken } from '../../initializer/application-
 import type { ApplicationFeatureInterface } from '../../feature/application-feature';
 import type { LayoutConstructor } from '../../../layout/declaration/layout';
 import type { Router } from '../../../router/declaration/router';
+import type { DependencyConstructor } from '../../../di/binding/binding-builder';
+import type { FrameShellInterface } from '../../../frame/declaration/frame';
 
 export interface ApplicationComponents {
   readonly splash?: React.ReactNode;
@@ -15,12 +17,30 @@ export interface ApplicationComponents {
   readonly notFound?: React.ReactNode;
 }
 
+export interface ApplicationFrames {
+  readonly exception?: React.ReactNode;
+  readonly fallback?: React.ReactNode;
+  readonly forbidden?: React.ReactNode;
+  readonly notFound?: React.ReactNode;
+  readonly shell: DependencyConstructor<FrameShellInterface>;
+}
+
+export interface ResolvedApplicationFrames {
+  readonly exception: React.ReactNode;
+  readonly fallback: React.ReactNode;
+  readonly forbidden: React.ReactNode;
+  readonly notFound: React.ReactNode;
+  readonly shell: DependencyConstructor<FrameShellInterface>;
+}
+
 export type ApplicationInitializerDeclaration = ApplicationInitializerToken | ApplicationInitializerGroup;
 
 export abstract class ApplicationConfiguratorInterface {
   abstract components(components: ApplicationComponents): void;
 
   abstract features(features: readonly ApplicationFeatureInterface[]): void;
+
+  abstract frames(frames: ApplicationFrames): void;
 
   abstract initializers(initializers: readonly ApplicationInitializerDeclaration[]): void;
 

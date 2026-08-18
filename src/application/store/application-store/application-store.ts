@@ -13,7 +13,7 @@ type ApplicationStoreEntry =
     };
 
 @Injectable()
-export class ApplicationStore extends ApplicationStoreInterface {
+export class ApplicationStore implements ApplicationStoreInterface {
   private readonly entries = new Map<ApplicationStoreClassKey<unknown>, ApplicationStoreEntry>();
 
   clear(): void {

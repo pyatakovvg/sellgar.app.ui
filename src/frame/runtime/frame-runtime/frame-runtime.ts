@@ -4,20 +4,34 @@ import {
   mergeControllerLoaderData,
   type ControllerLoaderData,
 } from '../../../controller/data/controller-loader-data';
+import type {
+  ControllerArgs,
+  RuntimeController,
+  WithParams,
+  WithPayload,
+} from '../../../controller/contract/controller';
 import type { ApplicationControllerInterface } from '../../../application/lifecycle/application-lifecycle';
 import type { DependencyToken } from '../../../di/token/dependency-token';
+import { invokeControllerMethod } from '../../../controller/runtime';
 import { executeGuardedMethod } from '../../../guard/runtime/guard-method-executor';
 import { getLayoutMetadata } from '../../../layout/declaration/layout';
 import type { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
-import type { PolicyBoundaryDecision } from '../../../policy/contract/policy-boundary-decision';
-import { PolicyRunner } from '../../../policy/runtime/policy-runner';
-import type { NavigateServiceInterface } from '../../../router/service/navigate-service';
+import {
+  NavigateServiceInterface,
+  type NavigateFrame,
+  type RouterHashNavigateOptions,
+  type RouterNavigateOptions,
+  type RouterSearchNavigateOptions,
+} from '../../../router/service/navigate-service';
+import type { RouterHashObject } from '../../../router/utils/hash-utils';
+import type { RouterSearchObject } from '../../../router/utils/search-utils';
 import type { RouterLocationSnapshot } from '../../../router/service/location-service';
-import type { RouteRuntimeContextInterface } from '../../../router/runtime/route-runtime-context';
 import {
   createRuntimeRevisionGuard,
+  createRuntimeCompletionRevisionGuard,
   executeRuntimeParticipant,
   executeRuntimeOperation,
+  RuntimeOperationCoordinator,
   type RuntimeOperationResult,
 } from '../../../runtime/operation';
 import {
@@ -39,31 +53,20 @@ import type { RuntimeScope } from '../../../runtime/scope/base';
 import { RevalidateServiceInterface } from '../../../revalidate/contract/revalidate-service';
 import { RuntimeRevalidateService } from '../../../revalidate/runtime/revalidate-service';
 import { getFrameMetadata, type FrameConstructor, type FrameMetadata } from '../../declaration/frame';
-import { createFrameNavigationEntry } from '../../navigation/frame-navigation-state';
-import { FrameServiceInterface, type FrameOpenArgs } from '../../service/frame-service';
-import type { FrameSourceCloseHandler } from '../../source/frame-source';
 
-import type {
-  FrameControllerActionArgs,
-  FrameControllerInterface,
-  FrameControllerLoaderArgs,
-} from '../frame-controller';
-
-interface ActiveFrameRuntime<TProps extends object = object> {
-  readonly controllers: Map<DependencyToken<unknown>, FrameControllerInterface<TProps>>;
+interface ActiveFrameRuntime {
+  readonly controllers: Map<DependencyToken<unknown>, RuntimeController>;
   readonly loadOptions: Required<FrameRuntimeLoadOptions>;
   loaderData: ControllerLoaderData;
-  readonly metadata: FrameMetadata<TProps>;
-  readonly frame: FrameConstructor<TProps>;
-  providerPipeline: RuntimeProviderPipeline<TProps> | null;
+  readonly metadata: FrameMetadata;
+  readonly frame: FrameConstructor;
+  providerPipeline: RuntimeProviderPipeline | null;
   readonly scope: FrameScope;
 }
 
 export interface FrameRuntimeLoadOptions {
   readonly app: ApplicationControllerInterface;
-  readonly close: FrameSourceCloseHandler;
   readonly location: RouterLocationSnapshot;
-  readonly navigateService: NavigateServiceInterface;
   readonly session: SessionRuntimeStateInterface;
   readonly signal?: AbortSignal;
 }
@@ -92,19 +95,19 @@ export interface FrameRuntimeSnapshot {
 
 type FrameRuntimeListener = () => void;
 
-export class FrameRuntime<TProps extends object = Record<string, never>> {
+export class FrameRuntime {
   private readonly listeners = new Set<FrameRuntimeListener>();
-  private readonly metadata: FrameMetadata<TProps>;
+  private readonly metadata: FrameMetadata;
   private readonly owner: RuntimeOwner;
 
   private readonly actionAbortControllers = new Map<DependencyToken<unknown>, AbortController>();
   private readonly actionStates = new Map<DependencyToken<unknown>, FrameRuntimeActionState>();
-  private currentFrameRuntime: ActiveFrameRuntime<TProps> | null = null;
+  private currentFrameRuntime: ActiveFrameRuntime | null = null;
   private disposePromise: Promise<void> | null = null;
   private loadAbortController: AbortController | null = null;
   private loadPromise: Promise<void> | null = null;
   private loadSessionCounter = 0;
-  private selfCloseRequested = false;
+  private selfNavigationRequested = false;
   private snapshot: FrameRuntimeSnapshot = {
     error: null,
     phase: 'idle',
@@ -112,10 +115,9 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
 
   constructor(
     private readonly ownerScope: RuntimeScope,
-    private readonly frame: FrameConstructor<TProps>,
-    private readonly props: TProps,
+    private readonly frame: FrameConstructor,
   ) {
-    this.metadata = getFrameMetadata<TProps>(frame);
+    this.metadata = getFrameMetadata(frame);
     this.owner = {
       instanceId: createRuntimeInstanceId('frame'),
       kind: 'frame',
@@ -124,6 +126,16 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
   }
 
   async action<TPayload = unknown>(
+    controllerToken: DependencyToken<unknown>,
+    payload: TPayload,
+    options: FrameRuntimeActionOptions = {},
+  ): Promise<unknown> {
+    return this.ownerScope
+      .get(RuntimeOperationCoordinator)
+      .run(() => this.executeAction(controllerToken, payload, options));
+  }
+
+  private async executeAction<TPayload = unknown>(
     controllerToken: DependencyToken<unknown>,
     payload: TPayload,
     options: FrameRuntimeActionOptions = {},
@@ -166,10 +178,10 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
 
     try {
       const result = await executeRuntimeOperation({
-        guard: createRuntimeRevisionGuard(frameRuntime.loadOptions.session),
+        guard: createRuntimeCompletionRevisionGuard(frameRuntime.loadOptions.session),
         operation: async () => {
           this.throwIfAborted(abortController.signal, 'Frame action был прерван.');
-          this.selfCloseRequested = false;
+          this.selfNavigationRequested = false;
 
           const actionArgs = this.createFrameControllerActionArgs(frameRuntime, payload, abortController.signal);
           const actionResult = await executeRuntimeParticipant(
@@ -191,7 +203,7 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
               }),
           );
 
-          if (!this.selfCloseRequested) {
+          if (!this.selfNavigationRequested) {
             this.throwIfAborted(abortController.signal, 'Frame action был прерван.');
           }
 
@@ -204,12 +216,12 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
       const actionResult = await this.applyActionOperationResult(result);
 
       this.setActionState(controllerToken, {
-        data: actionResult,
-        error: undefined,
+        data: actionResult.data,
+        error: actionResult.error,
         inProcess: false,
       });
 
-      return actionResult;
+      return actionResult.data;
     } catch (error) {
       this.setActionState(controllerToken, {
         data: undefined,
@@ -223,7 +235,7 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
         this.actionAbortControllers.delete(controllerToken);
       }
 
-      this.selfCloseRequested = false;
+      this.selfNavigationRequested = false;
       externalSignal?.removeEventListener('abort', abortAction);
     }
   }
@@ -262,7 +274,7 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
     return this.disposePromise;
   }
 
-  getActiveRuntimeOrNull(): ActiveFrameRuntime<TProps> | null {
+  getActiveRuntimeOrNull(): ActiveFrameRuntime | null {
     return this.currentFrameRuntime;
   }
 
@@ -276,8 +288,34 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
     return controller as TController;
   }
 
-  getControllers(): ReadonlyMap<DependencyToken<unknown>, FrameControllerInterface<TProps>> {
+  getControllers(): ReadonlyMap<DependencyToken<unknown>, RuntimeController> {
     return this.currentFrameRuntime?.controllers ?? new Map();
+  }
+
+  getParams(): Readonly<Record<string, string | undefined>> {
+    return this.currentFrameRuntime?.loadOptions.location.params ?? EMPTY_PARAMS;
+  }
+
+  getRevalidateState(): { readonly error: unknown; readonly inProcess: boolean } {
+    return EMPTY_REVALIDATE_STATE;
+  }
+
+  getRevalidateRevision(): number {
+    return 0;
+  }
+
+  invoke<TValue>(controllerToken: DependencyToken<unknown>, method: string | symbol, args: readonly unknown[]): TValue {
+    const controller = this.getController(controllerToken) as object;
+
+    return this.ownerScope.get(RuntimeOperationCoordinator).run(() =>
+      invokeControllerMethod<TValue>({
+        args,
+        controller,
+        method,
+        owner: this.owner,
+        token: controllerToken,
+      }),
+    );
   }
 
   getLoaderData<TValue>(controllerToken: DependencyToken<unknown>): TValue {
@@ -362,7 +400,7 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
       ...options,
       signal: abortController.signal,
     };
-    let frameRuntime: ActiveFrameRuntime<TProps>;
+    let frameRuntime: ActiveFrameRuntime;
 
     try {
       frameRuntime = this.createFrameRuntime(loadOptions);
@@ -392,7 +430,6 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
     this.loadPromise = executeRuntimeOperation({
       guard: operationGuard,
       operation: async () => {
-        await this.executePolicies('canActivate', frameRuntime);
         await this.loadFrameRuntime(frameRuntime);
 
         this.throwIfAborted(abortController.signal);
@@ -414,18 +451,7 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
           return;
         }
 
-        if (result.type === 'failed') {
-          const decision = resolveFramePolicyDecision(result.failure.cause);
-
-          if (decision?.type === 'forbidden') {
-            this.setSnapshot({
-              error: null,
-              phase: 'forbidden',
-            });
-
-            return;
-          }
-
+        if (result.type === 'failed' || result.type === 'escalated') {
           this.setSnapshot({
             error: result.failure.cause,
             phase: 'failed',
@@ -527,16 +553,13 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
     }
   }
 
-  private createFrameRuntime(loadOptions: Required<FrameRuntimeLoadOptions>): ActiveFrameRuntime<TProps> {
-    const frameService = this.ownerScope.get(FrameServiceInterface);
+  private createFrameRuntime(loadOptions: Required<FrameRuntimeLoadOptions>): ActiveFrameRuntime {
+    const navigateService = this.ownerScope.get(NavigateServiceInterface);
     const scope = new FrameScope(this.ownerScope, (registry) => {
-      registry.bind(FrameServiceInterface).toConstantValue(
-        new CurrentFrameService(
-          frameService,
-          createFrameNavigationEntry(this.metadata.source?.getNavigationKey() ?? getFrameName(this.frame), this.props),
-          () => this.backCurrentFrame(),
-          () => this.closeCurrentFrame(loadOptions),
-        ),
+      registry.bind(NavigateServiceInterface).toConstantValue(
+        new ScopedNavigateService(navigateService, () => {
+          this.selfNavigationRequested = true;
+        }),
       );
       registry.bind(RevalidateServiceInterface).toConstantValue(
         new RuntimeRevalidateService((controllerToken, options) =>
@@ -567,7 +590,7 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
     }
   }
 
-  private resolveFrameRuntimeDependencies(frameRuntime: ActiveFrameRuntime<TProps>): void {
+  private resolveFrameRuntimeDependencies(frameRuntime: ActiveFrameRuntime): void {
     for (const [controllerToken, controller] of this.resolveControllers(frameRuntime.scope)) {
       frameRuntime.controllers.set(controllerToken, controller);
     }
@@ -585,7 +608,7 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
     });
   }
 
-  private getProviderTokens(): readonly ProviderToken<TProps>[] {
+  private getProviderTokens(): readonly ProviderToken[] {
     return [
       ...(this.metadata.providers ?? []),
       ...(this.metadata.layouts ?? []).flatMap((layout) => {
@@ -594,7 +617,7 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
     ];
   }
 
-  private async disposeFrameRuntime(frameRuntime: ActiveFrameRuntime<TProps> | null): Promise<void> {
+  private async disposeFrameRuntime(frameRuntime: ActiveFrameRuntime | null): Promise<void> {
     if (!frameRuntime) {
       return;
     }
@@ -620,7 +643,7 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
     }
   }
 
-  private async loadFrameRuntime(frameRuntime: ActiveFrameRuntime<TProps>): Promise<void> {
+  private async loadFrameRuntime(frameRuntime: ActiveFrameRuntime): Promise<void> {
     const options = frameRuntime.loadOptions;
 
     this.throwIfAborted(options.signal);
@@ -630,7 +653,7 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
     const loaderData = await this.loadControllers(frameRuntime, options.signal);
 
     this.throwIfAborted(options.signal);
-    await this.getProviderPipeline(frameRuntime).setup(createProviderContext(frameRuntime.scope, this.props, options));
+    await this.getProviderPipeline(frameRuntime).setup(createProviderContext(frameRuntime.scope, options));
     this.throwIfAborted(options.signal);
     await this.runProviderBeforeRender(frameRuntime, options);
     this.throwIfAborted(options.signal);
@@ -641,7 +664,7 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
   }
 
   private async loadControllers(
-    frameRuntime: ActiveFrameRuntime<TProps>,
+    frameRuntime: ActiveFrameRuntime,
     signal: AbortSignal,
     controllerToken?: DependencyToken<unknown>,
   ): Promise<ControllerLoaderData> {
@@ -685,27 +708,27 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
     return createControllerLoaderData(entries);
   }
 
-  private resolveControllers(scope: FrameScope): Map<DependencyToken<unknown>, FrameControllerInterface<TProps>> {
-    const controllers = new Map<DependencyToken<unknown>, FrameControllerInterface<TProps>>();
+  private resolveControllers(scope: FrameScope): Map<DependencyToken<unknown>, RuntimeController> {
+    const controllers = new Map<DependencyToken<unknown>, RuntimeController>();
 
     for (const controllerToken of scope.getControllerTokens()) {
-      controllers.set(controllerToken, scope.get(controllerToken) as FrameControllerInterface<TProps>);
+      controllers.set(controllerToken, scope.get(controllerToken) as RuntimeController);
     }
 
     return controllers;
   }
 
   private async runProviderBeforeRender(
-    frameRuntime: ActiveFrameRuntime<TProps>,
+    frameRuntime: ActiveFrameRuntime,
     options: Required<FrameRuntimeLoadOptions>,
   ): Promise<void> {
-    const context = createProviderContext(frameRuntime.scope, this.props, options);
+    const context = createProviderContext(frameRuntime.scope, options);
 
     await this.getProviderPipeline(frameRuntime).runBeforeRender(context);
   }
 
-  private async runProviderBeforeLoad(frameRuntime: ActiveFrameRuntime<TProps>, signal: AbortSignal): Promise<void> {
-    const context = createProviderContext(frameRuntime.scope, this.props, {
+  private async runProviderBeforeLoad(frameRuntime: ActiveFrameRuntime, signal: AbortSignal): Promise<void> {
+    const context = createProviderContext(frameRuntime.scope, {
       ...frameRuntime.loadOptions,
       signal,
     });
@@ -713,47 +736,7 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
     await this.getProviderPipeline(frameRuntime).runBeforeLoad(context);
   }
 
-  private async executePolicies(boundary: 'canActivate', frameRuntime: ActiveFrameRuntime<TProps>): Promise<void> {
-    const declarations = this.metadata[boundary] ?? [];
-
-    if (declarations.length === 0) {
-      return;
-    }
-
-    const policyRunner = new PolicyRunner<RouteRuntimeContextInterface>(this.ownerScope, this.owner);
-    const decision = await policyRunner.execute(declarations, this.createPolicyContext(frameRuntime));
-
-    this.applyPolicyDecision(decision);
-  }
-
-  private createPolicyContext(frameRuntime: ActiveFrameRuntime<TProps>): RouteRuntimeContextInterface {
-    return {
-      app: frameRuntime.loadOptions.app,
-      params: frameRuntime.loadOptions.location.params,
-      request: createProviderRequest(frameRuntime.loadOptions.location, frameRuntime.loadOptions.signal),
-      session: frameRuntime.loadOptions.session,
-      signal: frameRuntime.loadOptions.signal,
-    };
-  }
-
-  private applyPolicyDecision(decision: PolicyBoundaryDecision): void {
-    switch (decision.type) {
-      case 'continue':
-        return;
-      case 'forbidden':
-        throw createFramePolicyDecision(decision);
-      case 'not-found':
-        throw createFramePolicyDecision(decision);
-      case 'error':
-        throw decision.error;
-      case 'redirect':
-      case 'redirect-and-save-location':
-      case 'redirect-to-saved-location':
-        throw new Error('Фрейм не поддерживает навигационное решение policy.');
-    }
-  }
-
-  private getProviderPipeline(frameRuntime: ActiveFrameRuntime<TProps>): RuntimeProviderPipeline<TProps> {
+  private getProviderPipeline(frameRuntime: ActiveFrameRuntime): RuntimeProviderPipeline {
     if (frameRuntime.providerPipeline === null) {
       throw new Error('Pipeline провайдеров фрейма недоступен.');
     }
@@ -762,27 +745,23 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
   }
 
   private createFrameControllerLoaderArgs(
-    frameRuntime: ActiveFrameRuntime<TProps>,
+    frameRuntime: ActiveFrameRuntime,
     signal: AbortSignal,
-  ): FrameControllerLoaderArgs<TProps> {
+  ): ControllerArgs<WithParams<Record<string, string | undefined>>> {
     return {
       params: frameRuntime.loadOptions.location.params,
-      props: this.props,
-      request: createProviderRequest(frameRuntime.loadOptions.location, signal),
       signal,
     };
   }
 
   private createFrameControllerActionArgs<TPayload>(
-    frameRuntime: ActiveFrameRuntime<TProps>,
+    frameRuntime: ActiveFrameRuntime,
     payload: TPayload,
     signal: AbortSignal,
-  ): FrameControllerActionArgs<TProps, TPayload> {
+  ): ControllerArgs<WithPayload<TPayload, WithParams<Record<string, string | undefined>>>> {
     return {
       params: frameRuntime.loadOptions.location.params,
       payload,
-      props: this.props,
-      request: createProviderRequest(frameRuntime.loadOptions.location, signal),
       signal,
     };
   }
@@ -809,40 +788,36 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
     }
   }
 
-  private async closeCurrentFrame(loadOptions: Required<FrameRuntimeLoadOptions>): Promise<void> {
-    this.selfCloseRequested = true;
-
-    await loadOptions.close();
-  }
-
-  private async backCurrentFrame(): Promise<void> {
-    this.selfCloseRequested = true;
-
-    await this.ownerScope.get(FrameServiceInterface).back();
-  }
-
   private isLoadSessionActive(sessionId: number): boolean {
     return (
       this.loadSessionCounter === sessionId && this.snapshot.phase !== 'disposed' && this.snapshot.phase !== 'disposing'
     );
   }
 
-  private async applyActionOperationResult(result: RuntimeOperationResult<unknown>): Promise<unknown> {
+  private async applyActionOperationResult(result: RuntimeOperationResult<unknown>): Promise<ActionOperationResult> {
     switch (result.type) {
       case 'completed':
-        return result.value;
+        return { data: result.value, error: undefined };
       case 'interrupted':
-        return void 0;
+        return { data: undefined, error: undefined };
       case 'rejected':
-        throw result.error;
+        return { data: undefined, error: result.error };
       case 'failed':
         await this.reportFailure(result.failure, 'action.failed', 'active');
-        throw result.failure.cause;
+        return { data: undefined, error: result.failure.cause };
+      case 'escalated':
+        this.setSnapshot({
+          error: result.failure.cause,
+          phase: 'failed',
+        });
+        await this.reportFailure(result.failure, 'frame.failed', 'failed');
+
+        return { data: undefined, error: undefined };
     }
   }
 
   private async applyRevalidateOperationResult(
-    frameRuntime: ActiveFrameRuntime<TProps>,
+    frameRuntime: ActiveFrameRuntime,
     result: RuntimeOperationResult<ControllerLoaderData>,
     controllerToken?: DependencyToken<unknown>,
   ): Promise<void> {
@@ -863,6 +838,13 @@ export class FrameRuntime<TProps extends object = Record<string, never>> {
       case 'failed':
         await this.reportFailure(result.failure, 'revalidate.failed', 'active');
         throw result.failure.cause;
+      case 'escalated':
+        this.setSnapshot({
+          error: result.failure.cause,
+          phase: 'failed',
+        });
+        await this.reportFailure(result.failure, 'frame.failed', 'failed');
+        return;
     }
   }
 
@@ -903,68 +885,60 @@ const DEFAULT_ACTION_STATE: FrameRuntimeActionState = {
   inProcess: false,
 };
 
-class CurrentFrameService extends FrameServiceInterface {
-  constructor(
-    private readonly frameService: FrameServiceInterface,
-    private readonly parentEntry: ReturnType<typeof createFrameNavigationEntry>,
-    private readonly backCurrentFrame: () => Promise<void>,
-    private readonly closeCurrentFrame: () => Promise<void>,
-  ) {
-    super();
-  }
+const EMPTY_PARAMS: Readonly<Record<string, string | undefined>> = {};
 
-  async back(): Promise<void>;
-  async back<TFrame extends FrameConstructor>(frame: TFrame): Promise<void>;
-  async back<TFrame extends FrameConstructor>(frame?: TFrame): Promise<void> {
-    if (!frame) {
-      await this.backCurrentFrame();
-      return;
-    }
-
-    await this.frameService.back(frame);
-  }
-
-  async close(): Promise<void>;
-  async close<TFrame extends FrameConstructor>(frame: TFrame): Promise<void>;
-  async close<TFrame extends FrameConstructor>(frame?: TFrame): Promise<void> {
-    if (!frame) {
-      await this.closeCurrentFrame();
-      return;
-    }
-
-    await this.frameService.close(frame);
-  }
-
-  hasParent(): boolean;
-  hasParent<TFrame extends FrameConstructor>(frame: TFrame): boolean;
-  hasParent<TFrame extends FrameConstructor>(frame?: TFrame): boolean {
-    if (!frame) {
-      return this.frameService.hasParent();
-    }
-
-    return this.frameService.hasParent(frame);
-  }
-
-  async open<TFrame extends FrameConstructor>(frame: TFrame, ...args: FrameOpenArgs<TFrame>): Promise<void> {
-    await this.frameService.openFromFrame(this.parentEntry, frame, ...args);
-  }
-
-  async openFromFrame<TFrame extends FrameConstructor>(
-    parentEntry: ReturnType<typeof createFrameNavigationEntry>,
-    frame: TFrame,
-    ...args: FrameOpenArgs<TFrame>
-  ): Promise<void> {
-    await this.frameService.openFromFrame(parentEntry, frame, ...args);
-  }
+interface ActionOperationResult {
+  readonly data: unknown;
+  readonly error: unknown;
 }
 
-const getFrameName = (frame: FrameConstructor): string => {
-  if ('name' in frame && typeof frame.name === 'string' && frame.name.length > 0) {
-    return frame.name;
+const EMPTY_REVALIDATE_STATE = {
+  error: undefined,
+  inProcess: false,
+} as const;
+
+class ScopedNavigateService implements NavigateServiceInterface {
+  readonly frame: NavigateFrame = {
+    close: async (options) => {
+      this.onNavigate();
+      await this.navigateService.frame.close(options);
+    },
+    open: async (source, options) => {
+      this.onNavigate();
+      await this.navigateService.frame.open(source, options);
+    },
+  };
+
+  constructor(
+    private readonly navigateService: NavigateServiceInterface,
+    private readonly onNavigate: () => void,
+  ) {}
+
+  async back(): Promise<void> {
+    this.onNavigate();
+    await this.navigateService.back();
   }
 
-  return 'Frame';
-};
+  async hashParams(to: RouterHashObject, options?: RouterHashNavigateOptions): Promise<void> {
+    this.onNavigate();
+    await this.navigateService.hashParams(to, options);
+  }
+
+  async replace(to: string, options?: Omit<RouterNavigateOptions, 'replace'>): Promise<void> {
+    this.onNavigate();
+    await this.navigateService.replace(to, options);
+  }
+
+  async searchParams(to: RouterSearchObject, options?: RouterSearchNavigateOptions): Promise<void> {
+    this.onNavigate();
+    await this.navigateService.searchParams(to, options);
+  }
+
+  async to(to: string, options?: RouterNavigateOptions): Promise<void> {
+    this.onNavigate();
+    await this.navigateService.to(to, options);
+  }
+}
 
 const getControllerEntries = <TController>(
   controllers: ReadonlyMap<DependencyToken<unknown>, TController>,
@@ -984,42 +958,14 @@ const getControllerEntries = <TController>(
   return [[controllerToken, controller]];
 };
 
-const createProviderContext = <TProps extends object>(
+const createProviderContext = (
   scope: FrameScope,
-  props: TProps,
   options: Required<FrameRuntimeLoadOptions>,
-): RuntimeProviderPipelineContext<TProps> => {
+): RuntimeProviderPipelineContext => {
   return {
     params: options.location.params,
-    props,
-    request: createProviderRequest(options.location, options.signal),
+    props: {},
     scope,
     signal: options.signal,
   };
-};
-
-const createProviderRequest = (location: RouterLocationSnapshot, signal: AbortSignal): Request => {
-  return new Request(`http://localhost${location.pathname}${location.search}${location.hash}`, {
-    signal,
-  });
-};
-
-class FramePolicyDecisionException extends Error {
-  constructor(readonly decision: Extract<PolicyBoundaryDecision, { readonly type: 'forbidden' | 'not-found' }>) {
-    super(`Policy фрейма вернула решение ${decision.type}.`);
-  }
-}
-
-const createFramePolicyDecision = (
-  decision: Extract<PolicyBoundaryDecision, { readonly type: 'forbidden' | 'not-found' }>,
-): FramePolicyDecisionException => {
-  return new FramePolicyDecisionException(decision);
-};
-
-const resolveFramePolicyDecision = (error: unknown): PolicyBoundaryDecision | null => {
-  if (error instanceof FramePolicyDecisionException) {
-    return error.decision;
-  }
-
-  return null;
 };

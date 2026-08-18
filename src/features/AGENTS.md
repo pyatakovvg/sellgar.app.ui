@@ -8,6 +8,8 @@
 ## Карта
 
 - [notification/AGENTS.md](notification/AGENTS.md) - неблокирующие notifications.
+- [navigation-blocker/AGENTS.md](navigation-blocker/AGENTS.md) - блокировка
+  ухода из route/frame boundary.
 - [user-request/AGENTS.md](user-request/AGENTS.md) - awaitable alert/confirm/prompt.
 
 ## Границы

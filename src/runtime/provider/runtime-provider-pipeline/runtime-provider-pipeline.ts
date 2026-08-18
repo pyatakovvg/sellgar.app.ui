@@ -18,12 +18,15 @@ import type {
   RuntimeProviderResult,
 } from '../runtime-provider';
 import { isRuntimeProviderToken } from '../runtime-provider';
+import { bindRuntimeProviderScope } from '../runtime-provider';
 import { isSingletonProviderToken, type SingletonProviderInterface } from '../singleton-provider';
 
-export type RuntimeProviderPipelineContext<TProps extends object = object> = Omit<
-  RuntimeProviderContextInterface<TProps>,
-  'phase'
->;
+export interface RuntimeProviderPipelineContext<TProps extends object = object> {
+  readonly params: Record<string, string | undefined>;
+  readonly props: TProps;
+  readonly scope: RuntimeScope;
+  readonly signal: AbortSignal;
+}
 
 interface RetainedProviderResult {
   readonly cleanup: RuntimeProviderCleanup;
@@ -112,10 +115,15 @@ export class RuntimeProviderPipeline<TProps extends object = object> {
   }
 
   private async run(phase: RuntimeProviderPhase, context: RuntimeProviderPipelineContext<TProps>): Promise<void> {
-    const providerContext = {
-      ...context,
-      phase,
-    };
+    const providerContext = bindRuntimeProviderScope<RuntimeProviderContextInterface<TProps>>(
+      {
+        params: context.params,
+        phase,
+        props: context.props,
+        signal: context.signal,
+      },
+      context.scope,
+    );
 
     for (const [token, provider] of this.providers) {
       const method = getProviderMethod(provider, phase);

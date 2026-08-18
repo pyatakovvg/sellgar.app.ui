@@ -102,29 +102,27 @@ frames/order-details/
 работают с token, а DI binding связывает token с implementation.
 
 ```ts
-import { ControllerInterface } from '@tiyn/app';
-
 import type { OrdersLoaderData } from '../../dto';
 
-export abstract class OrdersControllerInterface implements ControllerInterface {
+export abstract class OrdersControllerInterface {
   abstract loader(): Promise<OrdersLoaderData>;
 }
 ```
 
 ```ts
-import { ControllerInterface, type ControllerActionArgs } from '@tiyn/app';
+import type { ControllerArgs, WithPayload } from '@tiyn/app';
 
 import type { UpdateOrderFilterPayload } from '../../dto';
 
-export abstract class UpdateOrderFilterControllerInterface implements ControllerInterface {
-  abstract action(args: ControllerActionArgs<UpdateOrderFilterPayload>): Promise<void>;
+export abstract class UpdateOrderFilterControllerInterface {
+  abstract action(args: ControllerArgs<WithPayload<UpdateOrderFilterPayload>>): Promise<void>;
 }
 ```
 
 ## 2. Controller Implementations
 
 ```ts
-import { Controller, Inject, type ControllerLoaderArgs } from '@tiyn/app';
+import { Controller, Inject } from '@tiyn/app';
 
 import { OrdersServiceInterface } from '@domain/orders';
 
@@ -132,40 +130,34 @@ import { OrdersControllerInterface } from './orders-controller.interface';
 import type { OrdersLoaderData } from '../../dto';
 
 @Controller()
-export class OrdersController extends OrdersControllerInterface {
+export class OrdersController implements OrdersControllerInterface {
   constructor(
     @Inject(OrdersServiceInterface)
     private readonly ordersService: OrdersServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async loader(args: ControllerLoaderArgs): Promise<OrdersLoaderData> {
+  async loader(): Promise<OrdersLoaderData> {
     return {
-      items: await this.ordersService.getOrders({
-        signal: args.request.signal,
-      }),
+      items: await this.ordersService.getOrders(),
     };
   }
 }
 ```
 
 ```ts
-import { Controller, Inject, NavigateServiceInterface, type ControllerActionArgs } from '@tiyn/app';
+import { Controller, Inject, NavigateServiceInterface, type ControllerArgs, type WithPayload } from '@tiyn/app';
 
 import { UpdateOrderFilterControllerInterface } from './update-order-filter-controller.interface';
 import type { UpdateOrderFilterPayload } from '../../dto';
 
 @Controller()
-export class UpdateOrderFilterController extends UpdateOrderFilterControllerInterface {
+export class UpdateOrderFilterController implements UpdateOrderFilterControllerInterface {
   constructor(
     @Inject(NavigateServiceInterface)
     private readonly navigateService: NavigateServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async action(args: ControllerActionArgs<UpdateOrderFilterPayload>): Promise<void> {
+  async action(args: ControllerArgs<WithPayload<UpdateOrderFilterPayload>>): Promise<void> {
     await this.navigateService.searchParams(
       {
         query: args.payload.query,
@@ -207,7 +199,7 @@ import {
   UpdateOrderFilterControllerInterface,
 } from './controller';
 
-export class OrdersBindings extends BindingModuleInterface {
+export class OrdersBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(OrdersControllerInterface).to(OrdersController).inTransientScope();
     registry.bind(UpdateOrderFilterControllerInterface).to(UpdateOrderFilterController).inTransientScope();
@@ -241,9 +233,8 @@ export class OrdersModule {}
 ```tsx
 import React from 'react';
 
-import { useFrame, useLoaderData, useSubmit, WidgetHost } from '@tiyn/app';
+import { useLoaderData, useNavigate, useSubmit, WidgetHost } from '@tiyn/app';
 
-import { OrderDetailsFrame } from '@frame/order-details';
 import { OrdersSummaryWidget } from '@widget/orders-summary';
 
 import { OrdersControllerInterface, UpdateOrderFilterControllerInterface } from '../classes/controller';
@@ -251,7 +242,7 @@ import { OrdersControllerInterface, UpdateOrderFilterControllerInterface } from 
 export const OrdersView: React.FC = () => {
   const data = useLoaderData(OrdersControllerInterface);
   const updateFilter = useSubmit(UpdateOrderFilterControllerInterface);
-  const orderDetailsFrame = useFrame(OrderDetailsFrame);
+  const navigate = useNavigate();
 
   return (
     <main>
@@ -269,7 +260,7 @@ export const OrdersView: React.FC = () => {
       <ul>
         {data.items.map((order) => (
           <li key={order.id}>
-            <button type="button" onClick={() => orderDetailsFrame.open({ id: order.id })}>
+            <button type="button" onClick={() => navigate.frame.open(`/orders/${order.id}`)}>
               {order.number}
             </button>
           </li>
@@ -288,10 +279,12 @@ View не резолвит controllers через DI. Loader data читаетс
 ```tsx
 import { UseBindings, Widget, WidgetDefinition } from '@tiyn/app';
 
-import { OrdersSummaryWidgetBindings } from './classes';
-import { OrdersSummaryWidgetControllerInterface } from './classes/controller';
+import { OrdersSummaryWidgetBindings } from './classes/classes.bindings.ts';
 import { OrdersSummaryWidgetView } from './view';
-import type { OrdersSummaryWidgetProps } from './classes/dto';
+
+export interface OrdersSummaryWidgetProps {
+  readonly title: string;
+}
 
 @UseBindings(OrdersSummaryWidgetBindings)
 @Widget<OrdersSummaryWidgetProps>({
@@ -314,23 +307,22 @@ export interface OrdersSummaryWidgetData {
 ## 8. Widget Controller
 
 ```ts
-import { Controller, Inject, WidgetControllerInterface, type WidgetControllerLoaderArgs } from '@tiyn/app';
+import { Controller, Inject, type ControllerArgs, type WithProps } from '@tiyn/app';
 
 import { OrdersServiceInterface } from '@domain/orders';
 
 import { OrdersSummaryWidgetControllerInterface } from './orders-summary-widget-controller.interface';
-import type { OrdersSummaryWidgetData, OrdersSummaryWidgetProps } from '../dto';
+import type { OrdersSummaryWidgetProps } from '../../../orders-summary.widget.tsx';
+import type { OrdersSummaryWidgetData } from './domain/orders-summary-widget-data.ts';
 
 @Controller()
-export class OrdersSummaryWidgetController extends OrdersSummaryWidgetControllerInterface {
+export class OrdersSummaryWidgetController implements OrdersSummaryWidgetControllerInterface {
   constructor(
     @Inject(OrdersServiceInterface)
     private readonly ordersService: OrdersServiceInterface,
-  ) {
-    super();
-  }
+  ) {}
 
-  async loader(args: WidgetControllerLoaderArgs<OrdersSummaryWidgetProps>): Promise<OrdersSummaryWidgetData> {
+  async loader(args: ControllerArgs<WithProps<OrdersSummaryWidgetProps>>): Promise<OrdersSummaryWidgetData> {
     return {
       count: await this.ordersService.count({
         signal: args.signal,
@@ -347,8 +339,8 @@ import React from 'react';
 
 import { useLoaderData, useWidgetProps } from '@tiyn/app';
 
-import { OrdersSummaryWidgetControllerInterface } from '../classes/controller';
-import type { OrdersSummaryWidgetProps } from '../classes/dto';
+import { OrdersSummaryWidgetControllerInterface } from '../classes/controller/orders-summary/orders-summary-widget-controller.interface.ts';
+import type { OrdersSummaryWidgetProps } from '../orders-summary.widget.tsx';
 
 export const OrdersSummaryWidgetView: React.FC = () => {
   const props = useWidgetProps<OrdersSummaryWidgetProps>();
@@ -370,7 +362,7 @@ import {
   Inject,
   Provider,
   RuntimeProviderInterface,
-  WidgetRuntimeFactoryInterface,
+  WidgetPreloaderInterface,
   type RuntimeProviderContextInterface,
   type RuntimeProviderResult,
 } from '@tiyn/app';
@@ -378,16 +370,14 @@ import {
 import { OrdersSummaryWidget } from '../../orders-summary.widget.tsx';
 
 @Provider()
-export class OrdersSummaryWidgetPreloadProvider extends RuntimeProviderInterface {
+export class OrdersSummaryWidgetPreloadProvider implements RuntimeProviderInterface {
   constructor(
-    @Inject(WidgetRuntimeFactoryInterface)
-    private readonly widgetRuntimeFactory: WidgetRuntimeFactoryInterface,
-  ) {
-    super();
-  }
+    @Inject(WidgetPreloaderInterface)
+    private readonly widgetPreloader: WidgetPreloaderInterface,
+  ) {}
 
   beforeRender(context: RuntimeProviderContextInterface): Promise<RuntimeProviderResult> {
-    return this.widgetRuntimeFactory.preload(context, OrdersSummaryWidget, {
+    return this.widgetPreloader.preload(context, OrdersSummaryWidget, {
       props: {
         title: 'Заказы',
       },
@@ -402,37 +392,30 @@ Provider передает widget props отдельно. `ownerScope` и `signal
 ## 11. Frame
 
 ```ts
-import { Expose } from 'class-transformer';
-
-export class OrderDetailsFrameParams {
-  @Expose()
-  readonly id!: string;
+interface OrderDetailsFrameParams {
+  readonly id: string;
 }
 ```
 
 ```tsx
-import { Frame, FrameDefinition, HashFrameSource, UseBindings } from '@tiyn/app';
+import { Frame, UseBindings } from '@tiyn/app';
 
 import { OrderDetailsBindings } from './classes/classes.bindings.ts';
 import { OrderDetailsControllerInterface } from './classes/controller/order-details';
-import { OrderDetailsFrameParams } from './classes/params';
-import { OrderDetailsFrameShell } from './shell';
 import { FrameView } from './view';
 
 @UseBindings(OrderDetailsBindings)
-@Frame<OrderDetailsFrameParams>({
-  source: HashFrameSource.create('order-details', OrderDetailsFrameParams),
-  shell: OrderDetailsFrameShell,
+@Frame({
   fallback: <p>Фрейм загружается...</p>,
   view: FrameView,
 })
-export class OrderDetailsFrame extends FrameDefinition<OrderDetailsFrameParams> {}
+export class OrderDetailsFrame {}
 ```
 
 ## 12. Frame Controller
 
 ```ts
-import { FrameControllerInterface, type FrameControllerActionArgs, type FrameControllerLoaderArgs } from '@tiyn/app';
+import type { ControllerArgs, WithParams, WithPayload } from '@tiyn/app';
 
 import type { OrderDetailsFrameParams } from '../params';
 
@@ -449,31 +432,31 @@ export interface ConfirmOrderResult {
   readonly accepted: boolean;
 }
 
-export abstract class OrderDetailsControllerInterface extends FrameControllerInterface<OrderDetailsFrameParams> {
-  abstract loader(args: FrameControllerLoaderArgs<OrderDetailsFrameParams>): Promise<OrderDetailsFrameData>;
+export abstract class OrderDetailsControllerInterface {
+  abstract loader(args: ControllerArgs<WithParams<OrderDetailsFrameParams>>): Promise<OrderDetailsFrameData>;
 
   abstract action(
-    args: FrameControllerActionArgs<OrderDetailsFrameParams, ConfirmOrderPayload>,
+    args: ControllerArgs<WithPayload<ConfirmOrderPayload, WithParams<OrderDetailsFrameParams>>>,
   ): Promise<ConfirmOrderResult>;
 }
 ```
 
 ```ts
-import { Controller } from '@tiyn/app';
+import { Controller, type ControllerArgs, type WithParams, type WithPayload } from '@tiyn/app';
 
 @Controller()
-export class OrderDetailsController extends OrderDetailsControllerInterface {
-  async loader(args: FrameControllerLoaderArgs<OrderDetailsFrameParams>): Promise<OrderDetailsFrameData> {
+export class OrderDetailsController implements OrderDetailsControllerInterface {
+  async loader(args: ControllerArgs<WithParams<OrderDetailsFrameParams>>): Promise<OrderDetailsFrameData> {
     return {
       loadedAt: new Date().toISOString(),
-      status: `Order ${args.props.id} loaded`,
+      status: `Order ${args.params.id} loaded`,
     };
   }
 
   async action(
-    args: FrameControllerActionArgs<OrderDetailsFrameParams, ConfirmOrderPayload>,
+    args: ControllerArgs<WithPayload<ConfirmOrderPayload, WithParams<OrderDetailsFrameParams>>>,
   ): Promise<ConfirmOrderResult> {
-    await confirmOrder(args.props.id, args.payload.reason);
+    await confirmOrder(args.params.id, args.payload.reason);
 
     return {
       accepted: true,
@@ -483,7 +466,7 @@ export class OrderDetailsController extends OrderDetailsControllerInterface {
 ```
 
 ```ts
-export class OrderDetailsBindings extends BindingModuleInterface {
+export class OrderDetailsBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(OrderDetailsControllerInterface).to(OrderDetailsController).inSingletonScope();
   }
@@ -517,10 +500,10 @@ export const FrameView: React.FC = () => {
 ```tsx
 import React from 'react';
 
-import { FrameShellInterface, Injectable, type FrameShellContextInterface } from '@tiyn/app';
+import { FrameShell, FrameShellInterface, type FrameShellContextInterface } from '@tiyn/app';
 
-@Injectable()
-export class OrderDetailsFrameShell extends FrameShellInterface {
+@FrameShell()
+export class OrderDetailsFrameShell implements FrameShellInterface {
   render(context: FrameShellContextInterface): React.ReactNode {
     return (
       <aside>
@@ -539,7 +522,12 @@ export class OrderDetailsFrameShell extends FrameShellInterface {
 ```ts
 new Route({
   path: '/',
-  frames: [OrderDetailsFrame],
+  frames: [
+    new FrameRouter({
+      baseSource: 'orders/:id',
+      routes: [new FrameRoute({ load: () => import('@frame/order-details') })],
+    }),
+  ],
   layouts: [MainLayout],
   routes: [
     new Route({
@@ -550,7 +538,9 @@ new Route({
 });
 ```
 
-Frame объявлен на parent route, поэтому он доступен на `/orders`.
+FrameRouter объявлен на parent route, поэтому он доступен на `/orders`.
+Приложение также настраивает общий shell через
+`app.frames({ shell: OrderDetailsFrameShell })`.
 
 ## Проверочный Чеклист
 
@@ -563,7 +553,7 @@ Frame объявлен на parent route, поэтому он доступен �
 - WidgetHost получает `token` и typed `props`.
 - Widget preload provider подключен в `@Module.providers`, `@Frame.providers`
   или `@Layout.providers`, если widget принадлежит layout shell.
-- Frame class наследует `FrameDefinition<TProps>`.
+- Frame class является пустым declaration с `@Frame`, без generic и базового класса.
 - Frame добавлен в route `frames`.
 - Frame controller data читается через `useLoaderData(token)`.
 - Frame action запускается через `useSubmit(token)`.

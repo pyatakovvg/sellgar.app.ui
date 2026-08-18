@@ -225,7 +225,7 @@ const mockHref = (href: string): void => {
   routerMocks.useHref.mockReturnValue(href);
 };
 
-class TestNavItemBindings extends BindingModuleInterface {
+class TestNavItemBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     const bindings = new RouterServiceBindings();
 

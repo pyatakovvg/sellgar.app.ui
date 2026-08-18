@@ -3,9 +3,8 @@ import { render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { DependencyToken } from '../../../di/token/dependency-token';
-import type { ModuleRuntime } from '../../../module/runtime/module-runtime';
 import { createControllerLoaderData, type ControllerLoaderData } from '../../data/controller-loader-data';
-import { ControllerRuntimeProvider } from '../controller-runtime-context';
+import { ControllerRuntimeProvider, type ControllerRuntimeContextValue } from '../controller-runtime-context';
 
 import { useLoaderData } from './';
 
@@ -57,9 +56,7 @@ const renderWithRuntime = (children: React.ReactNode, loaderData: ControllerLoad
   return render(
     <ControllerRuntimeProvider
       value={{
-        controllers: createControllerRegistry(TestController, new TestController()),
-        kind: 'module',
-        runtime,
+        ...runtime,
       }}
     >
       {children}
@@ -67,25 +64,21 @@ const renderWithRuntime = (children: React.ReactNode, loaderData: ControllerLoad
   );
 };
 
-const createControllerRegistry = <TController,>(
-  token: DependencyToken<TController>,
-  controller: TController,
-): ReadonlyMap<DependencyToken<unknown>, unknown> => {
-  const controllers = new Map<DependencyToken<unknown>, unknown>();
-
-  controllers.set(token, controller);
-
-  return controllers;
-};
-
-const createModuleRuntimeStub = (loaderData: ControllerLoaderData): ModuleRuntime => {
+const createModuleRuntimeStub = (loaderData: ControllerLoaderData): ControllerRuntimeContextValue => {
   return {
+    action: vi.fn(),
+    getActionState: vi.fn(() => ({ data: undefined, error: undefined, inProcess: false })),
+    getController: vi.fn(),
     getLoaderData: <TValue,>(controllerToken: DependencyToken<unknown>): TValue => {
       return loaderData.values.get(controllerToken) as TValue;
     },
+    getParams: vi.fn(() => ({})),
+    getRevalidateRevision: vi.fn(() => 0),
+    getRevalidateState: vi.fn(() => ({ error: undefined, inProcess: false })),
+    invoke: vi.fn(),
     revalidate: vi.fn(),
     subscribe: vi.fn(() => {
       return () => {};
     }),
-  } as unknown as ModuleRuntime;
+  };
 };

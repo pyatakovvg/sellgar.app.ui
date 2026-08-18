@@ -6,11 +6,14 @@ import {
   ApplicationConfiguratorInterface,
   type ApplicationInitializerDeclaration,
   type ApplicationComponents,
+  type ApplicationFrames,
+  type ResolvedApplicationFrames,
 } from '../application-configurator';
 
-export class ApplicationConfig extends ApplicationConfiguratorInterface {
+export class ApplicationConfig implements ApplicationConfiguratorInterface {
   private _components: ApplicationComponents = {};
   private _features: ApplicationFeatureInterface[] = [];
+  private _frames: ApplicationFrames | null = null;
   private _initializers: ApplicationInitializerDeclaration[] = [];
   private _layouts: LayoutConstructor[] = [];
   private _router: Router | null = null;
@@ -25,6 +28,20 @@ export class ApplicationConfig extends ApplicationConfiguratorInterface {
 
   get featuresValue(): readonly ApplicationFeatureInterface[] {
     return this._features;
+  }
+
+  get framesValue(): ResolvedApplicationFrames | null {
+    if (this._frames === null) {
+      return null;
+    }
+
+    return {
+      exception: this._frames.exception ?? this._components.exception,
+      fallback: this._frames.fallback ?? this._components.fallback,
+      forbidden: this._frames.forbidden ?? this._components.forbidden,
+      notFound: this._frames.notFound ?? this._components.notFound,
+      shell: this._frames.shell,
+    };
   }
 
   get layoutsValue(): LayoutConstructor[] {
@@ -45,6 +62,10 @@ export class ApplicationConfig extends ApplicationConfiguratorInterface {
 
   features(features: readonly ApplicationFeatureInterface[]): void {
     this._features = [...features];
+  }
+
+  frames(frames: ApplicationFrames): void {
+    this._frames = frames;
   }
 
   initializers(initializers: readonly ApplicationInitializerDeclaration[]): void {

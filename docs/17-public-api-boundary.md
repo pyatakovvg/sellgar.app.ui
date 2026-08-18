@@ -22,7 +22,7 @@
 - runtime providers, scopes, cleanup и operation state;
 - policies, guards и runtime errors;
 - reactive entities и React bridge;
-- встроенные notification и user-request features.
+- встроенные notification, user-request и navigation-blocker features.
 
 Конкретный символ является публичным только при одновременном выполнении двух
 условий:

@@ -6,7 +6,7 @@ import type { DependencyToken } from '../../../di/token/dependency-token';
 import { RuntimeScopeInterface } from '../../../runtime/scope/contract';
 import { RuntimeScopeProvider } from '../../../runtime/react';
 
-import { RevalidateServiceInterface } from '../../contract/revalidate-service';
+import { RevalidateRegistryInterface, RevalidateServiceInterface } from '../../contract/revalidate-service';
 import type { RevalidateHandler, RevalidateKey } from '../../contract/revalidate-service';
 
 import { RevalidateBridge } from './';
@@ -192,17 +192,15 @@ interface TestRevalidator {
   readonly state: 'idle' | 'loading';
 }
 
-class TestRuntimeScope extends RuntimeScopeInterface {
-  constructor(private readonly revalidateService: RevalidateServiceInterface) {
-    super();
-  }
+class TestRuntimeScope implements RuntimeScopeInterface {
+  constructor(private readonly revalidateService: RevalidateServiceInterface & RevalidateRegistryInterface) {}
 
   activate(): void {}
 
   dispose(): void {}
 
   get<TValue>(token: DependencyToken<TValue>): TValue {
-    if (token === RevalidateServiceInterface) {
+    if (token === RevalidateServiceInterface || token === RevalidateRegistryInterface) {
       return this.revalidateService as TValue;
     }
 
@@ -210,7 +208,7 @@ class TestRuntimeScope extends RuntimeScopeInterface {
   }
 }
 
-class TestRevalidateService extends RevalidateServiceInterface {
+class TestRevalidateService implements RevalidateServiceInterface, RevalidateRegistryInterface {
   readonly register = vi.fn((_key: RevalidateKey, _handler: RevalidateHandler) => {});
   readonly registerFallback = vi.fn((_handler: RevalidateHandler) => {});
   readonly revalidate = vi.fn(async () => {});

@@ -77,9 +77,9 @@ describe('ProviderScope', () => {
 abstract class SharedProviderDependencyInterface {}
 
 @Injectable()
-class SharedProviderDependency extends SharedProviderDependencyInterface {}
+class SharedProviderDependency implements SharedProviderDependencyInterface {}
 
-class SharedProviderBindings extends BindingModuleInterface {
+class SharedProviderBindings implements BindingModuleInterface {
   static registerCount = 0;
 
   register(registry: BindingRegistryInterface): void {
@@ -90,31 +90,30 @@ class SharedProviderBindings extends BindingModuleInterface {
 
 @UseBindings(SharedProviderBindings)
 @Provider()
-class FirstProvider extends RuntimeProviderInterface {
+class FirstProvider implements RuntimeProviderInterface {
   constructor(
     @Inject(SharedProviderDependencyInterface)
     readonly dependency: SharedProviderDependencyInterface,
-  ) {
-    super();
-  }
+  ) {}
+
+  setup(): void {}
 }
 
 @UseBindings(SharedProviderBindings)
 @Provider()
-class SecondProvider extends RuntimeProviderInterface {
+class SecondProvider implements RuntimeProviderInterface {
   constructor(
     @Inject(SharedProviderDependencyInterface)
     readonly dependency: SharedProviderDependencyInterface,
-  ) {
-    super();
-  }
+  ) {}
+
+  setup(): void {}
 }
 
 @UseBindings(SharedProviderBindings)
 @Provider()
-class FailingProvider extends RuntimeProviderInterface {
+class FailingProvider implements RuntimeProviderInterface {
   constructor(@Inject(SharedProviderDependencyInterface) dependency: SharedProviderDependencyInterface) {
-    super();
     void dependency;
 
     throw new Error('Provider construction failed.');

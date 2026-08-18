@@ -16,10 +16,10 @@ feature code не зависел от конкретной DI implementation.
 
 ## Binding Module
 
-Bindings объявляются в class, который наследует `BindingModuleInterface`.
+Bindings объявляются в class, который реализует `BindingModuleInterface`.
 
 ```ts
-export class OrdersBindings extends BindingModuleInterface {
+export class OrdersBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(OrdersServiceInterface).to(OrdersService).inSingletonScope();
     registry.bind(OrdersController).toSelf().inTransientScope();
@@ -75,7 +75,7 @@ Provider:
 ```ts
 @UseBindings(OrdersEventsBindings)
 @Provider()
-export class OrdersEventsProvider extends RuntimeProviderInterface {}
+export class OrdersEventsProvider implements RuntimeProviderInterface {}
 ```
 
 Decorator только записывает metadata. Runtime scopes сами активируют и
@@ -90,7 +90,7 @@ provider pipeline. Повторное использование одного bi
 
 ```ts
 @Injectable()
-export class OrdersController extends OrdersControllerInterface {
+export class OrdersController implements OrdersControllerInterface {
   constructor(
     @Inject(OrdersServiceInterface)
     private readonly ordersService: OrdersServiceInterface,
@@ -187,6 +187,12 @@ context.session.setAuthenticated();
 context.session.phase;
 ```
 
+Смена phase увеличивает session revision и регистрирует invalidation в
+application-scoped runtime coordinator. Он схлопывает invalidations одной волны,
+сериализует refresh и запускает повторное выполнение policies ровно один раз.
+Механизм одинаков для action и произвольного метода controller. Controller не
+должен вручную дублировать route `revalidate` или navigation.
+
 Profile, permissions, tenant и feature flags относятся к resolved data. Для них
 используй `ApplicationStoreInterface`, а не `SessionRuntimeStateInterface`.
 
@@ -206,13 +212,13 @@ Publish:
 
 ```ts
 @Injectable()
-export class UpdateOrderController implements ControllerInterface {
+export class UpdateOrderController implements UpdateOrderControllerInterface {
   constructor(
     @Inject(ApplicationEventBusInterface)
     private readonly eventBus: ApplicationEventBusInterface,
   ) {}
 
-  async action(args: ControllerActionArgs<{ readonly id: string }>): Promise<void> {
+  async action(args: ControllerArgs<WithPayload<{ readonly id: string }>>): Promise<void> {
     await this.eventBus.publish(OrderUpdatedEvent, {
       id: args.payload.id,
     });
@@ -248,7 +254,7 @@ export class OrdersEventsProvider implements RuntimeProviderInterface {
 
 ```ts
 @Injectable()
-export class OrdersController implements ControllerInterface {
+export class OrdersController implements OrdersControllerInterface {
   private readonly eventScope: ApplicationEventScope;
 
   constructor(

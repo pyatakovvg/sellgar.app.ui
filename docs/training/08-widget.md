@@ -50,8 +50,7 @@ interface OrdersSummaryWidgetProps {
   exception: <p>Summary недоступен</p>,
   view: OrdersSummaryWidgetView,
 })
-export class OrdersSummaryWidget
-  extends WidgetDefinition<OrdersSummaryWidgetProps> {}
+export class OrdersSummaryWidget extends WidgetDefinition<OrdersSummaryWidgetProps> {}
 ```
 
 ### Заметки Ведущего
@@ -66,10 +65,7 @@ props. Declaration не создаёт instance.
 ### На Экране
 
 ```tsx
-<WidgetHost
-  token={OrdersSummaryWidget}
-  props={{ title: 'Заказы' }}
-/>
+<WidgetHost token={OrdersSummaryWidget} props={{ title: 'Заказы' }} />
 ```
 
 ### Заметки Ведущего
@@ -84,11 +80,8 @@ props. Declaration не создаёт instance.
 ### На Экране
 
 ```ts
-abstract class OrdersSummaryControllerInterface
-  extends WidgetControllerInterface<OrdersSummaryWidgetProps> {
-  abstract loader(
-    args: WidgetControllerLoaderArgs<OrdersSummaryWidgetProps>,
-  ): Promise<{ count: number }>;
+abstract class OrdersSummaryControllerInterface {
+  abstract loader(args: ControllerArgs<WithProps<OrdersSummaryWidgetProps>>): Promise<{ count: number }>;
 }
 ```
 
@@ -211,4 +204,3 @@ owner готовит runtime -> WidgetHost получает prepared runtime
 
 - [Widgets](../05-widgets.md)
 - [Widget package structure](../12-widget-package-structure.md)
-

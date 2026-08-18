@@ -40,12 +40,9 @@ Nearest scope выбирает реализацию общего token. Поэт
 ```tsx
 const revalidate = useRevalidate();
 
-<button
-  disabled={revalidate.inProcess}
-  onClick={() => revalidate()}
->
+<button disabled={revalidate.inProcess} onClick={() => revalidate()}>
   Обновить
-</button>
+</button>;
 ```
 
 ```ts
@@ -184,5 +181,4 @@ route policies и local guards с разными enforcement boundaries.
 
 - [Revalidate](../08-policies-revalidate-errors.md#revalidate-runtime-entity)
 - [Widget revalidate](../05-widgets.md#revalidate-из-controller)
-- [Frame revalidate](../06-frames.md#revalidate-frame)
-
+- [Frame revalidate](../06-frames.md#params-и-controller)

@@ -10,17 +10,14 @@ export const useLoaderData = <TController>(
   const controllerRuntime = useControllerRuntime();
 
   return React.useSyncExternalStore(
+    React.useCallback((onStoreChange) => controllerRuntime.subscribe(onStoreChange), [controllerRuntime]),
     React.useCallback(
-      (onStoreChange) => controllerRuntime.runtime.subscribe(onStoreChange),
-      [controllerRuntime.runtime],
+      () => controllerRuntime.getLoaderData(controller) as ControllerLoaderResult<TController>,
+      [controller, controllerRuntime],
     ),
     React.useCallback(
-      () => controllerRuntime.runtime.getLoaderData<ControllerLoaderResult<TController>>(controller),
-      [controller, controllerRuntime.runtime],
-    ),
-    React.useCallback(
-      () => controllerRuntime.runtime.getLoaderData<ControllerLoaderResult<TController>>(controller),
-      [controller, controllerRuntime.runtime],
+      () => controllerRuntime.getLoaderData(controller) as ControllerLoaderResult<TController>,
+      [controller, controllerRuntime],
     ),
   );
 };

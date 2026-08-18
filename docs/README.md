@@ -8,7 +8,7 @@
 не описывается как рабочий механизм.
 
 Документы размещены внутри пакета `library/tiyn-app` и сверены с текущим
-`src/index.ts` 2026-07-28. Результат сверки:
+`src/index.ts` 2026-08-16. Результат сверки:
 [Аудит Public API](./17-public-api-audit.md).
 
 ## Для Кого Этот Документ
@@ -21,7 +21,7 @@
 - делает navigation или revalidate;
 - подключает reusable widget;
 - preload-ит widget из module или frame provider;
-- открывает frame из view или controller;
+- открывает и переключает routed frame из view или controller;
 - добавляет bindings через framework DI facade.
 
 ## Как Читать
@@ -29,11 +29,6 @@
 Если ты впервые работаешь с `@tiyn/app`, начни с первых двух разделов. Они
 объясняют владение runtime и порядок запуска. Остальные разделы можно читать по
 задаче.
-
-Для очного обучения и презентации используй отдельный
-[курс для преподавателя](./training/README.md). Он вводит понятия поступательно,
-начиная с `Hello World`, и использует эту папку как технический источник, а не
-как порядок показа материала аудитории.
 
 ### Быстрый Вход
 
@@ -64,6 +59,7 @@
 - [Выбрать provider phase](./09-recipes.md#выбрать-provider-phase)
 - [Выбрать между module, widget и frame](./09-recipes.md#выбрать-между-module-widget-и-frame)
 - [Добавить access guard](./11-guards.md)
+- [Заблокировать уход с несохранённой формы](./20-navigation-blocker.md)
 - [Объявить реактивную сущность](./18-reactive-entities.md)
 
 ### Базовая Модель
@@ -145,17 +141,17 @@
 - [Widget preload](./05-widgets.md#widget-preload)
 - [Frames](./06-frames.md)
 - [Структура frame package](./15-frame-package-structure.md)
-- [Когда использовать frame](./06-frames.md#когда-использовать-frame)
+- [Когда использовать frame](./06-frames.md#фреймы)
 - [Declaration фрейма](./06-frames.md#declaration-фрейма)
-- [Подключение frame к route](./06-frames.md#подключение-frame-к-route)
-- [HashFrameSource](./06-frames.md#hashframesource)
+- [Подключение frame к route](./06-frames.md#доступность-от-обычного-route)
+- [FrameRouter для связного flow](./06-frames.md#framerouter-и-frameroute)
+- [Глобальная конфигурация frames](./06-frames.md#глобальная-конфигурация)
 - [Shell](./06-frames.md#shell)
-- [Frame controller](./06-frames.md#frame-controller)
-- [Hooks во frame view](./06-frames.md#hooks-во-frame-view)
-- [Revalidate frame](./06-frames.md#revalidate-frame)
-- [Открытие frame из React](./06-frames.md#открытие-frame-из-react)
-- [Открытие frame из controller или service](./06-frames.md#открытие-frame-из-controller-или-service)
-- [Providers фрейма](./06-frames.md#providers-фрейма)
+- [Frame controller](./06-frames.md#params-и-controller)
+- [Hooks во frame view](./06-frames.md#params-и-controller)
+- [Revalidate frame](./06-frames.md#params-и-controller)
+- [Frame navigation](./06-frames.md#навигация)
+- [Providers фрейма](./06-frames.md#providers-и-layouts)
 
 ### Инфраструктура
 
@@ -174,7 +170,7 @@
 - [Boundary decisions](./08-policies-revalidate-errors.md#boundary-decisions)
 - [Runtime operation flow](./08-policies-revalidate-errors.md#runtime-operation-flow)
 - [Runtime errors](./08-policies-revalidate-errors.md#runtime-errors)
-- [Unauthorized recovery](./08-policies-revalidate-errors.md#unauthorized-recovery)
+- [Unauthorized recovery](./08-policies-revalidate-errors.md#http-exceptions-и-unauthorized-recovery)
 - [Revalidate runtime entity](./08-policies-revalidate-errors.md#revalidate-runtime-entity)
 - [Revalidate widget](./08-policies-revalidate-errors.md#revalidate-widget)
 - [Revalidate frame](./08-policies-revalidate-errors.md#revalidate-frame)
@@ -224,11 +220,12 @@ internal source files из feature/application packages. Публичная гр
 - source-aware runtime failures с локальными lifecycle boundaries и output-only
   reporting;
 - widget runtime, `WidgetHost`, unified controller hooks и preload;
-- frame declaration, `HashFrameSource`, shell, providers, frame controllers,
-  unified controller hooks, frame-local actions, `useFrame`,
-  `FrameServiceInterface`;
+- frame declaration, `FrameRouter`/`FrameRoute`, global/router shell, providers,
+  frame controllers, absolute frame navigation и frame-local actions;
 - access guards: `GuardInterface`, `Guard`, `@UseGuards`, `useGuard`,
   `Guarded`;
+- блокировка route/frame navigation через `NavigationBlockerFeature`,
+  `useBlocker` и `NavigationBlockerServiceInterface`;
 - typed runtime reporter pipeline;
 - реактивные сущности через `@Entity`, автоматическую weak-registration,
   `updateEntity` и React bridge `reactive`.

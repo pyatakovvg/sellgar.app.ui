@@ -25,22 +25,6 @@ describe('NavigationContinuationService', () => {
     expect(service.consume()).toBeNull();
   });
 
-  it('captures request url as app-relative target', () => {
-    const service = new NavigationContinuationService(new TestLocationService(null));
-    const request = new Request('http://localhost/terminals?status=active#terminal(id=1)');
-
-    expect(service.captureRequest(request)).toBe('/terminals?status=active#terminal(id=1)');
-    expect(service.consume()).toBe('/terminals?status=active#terminal(id=1)');
-  });
-
-  it('can strip router base path while capturing request url', () => {
-    const service = new NavigationContinuationService(new TestLocationService(null));
-    const request = new Request('http://localhost/app/terminals?status=active#terminal(id=1)');
-
-    expect(service.captureRequest(request, { basePath: '/app/' })).toBe('/terminals?status=active#terminal(id=1)');
-    expect(service.consume()).toBe('/terminals?status=active#terminal(id=1)');
-  });
-
   it('can strip router base path while consuming stored target', () => {
     const service = new NavigationContinuationService(new TestLocationService(null));
 
@@ -68,10 +52,8 @@ describe('NavigationContinuationService', () => {
   });
 });
 
-class TestLocationService extends LocationServiceInterface {
-  constructor(private readonly snapshot: RouterLocationSnapshot | null) {
-    super();
-  }
+class TestLocationService implements LocationServiceInterface {
+  constructor(private readonly snapshot: RouterLocationSnapshot | null) {}
 
   get location(): RouterLocationSnapshot | null {
     return this.snapshot;

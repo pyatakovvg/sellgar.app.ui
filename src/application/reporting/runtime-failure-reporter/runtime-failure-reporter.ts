@@ -3,14 +3,12 @@ import type { RuntimeFailureReport } from '../../../runtime/failure';
 import { RuntimeFailureReporterInterface, RuntimeFailureSinkInterface } from '../../../runtime/failure';
 
 @Injectable()
-export class RuntimeFailureReporter extends RuntimeFailureReporterInterface {
+export class RuntimeFailureReporter implements RuntimeFailureReporterInterface {
   constructor(
     @MultiInject(RuntimeFailureSinkInterface)
     @Optional()
     private readonly sinks: RuntimeFailureSinkInterface[] = [],
-  ) {
-    super();
-  }
+  ) {}
 
   async report(report: RuntimeFailureReport): Promise<void> {
     const results = await Promise.allSettled(

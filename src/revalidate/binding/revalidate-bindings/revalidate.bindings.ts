@@ -1,10 +1,12 @@
 import { BindingModuleInterface } from '../../../di/binding/binding-module';
 import type { BindingRegistryInterface } from '../../../di/binding/binding-registry';
-import { RevalidateServiceInterface } from '../../contract/revalidate-service';
+import { RevalidateRegistryInterface, RevalidateServiceInterface } from '../../contract/revalidate-service';
 import { RevalidateService } from '../../runtime/revalidate-service';
 
-export class RevalidateBindings extends BindingModuleInterface {
+export class RevalidateBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
-    registry.bind(RevalidateServiceInterface).to(RevalidateService).inSingletonScope();
+    registry.bind(RevalidateService).toSelf().inSingletonScope();
+    registry.bind(RevalidateServiceInterface).toService(RevalidateService);
+    registry.bind(RevalidateRegistryInterface).toService(RevalidateService);
   }
 }

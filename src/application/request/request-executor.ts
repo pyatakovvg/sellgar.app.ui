@@ -24,8 +24,6 @@ export type RequestOperation<T> = (context: RequestExecutionContext) => Promise<
 export abstract class RequestExecutorInterface {
   abstract run<T>(operation: RequestOperation<T>): Promise<T>;
   abstract run<T>(options: RequestExecutionOptions, operation: RequestOperation<T>): Promise<T>;
-  abstract cancelScope(scope: string): void;
-  abstract cancelAll(): void;
 }
 
 interface NormalizedRequestExecutionOptions {
@@ -54,7 +52,7 @@ type RequestErrorResolution =
 const DEFAULT_MODE: RequestMode = 'parallel';
 
 @Injectable()
-export class RequestExecutor extends RequestExecutorInterface {
+export class RequestExecutor implements RequestExecutorInterface {
   private readonly activeSequentialKeys = new Set<string>();
   private readonly activeTasks = new Set<ExecutionTask>();
   private readonly pendingTasks: ExecutionTask[] = [];
@@ -72,9 +70,7 @@ export class RequestExecutor extends RequestExecutorInterface {
     @Inject(RuntimeFailureReporterInterface)
     @Optional()
     private readonly reporter?: RuntimeFailureReporterInterface,
-  ) {
-    super();
-  }
+  ) {}
 
   run<T>(operation: RequestOperation<T>): Promise<T>;
   run<T>(options: RequestExecutionOptions, operation: RequestOperation<T>): Promise<T>;

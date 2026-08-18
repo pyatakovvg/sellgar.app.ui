@@ -4,7 +4,7 @@ import type { NormalizedRuntimeErrorReport } from '../runtime-error-report';
 import { RuntimeErrorReporterSinkInterface } from '../runtime-error-reporter-sink';
 
 @Injectable()
-export class ConsoleRuntimeErrorReporter extends RuntimeErrorReporterSinkInterface {
+export class ConsoleRuntimeErrorReporter implements RuntimeErrorReporterSinkInterface {
   report(report: NormalizedRuntimeErrorReport): void {
     globalThis.console.error({
       code: report.code,

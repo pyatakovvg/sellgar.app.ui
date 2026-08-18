@@ -1,22 +1,20 @@
-# Занятие 9. Frame: Адресуемый Overlay Runtime
+# Занятие 9. Frame: Routed Overlay Runtime
 
 - Статус документа: current
 - Формат: 90 минут
 - Уже известно: routes, controllers, widget runtime
-- Новые понятия: Frame/Source/Shell/View, `HashFrameSource`, `useFrame`, frame
-  controller, parent history
+- Новые понятия: `Frame`, `FrameRouter`, `FrameRoute`, global shell, absolute
+  frame navigation
 
 ## Результат Занятия
 
 Детали заказа открываются поверх `/orders`, отражаются в hash URL, переживают
-refresh как direct link и закрываются через shell. Затем добавляется переход из
-details frame в связанный frame и возврат назад.
+refresh как direct link и закрываются через общий shell. Просмотр и
+редактирование связаны URL-маршрутами без импорта frame tokens друг в друга.
 
 ---
 
 ## Слайд 1. Module, Widget Или Frame?
-
-### На Экране
 
 ```text
 самостоятельный экран       -> Module
@@ -24,139 +22,114 @@ details frame в связанный frame и возврат назад.
 overlay поверх route        -> Frame
 ```
 
-### Заметки Ведущего
-
-Frame выбирается не потому, что UI выглядит как drawer. Нужны presentation
-runtime, command API open/close и source адресуемого active state.
+Frame выбирается не потому, что UI похож на drawer. Ему нужны собственный
+runtime lifecycle и адресуемое состояние поверх текущего route screen.
 
 ---
 
-## Слайд 2. Четыре Роли Frame
-
-### На Экране
+## Слайд 2. Владельцы
 
 ```text
-Frame  -> runtime definition
-Source -> активация, props, close handler
-Shell  -> drawer/modal/fullscreen presentation
-View   -> runtime content
+Frame       -> view, providers, layouts, fallback/exception
+FrameRoute  -> path, lazy load, policies и route boundaries
+FrameRouter -> baseSource, flow composition и optional shell
+app.frames  -> обязательный global shell и global boundaries
 ```
 
-### Заметки Ведущего
-
-Не смешивайте shell и view. Shell знает, как закрыть overlay и отобразить
-chrome; view знает данные и действия предметного сценария.
+Frame не знает URL, shell и соседние frames.
 
 ---
 
 ## Слайд 3. Typed Params И Declaration
 
-### На Экране
-
-```ts
-class OrderDetailsFrameParams {
-  @Expose()
-  id!: string;
-}
-```
-
 ```tsx
+interface OrderDetailsFrameParams {
+  readonly orderId: string;
+}
+
 @UseBindings(OrderDetailsBindings)
-@Frame<OrderDetailsFrameParams>({
-  source: HashFrameSource.create(
-    'order-details',
-    OrderDetailsFrameParams,
-  ),
-  shell: OrderDetailsFrameShell,
+@Frame({
   fallback: <p>Загружаем детали…</p>,
   exception: <p>Детали недоступны</p>,
   view: OrderDetailsFrameView,
 })
-export class OrderDetailsFrame
-  extends FrameDefinition<OrderDetailsFrameParams> {}
+export class OrderDetailsFrame {}
 ```
 
-### Заметки Ведущего
-
-Hash key принадлежит source/declaration. Вызывающий code передаёт typed props и
-не собирает hash вручную.
+Параметры не принадлежат class token: их задаёт активный `FrameRoute`. Source и
+shell в metadata отсутствуют.
 
 ---
 
-## Слайд 4. Frame Должен Быть Доступен Route-Ветке
-
-### На Экране
+## Слайд 4. Routing Flow
 
 ```ts
+const OrdersFrameRouter = new FrameRouter({
+  baseSource: 'orders/:orderId',
+  routes: [
+    new FrameRoute({ load: () => import('@frame/order-details') }),
+    new FrameRoute({ path: 'edit', load: () => import('@frame/order-edit') }),
+  ],
+});
+
 new Route({
   path: '/orders',
-  frames: [OrderDetailsFrame],
+  frames: [OrdersFrameRouter],
   load: () => import('@module/orders'),
 });
 ```
 
-### Заметки Ведущего
-
-Frames наследуются child routes. Глобальный `FrameLayer` уже установлен
-`Application.createView()`; feature layout не рендерит отдельный host.
+`Route.frames` принимает только `FrameRouter`. Router доступен только в активной
+ветке обычного route tree.
 
 ---
 
-## Слайд 5. Открытие Из React
-
-### На Экране
+## Слайд 5. Открытие Из React И Controller
 
 ```tsx
-const details = useFrame(OrderDetailsFrame);
+const navigate = useNavigate();
 
-<button onClick={() => details.open({ id: order.id })}>
-  Детали
-</button>
+<button onClick={() => navigate.frame.open(`/orders/${order.id}`)}>Детали</button>;
 ```
 
-```text
-/orders#order-details(id='100')
+```ts
+await this.navigate.frame.open(`/orders/${orderId}/edit`);
 ```
 
-### Заметки Ведущего
-
-Hash является состоянием source. Из controller/service тот же сценарий
-использует `FrameServiceInterface`, а не React hook.
+`navigate.frame.open()` принимает абсолютный frame source. Frame token не
+импортируется потребителем; используется общий navigation port.
 
 ---
 
-## Слайд 6. Shell Закрывает Всю Frame-Сессию
-
-### На Экране
+## Слайд 6. Global Shell
 
 ```tsx
-@Injectable()
-class OrderDetailsFrameShell extends FrameShellInterface {
-  render(context: FrameShellContextInterface) {
+@FrameShell()
+class ManagementPanelFrameShell implements FrameShellInterface {
+  render({ close, content, open }: FrameShellContextInterface) {
     return (
-      <aside aria-hidden={!context.open}>
-        <button onClick={() => context.close()}>Закрыть</button>
-        {context.content}
+      <aside aria-hidden={!open}>
+        <button onClick={() => close()}>Закрыть</button>
+        {content}
       </aside>
     );
   }
 }
 ```
 
-### Заметки Ведущего
+```tsx
+app.frames({ shell: ManagementPanelFrameShell });
+```
 
-Overlay click, Escape и кнопка закрытия вызывают `context.close()`. Кнопка
-«Назад» внутри вложенного frame flow вызывает `back()`, а не полное close.
+Неуказанные frame boundaries наследуются из `app.components`.
 
 ---
 
-## Слайд 7. Frame Controller Локален Instance
-
-### На Экране
+## Слайд 7. Frame Controller
 
 ```ts
-async loader(args: FrameControllerLoaderArgs<OrderDetailsFrameParams>) {
-  return this.orders.getById(args.props.id, {
+async loader(args: ControllerArgs<WithParams<OrderDetailsFrameParams>>) {
+  return this.orders.getById(args.params.orderId, {
     signal: args.signal,
   });
 }
@@ -167,70 +140,55 @@ const data = useLoaderData(OrderDetailsControllerInterface);
 const submit = useSubmit(OrderDetailsControllerInterface);
 ```
 
-### Заметки Ведущего
-
-Изменение raw hash props меняет runtime key и remount-ит frame runtime. Loader
-получает frame props, route params, request и lifecycle signal.
+Controller получает path params как `args.params`. View при необходимости
+читает тот же runtime-контракт через `useParams<OrderDetailsFrameParams>()`.
+Hash и React Router objects в feature-код не передаются.
 
 ---
 
-## Слайд 8. Parent History
-
-### На Экране
+## Слайд 8. Browser History
 
 ```text
-OrderDetailsFrame
--> open PaymentDetailsFrame
--> back()
--> OrderDetailsFrame
-
-close()
--> закрыть всю frame session
+page
+-> /orders/100
+-> /orders/100/edit
+-> close
 ```
 
-### Заметки Ведущего
+Каждый `to()` и `close()` по умолчанию создаёт обычную browser history entry.
+Browser back проходит по этим URL. У frame API нет собственного `back()`,
+parent stack и попыток вычислить родителя по declarations.
 
-URL хранит только текущий frame. Parent stack хранится во внутреннем
-`sessionStorage` с областью по `router.baseUrl`. При несовпадении сохранённого
-current и hash история считается stale и очищается.
+При прямом открытии `/orders/100/edit` browser back возвращает туда, откуда
+пользователь действительно пришёл. Если feature нужна кнопка на конкретный URL,
+она выполняет явную navigation.
 
 ---
 
 ## Слайд 9. Direct Link И Startup
 
-### На Экране
-
 ```text
-refresh /orders#order-details(id='100')
--> route matches
--> available frames resolve
--> frame runtime loads
--> FrameLayer renders shell + view
+refresh /orders#orders/100/edit
+-> обычный Router выбирает active Route branch
+-> доступный FrameRouter сопоставляет hash
+-> FrameRoute lazy-load-ит Frame
+-> shell отображает Frame runtime
 ```
 
-### Заметки Ведущего
-
-Frame — адресуемое состояние. При hash-only open после render route loaders не
-перезапускаются автоматически.
+Hash-only navigation не должна повторно запускать обычные route loaders.
 
 ---
 
 ## Слайд 10. Практика
 
-1. Создать params DTO, frame declaration, shell и view.
-2. Зарегистрировать frame на `/orders`.
-3. Открыть details через `useFrame`.
-4. Обновить страницу с active hash.
-5. Добавить controller loader.
-6. Открыть второй frame из первого и сравнить `back` с `close`.
-
-### Мост К Следующей Теме
-
-Widget показывает fallback после render, а frame должен подписаться на внешнее
-событие и обязательно очистить subscription. Это задачи lifecycle provider.
+1. Создать frame declaration, view и controller.
+2. Настроить global shell через `app.frames(...)`.
+3. Подключить `FrameRouter` к `/orders`.
+4. Открыть details через `useNavigate().frame.open('/absolute/source')`.
+5. Добавить edit `FrameRoute`.
+6. Проверить refresh, close и browser back.
 
 ## Источники Ведущего
 
 - [Frames](../06-frames.md)
 - [Frame package structure](../15-frame-package-structure.md)
-

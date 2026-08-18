@@ -6,10 +6,6 @@ import type {
 } from '../application-event';
 
 export abstract class ApplicationEventBusInterface {
-  abstract clear(): void;
-
-  abstract dispose(): void;
-
   abstract publish<TEvent extends object>(eventToken: ApplicationEventToken<TEvent>, event: TEvent): Promise<void>;
 
   abstract createScope(): ApplicationEventScope;

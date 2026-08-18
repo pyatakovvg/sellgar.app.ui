@@ -1,8 +1,6 @@
 export {
-  MODULE_ACTION_ID_FIELD,
   ModuleRuntime,
   type ActiveModuleRuntime,
-  type ModuleRuntimeActionReference,
   type ModuleRuntimeActionState,
-  type ModuleRuntimeRevalidateOptions,
+  type ModuleRuntimeSnapshot,
 } from './module-runtime.ts';

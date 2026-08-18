@@ -13,28 +13,20 @@ export const useRevalidate = (controllerToken?: DependencyToken<unknown>): Reval
   const revalidateSessionRef = React.useRef<AbortController | null>(null);
   const [inProcess, setInProcess] = React.useState(false);
   const [error, setError] = React.useState<unknown>(undefined);
-  const widgetRevalidateRevision = React.useSyncExternalStore(
+  const runtimeRevalidateRevision = React.useSyncExternalStore(
     React.useCallback(
       (onStoreChange) => {
-        return controllerRuntime.kind === 'widget' ? controllerRuntime.runtime.subscribe(onStoreChange) : () => {};
+        return controllerRuntime.subscribe(onStoreChange);
       },
       [controllerRuntime],
     ),
-    React.useCallback(
-      () => (controllerRuntime.kind === 'widget' ? controllerRuntime.runtime.getRevalidateRevision() : 0),
-      [controllerRuntime],
-    ),
-    React.useCallback(
-      () => (controllerRuntime.kind === 'widget' ? controllerRuntime.runtime.getRevalidateRevision() : 0),
-      [controllerRuntime],
-    ),
+    React.useCallback(() => controllerRuntime.getRevalidateRevision(), [controllerRuntime]),
+    React.useCallback(() => controllerRuntime.getRevalidateRevision(), [controllerRuntime]),
   );
-  const widgetRevalidateState = React.useMemo(() => {
-    return controllerRuntime.kind === 'widget'
-      ? controllerRuntime.runtime.getRevalidateState(controllerToken)
-      : DEFAULT_REVALIDATE_STATE;
-  }, [controllerRuntime, controllerToken, widgetRevalidateRevision]);
-
+  const runtimeRevalidateState = React.useMemo(
+    () => controllerRuntime.getRevalidateState(controllerToken),
+    [controllerRuntime, controllerToken, runtimeRevalidateRevision],
+  );
   React.useEffect(() => {
     return () => {
       revalidateSessionRef.current?.abort();
@@ -47,10 +39,7 @@ export const useRevalidate = (controllerToken?: DependencyToken<unknown>): Reval
       throw new Error('Обновление контроллера уже выполняется.');
     }
 
-    if (
-      controllerRuntime.kind === 'widget' &&
-      controllerRuntime.runtime.getRevalidateState(controllerToken).inProcess
-    ) {
+    if (controllerRuntime.getRevalidateState(controllerToken).inProcess) {
       throw new Error('Обновление контроллера уже выполняется.');
     }
 
@@ -61,7 +50,7 @@ export const useRevalidate = (controllerToken?: DependencyToken<unknown>): Reval
     setInProcess(true);
 
     try {
-      await controllerRuntime.runtime.revalidate({
+      await controllerRuntime.revalidate({
         controllerToken,
         signal: abortController.signal,
       });
@@ -82,21 +71,9 @@ export const useRevalidate = (controllerToken?: DependencyToken<unknown>): Reval
   return React.useMemo(
     () =>
       Object.assign(revalidate, {
-        error: controllerRuntime.kind === 'widget' ? widgetRevalidateState.error : error,
-        inProcess: controllerRuntime.kind === 'widget' ? widgetRevalidateState.inProcess : inProcess,
+        error: runtimeRevalidateState.error ?? error,
+        inProcess: runtimeRevalidateState.inProcess || inProcess,
       }) as RevalidateHandler,
-    [
-      controllerRuntime.kind,
-      error,
-      inProcess,
-      revalidate,
-      widgetRevalidateState.error,
-      widgetRevalidateState.inProcess,
-    ],
+    [error, inProcess, revalidate, runtimeRevalidateState.error, runtimeRevalidateState.inProcess],
   );
-};
-
-const DEFAULT_REVALIDATE_STATE = {
-  error: undefined,
-  inProcess: false,
 };

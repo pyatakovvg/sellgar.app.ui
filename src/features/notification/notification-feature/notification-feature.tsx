@@ -11,10 +11,8 @@ export interface NotificationFeatureOptions {
 }
 
 @UseBindings(NotificationBindings)
-export class NotificationFeature extends ApplicationFeatureInterface {
-  private constructor(private readonly options: NotificationFeatureOptions) {
-    super();
-  }
+export class NotificationFeature implements ApplicationFeatureInterface {
+  private constructor(private readonly options: NotificationFeatureOptions) {}
 
   static configure(options: NotificationFeatureOptions): NotificationFeature {
     return new NotificationFeature(options);

@@ -248,7 +248,7 @@ class SecondPolicy extends PolicyInterface<TestRuntimeContext> {
   }
 }
 
-class FirstHandler extends PolicyResultHandlerInterface<TestRuntimeContext> {
+class FirstHandler implements PolicyResultHandlerInterface<TestRuntimeContext> {
   execute(): PolicyBoundaryDecision {
     return { type: 'continue' };
   }
@@ -353,12 +353,10 @@ class TestPolicy extends PolicyInterface<TestRuntimeContext> {
   }
 }
 
-class TestPolicyResultHandler extends PolicyResultHandlerInterface<TestRuntimeContext> {
+class TestPolicyResultHandler implements PolicyResultHandlerInterface<TestRuntimeContext> {
   readonly executeMock;
 
   constructor(private readonly decision: PolicyBoundaryDecision) {
-    super();
-
     this.executeMock = vi.fn((context: PolicyResultHandlerContextInterface<TestRuntimeContext>) => {
       void context;
 

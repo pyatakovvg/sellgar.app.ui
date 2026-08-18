@@ -7,3 +7,4 @@ export {
   type RuntimeProviderPhase,
   type RuntimeProviderResult,
 } from './runtime-provider.interface';
+export { bindRuntimeProviderScope, getRuntimeProviderScope } from './runtime-provider-scope.ts';

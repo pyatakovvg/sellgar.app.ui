@@ -9,13 +9,11 @@ import { Inject, Injectable } from '../../../../di/injection/decorators';
 import { UserRequestRuntimeInterface } from './user-request-runtime.interface.ts';
 
 @Injectable()
-export class UserRequestService extends UserRequestServiceInterface {
+export class UserRequestService implements UserRequestServiceInterface {
   constructor(
     @Inject(UserRequestRuntimeInterface)
     private readonly runtime: UserRequestRuntimeInterface,
-  ) {
-    super();
-  }
+  ) {}
 
   alert(payload: UserRequestAlertPayload): Promise<void> {
     return this.runtime.open('alert', payload);

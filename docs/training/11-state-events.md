@@ -48,6 +48,11 @@ session.setAuthenticated();
 ошибку устаревшей операции от настоящего failure. Не кладите сюда profile,
 tenant или permissions.
 
+После запуска router новая revision попадает в единый runtime coordinator. Он
+запускает одну переоценку route policies независимо от того, где изменили
+session: в action или обычном методе controller. Ручной redirect после
+`setAuthenticated()` не нужен.
+
 ---
 
 ## Слайд 3. Application Store Для Resolved Data
@@ -119,12 +124,9 @@ Event bus — integration layer, а не command bus; command bus не явля�
 
 ```ts
 @Provider()
-class OrdersEventsProvider
-  extends RuntimeProviderInterface {
+class OrdersEventsProvider implements RuntimeProviderInterface {
   setup(): RuntimeProviderResult {
-    const scope = this.events
-      .createScope()
-      .subscribe(OrderUpdatedEvent, this.handleUpdate.bind(this));
+    const scope = this.events.createScope().subscribe(OrderUpdatedEvent, this.handleUpdate.bind(this));
 
     return () => scope.dispose();
   }

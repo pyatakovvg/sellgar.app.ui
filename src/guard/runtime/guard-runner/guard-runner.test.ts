@@ -92,7 +92,7 @@ class SecondGuard extends SecondGuardInterface {
   }
 }
 
-class TestGuardRunnerBindings extends BindingModuleInterface {
+class TestGuardRunnerBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(FirstGuardInterface).to(FirstGuard).inSingletonScope();
     registry.bind(SecondGuardInterface).to(SecondGuard).inSingletonScope();

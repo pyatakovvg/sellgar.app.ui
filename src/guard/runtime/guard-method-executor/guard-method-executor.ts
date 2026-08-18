@@ -17,20 +17,30 @@ export interface GuardedMethodOptions<TContext, TValue> {
   readonly token: DependencyToken<unknown>;
 }
 
-export const executeGuardedMethod = async <TContext, TValue>({
+export const executeGuardedMethod = <TContext, TValue>({
   context,
   execute,
   method,
   scope,
   target,
   token,
-}: GuardedMethodOptions<TContext, TValue>): Promise<TValue> => {
+}: GuardedMethodOptions<TContext, TValue>): TValue | Promise<TValue> => {
   const declarations = getGuardMethodDeclarations<TContext>(token, target, method);
 
   if (declarations.length === 0) {
-    return await execute();
+    return execute();
   }
 
+  return executeGuardedDeclarations(declarations, context, execute, method, scope);
+};
+
+const executeGuardedDeclarations = async <TContext, TValue>(
+  declarations: readonly GuardDeclaration<TContext>[],
+  context: TContext,
+  execute: () => TValue | Promise<TValue>,
+  method: string | symbol,
+  scope: RuntimeScopeInterface,
+): Promise<TValue> => {
   const result = await new GuardRunner(scope).execute(declarations, context);
 
   if (result.type === 'pass') {
