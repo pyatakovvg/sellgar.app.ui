@@ -3,22 +3,99 @@
   "type": "module",
   "name": "@sellgar/app",
   "version": "0.0.1",
-  "description": "Universal application framework draft",
+  "description": "Renderer-agnostic application framework",
   "author": "Viktor Pyatakov <pyatakov.viktor@gmail.com>",
   "homepage": "",
   "license": "ISC",
-  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "typecheck:core": "tsc -p tsconfig.core.json"
+  },
   "dependencies": {
     "class-transformer": "0.5.1",
     "class-validator": "0.15.1",
+    "classnames": "2.5.1",
     "inversify": "8.2.3",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
-    "react-router-dom": "7.18.2",
+    "mobx": "6.16.1",
     "reflect-metadata": "0.2.2"
   },
   "devDependencies": {
+    "@babel/core": "7.27.4",
+    "@floating-ui/react": "0.27.19",
+    "@react-native/metro-config": "0.86.2",
     "@types/react": "19.2.18",
-    "@types/react-dom": "19.2.4"
+    "@types/react-dom": "19.2.5",
+    "mobx-react": "9.2.2",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-error-boundary": "6.1.2",
+    "react-native": "0.86.2",
+    "react-native-gesture-handler": "3.2.1",
+    "react-native-keyboard-controller": "1.22.4",
+    "react-native-reanimated": "4.6.0",
+    "react-native-safe-area-context": "5.8.1",
+    "react-native-screens": "4.26.2",
+    "react-native-worklets": "0.12.1",
+    "typescript": "6.0.3"
+  },
+  "peerDependencies": {
+    "@floating-ui/react": "^0.27.0",
+    "mobx-react": "^9.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-error-boundary": "^6.0.0",
+    "react-native": "^0.86.0",
+    "react-native-gesture-handler": "^3.2.0",
+    "react-native-keyboard-controller": "^1.22.0",
+    "react-native-reanimated": "~4.6.0",
+    "react-native-safe-area-context": "^5.8.0",
+    "react-native-screens": "^4.26.0",
+    "react-native-worklets": "~0.12.0"
+  },
+  "peerDependenciesMeta": {
+    "@floating-ui/react": {
+      "optional": true
+    },
+    "mobx-react": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "react-error-boundary": {
+      "optional": true
+    },
+    "react-native": {
+      "optional": true
+    },
+    "react-native-gesture-handler": {
+      "optional": true
+    },
+    "react-native-keyboard-controller": {
+      "optional": true
+    },
+    "react-native-reanimated": {
+      "optional": true
+    },
+    "react-native-safe-area-context": {
+      "optional": true
+    },
+    "react-native-screens": {
+      "optional": true
+    },
+    "react-native-worklets": {
+      "optional": true
+    }
+  },
+  "main": "./core/index.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": "./core/index.ts",
+    "./react": "./react/index.ts",
+    "./native": "./native/index.ts",
+    "./fsm": "./fsm/index.ts"
   }
 }

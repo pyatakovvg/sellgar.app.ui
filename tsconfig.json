@@ -1,15 +1,18 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "declaration": true,
-    "emitDeclarationOnly": true,
-    "declarationDir": "./types",
-    "rootDir": "./src",
+    "noEmit": true,
+    "rootDir": ".",
     "isolatedModules": false,
-
-    "paths": {},
-    "jsx": "react"
+    "paths": {}
   },
-  "exclude": ["node_modules"],
-  "include": ["./src", "./env.d.ts"]
+  "files": [
+    "./env.d.ts",
+    "./core/index.ts",
+    "./react/index.ts",
+    "./native/index.ts",
+    "./fsm/index.ts",
+    "./contracts/navigation-contracts.fixture.tsx",
+    "./contracts/react-facade.fixture.tsx"
+  ]
 }

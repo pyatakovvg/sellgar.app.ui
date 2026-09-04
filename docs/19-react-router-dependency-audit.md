@@ -424,6 +424,15 @@ frame source или другой способ связать frame с текущ
 - [`router-runtime.ts`](../src/router/runtime/router-runtime/router-runtime.ts);
 - [`router.service.ts`](../src/router/service/router-service/router.service.ts).
 
+React Router adapter также владеет render-time `RouterLocationSnapshot`:
+
+- один полный snapshot используется для frame matching и activation;
+- `FrameLayer` не ждёт отложенной копии hash в `RouterService`;
+- scoped location фрейма не объединяет frame params с ordinary route params;
+- `RouterService` не публикует предсказанный hash/search после navigation;
+- `resolveActiveFrame()` является чистым lookup, а prepare/load/dispose
+  выполняются activation lifecycle вне React render.
+
 ## Несоответствие Документации Реальной Границе
 
 Текущая документация утверждает, что feature code не работает напрямую с React

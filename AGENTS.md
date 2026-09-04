@@ -1,84 +1,44 @@
 # AGENTS.md
 
-## Назначение
+Общие правила пакетов:
+[docs/agent/package-common.md](../../docs/agent/package-common.md).
 
-Это корневой маршрут для агентов в `@sellgar/app`.
+## Структура
 
-Пакет содержит framework runtime приложения: application lifecycle, router,
-module/widget/frame runtime, DI facade, runtime providers, policies, guards,
-revalidate, runtime failures, application events, reporting и встроенные features.
+- Общего каталога `src` нет.
+- `core`, `react`, `native` и `fsm` — entrypoint-части одного package.
+- Public imports определяются только `package.json#exports`; deep imports
+  запрещены.
+- Внутри entrypoint код сначала группируется по framework-домену (`router`,
+  `application`, `module`), затем по роли (`declaration`, `runtime`, `service`),
+  затем по конкретному owner. Implementation-файлы непосредственно в корне
+  entrypoint запрещены.
+- Каждый конкретный owner имеет локальный facade-файл; public entrypoint явно
+  выбирает из owner facades только публичный контракт.
+- Самостоятельный owner импортируется через его каталог. Путь к локальному
+  `index.ts`/`index.tsx` никогда не указывается напрямую; конкретный
+  implementation-файл разрешено импортировать только изнутри того же owner.
+- Внутренняя структура создаётся вместе с реализацией, а не заранее.
+- Общий каталог тестов не используется; тест принадлежит конкретному owner.
 
-Источник истины: `src/index.ts`, текущий код в `src/*`, тесты рядом с
-runtime-срезами и локальные `AGENTS.md` выбранного слоя. `types/` не является
-источником истины.
+## Границы
 
-## Быстрый Маршрут
-
-1. Определи слой изменения по карте ниже.
-2. Открой локальный `src/<layer>/AGENTS.md`.
-3. Проверь публичный экспорт в `src/index.ts`, если меняется внешний контракт.
-4. Проверь реализацию и тесты выбранного runtime-среза.
-5. Если изменение затрагивает несколько runtime-срезов, открыть каждый локальный
-   `AGENTS.md`.
-6. Обновить документацию в [docs](docs/README.md), если меняется контракт.
-
-## Карта Слоёв
-
-- [src/application/AGENTS.md](src/application/AGENTS.md) - application lifecycle,
-  config, initializers, store, session, events, reporting, disposables.
-- [src/router/AGENTS.md](src/router/AGENTS.md) - `Router`, `Route`, runtime,
-  params, location/navigate services, search/hash utils.
-- [src/module/AGENTS.md](src/module/AGENTS.md) - `@Module`, module metadata,
-  lazy export resolution, module runtime.
-- [src/widget/AGENTS.md](src/widget/AGENTS.md) - `@Widget`, `WidgetHost`,
-  widget runtime, factory, hooks, widget revalidate.
-- [src/frame/AGENTS.md](src/frame/AGENTS.md) - `@Frame`, `HashFrameSource`,
-  frame navigation, frame service/runtime/hooks.
-- [src/runtime/AGENTS.md](src/runtime/AGENTS.md) - runtime scopes, providers,
-  operation guards, runtime failures и shared context.
-- [src/controller/AGENTS.md](src/controller/AGENTS.md) - generic controller
-  contracts, action transport, loader data и route hooks.
-- [src/di/AGENTS.md](src/di/AGENTS.md) - DI facade, tokens, binding registry,
-  `UseBindings`, injection decorators и Inversify adapter.
-- [src/policy/AGENTS.md](src/policy/AGENTS.md) - policy contract,
-  descriptors, result handlers и policy runner.
-- [src/guard/AGENTS.md](src/guard/AGENTS.md) - guard contract,
-  `UseGuards`, runner, hook и `Guarded`.
-- [src/layout/AGENTS.md](src/layout/AGENTS.md) - `@Layout` declaration и
-  layout rendering.
-- [src/revalidate/AGENTS.md](src/revalidate/AGENTS.md) - route/module
-  revalidate service и React bridge.
-- [src/react/AGENTS.md](src/react/AGENTS.md) - React Router adapter hooks,
-  exception context и renderable view helpers.
-- [src/reactive/AGENTS.md](src/reactive/AGENTS.md) - реактивные entity
-  declarations, identity metadata и внутренняя observable-реализация.
-- [src/features/AGENTS.md](src/features/AGENTS.md) - встроенные application
-  features.
-
-Встроенные features:
-
-- [src/features/notification/AGENTS.md](src/features/notification/AGENTS.md)
-- [src/features/user-request/AGENTS.md](src/features/user-request/AGENTS.md)
-
-## Общие Границы
-
-- Код фич должен импортировать `@sellgar/app`, а не private-файлы.
-- Публичный API добавлять только через `src/index.ts`.
-- Inversify и React Router должны оставаться за facade/adapter слоями.
-- Domain contracts, permissions model, auth-specific recovery, route screens,
-  visual business widgets и UI labels здесь не размещать.
-- Runtime failure flow является внутренней частью lifecycle owners. Feature-код
-  не подписывается на exceptions и не управляет framework disposition.
-- Штатные request/session outcomes обрабатывает владеющий ими слой до runtime
-  boundary. Transport recovery и health остаются в transport library.
-- Новую framework primitive добавлять только при понятной runtime-роли и
-  повторяемом сценарии.
+- `@sellgar/app` является единственным источником framework runtime и разделён
+  на core, renderer adapters и router bridges.
+- Если RFC явно не фиксирует semantic delta, сохраняются согласованные публичный
+  контракт, порядок lifecycle, ownership, error handling и cleanup.
+- Core не импортирует React, React DOM, React Router или React Native.
+- Renderer adapter использует один core lifecycle и не создаёт второй runtime.
+- Router bridge реализует core navigation ports и не владеет logical navigation
+  state.
+- Renderer-specific declarations, hosts, hooks и presentation types не попадают
+  в core source и core `.d.ts`.
+- Entry points не импортируют private implementation друг друга через package
+  boundary; общий код принадлежит core или явному shared owner.
 
 ## Проверка
 
-- Публичный API или runtime behavior: тесты затронутого слоя и
-  `yarn build:management_panel_ui`.
-- Router/module/widget/frame изменения: запуск соответствующих `*.test.ts(x)` при
-  наличии.
-- Только документация: проверить ссылки, соответствие `src/index.ts` и
-  `git diff --check`.
+- `yarn workspaces list --json` показывает `@sellgar/app`;
+- TypeScript разрешает все объявленные entrypoints;
+- Prettier и `git diff --check` проходят;
+- Admin UI собирается и проходит active test suite на `@sellgar/app`.
