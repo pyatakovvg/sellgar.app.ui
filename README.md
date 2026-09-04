@@ -18,7 +18,8 @@ Native entrypoint повторяет публичные framework-понятия
 guards/reactive bridges, `Route`, `Router`, `Shell`, navigation controls и
 controller/revalidation hooks. Оба adapter-а используют один core lifecycle и
 одинаковый bootstrap flow; различаются только renderer-specific presentation и
-router bridge. Android fixture находится в `clients/mobile`. Native stack
+router bridge. Android consumer находится в отдельном repository
+`sellgar.mobile.shop`, package `clients/mobile`. Native stack
 projection использует хронологические core history entries и общие activation
 runtimes, а физические переходы выполняет закрытый адаптер React Navigation
 Native Stack. Новый screen сразу показывает локальный

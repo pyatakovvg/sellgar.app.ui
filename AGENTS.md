@@ -1,8 +1,5 @@
 # AGENTS.md
 
-Общие правила пакетов:
-[docs/agent/package-common.md](../../docs/agent/package-common.md).
-
 ## Структура
 
 - Общего каталога `src` нет.
@@ -41,4 +38,5 @@
 - `yarn workspaces list --json` показывает `@sellgar/app`;
 - TypeScript разрешает все объявленные entrypoints;
 - Prettier и `git diff --check` проходят;
-- Admin UI собирается и проходит active test suite на `@sellgar/app`.
+- Framework typecheck проходит для полного facade и отдельно для core.
+- Admin UI и Mobile Shop проходят свои consumer build/typecheck.

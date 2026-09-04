@@ -2029,8 +2029,7 @@ registry и отдельную hash/frame orchestration нужно замени�
 
 ### Проекция ManagementPanelApplication
 
-Production composition
-[`AdminApplication`](../../../../clients/admin/src/application/admin.application.tsx)
+Production composition `sellgar.ui.admin/clients/admin/src/application/admin.application.tsx`
 является обязательным migration fixture для целевого контракта.
 
 Его верхнеуровневая конфигурация переносится без изменения lifecycle:

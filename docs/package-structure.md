@@ -8,7 +8,7 @@
 описана только физическая граница package entrypoints.
 
 ```text
-library/sellgar.app.ui/
+sellgar.app.ui/
   package.json
   tsconfig.json
   core/
@@ -559,7 +559,7 @@ framework-понятия React facade: Application/configurator, declarations,
 Widget, features/presentations, guards/reactive bridges, controller и router
 hooks, navigation controls и hosts. Renderer-specific различия остаются внутри
 presentation и native bridge; второй lifecycle или logical navigation state не
-создаются. Android playground в `clients/mobile` повторяет web composition
+создаются. Android consumer в `sellgar.mobile.shop/clients/mobile` повторяет web composition
 structure и проверяет loader, action, revalidation, Route params и bridge
 history. Native Stack/Tabs projection использует renderer-neutral registry
 runtime entries из core: новый target имеет фазу `preparing`, текущий committed
