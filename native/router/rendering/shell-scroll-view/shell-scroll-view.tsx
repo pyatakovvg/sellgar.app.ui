@@ -1,41 +1,56 @@
 import React from 'react';
-import {
-  ScrollView as ReactNativeScrollView,
-  StyleSheet,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
-  type ScrollViewProps,
-} from 'react-native';
+import { ScrollView as ReactNativeScrollView, StyleSheet, type ScrollViewProps } from 'react-native';
 import { ScrollView as GestureScrollView } from 'react-native-gesture-handler';
+import { useAnimatedRef, useScrollOffset } from 'react-native-reanimated';
 
+import {
+  KeyboardScrollView,
+  type KeyboardScrollViewProps,
+  type KeyboardScrollViewRef,
+} from '../../../keyboard/rendering/keyboard-scroll-view';
 import { resolveKeyboardScrollProps } from '../../../keyboard/scroll/keyboard-scroll-props';
 import { useShellRuntime } from '../../runtime/shell-runtime-context';
 
-export type ShellScrollViewProps = ScrollViewProps;
+export type ShellScrollViewProps = KeyboardScrollViewProps;
 
-export const ShellScrollView = React.forwardRef<React.ComponentRef<typeof ReactNativeScrollView>, ShellScrollViewProps>(
+export const ShellScrollView = React.forwardRef<KeyboardScrollViewRef, ShellScrollViewProps>((props, ref) => {
+  const keyboardScrollProps = resolveKeyboardScrollProps(props);
+
+  return (
+    <KeyboardScrollView
+      {...props}
+      {...keyboardScrollProps}
+      ScrollViewComponent={ShellGestureScrollView as KeyboardScrollViewProps['ScrollViewComponent']}
+      bounces={props.bounces ?? false}
+      nestedScrollEnabled={props.nestedScrollEnabled ?? true}
+      overScrollMode={props.overScrollMode ?? 'never'}
+      ref={ref}
+      scrollEventThrottle={props.scrollEventThrottle ?? 16}
+      style={[styles.root, props.style]}
+    />
+  );
+});
+
+ShellScrollView.displayName = 'ShellScrollView';
+
+const ShellGestureScrollView = React.forwardRef<React.ComponentRef<typeof ReactNativeScrollView>, ScrollViewProps>(
   (props, ref) => {
     const runtime = useShellRuntime();
-    const keyboardScrollProps = resolveKeyboardScrollProps(props);
     const gestureRelations: Pick<React.ComponentProps<typeof GestureScrollView>, 'simultaneousWith'> = {
       simultaneousWith: runtime.dismissGesture,
     };
-    const scrollRef = React.useRef<React.ComponentRef<typeof ReactNativeScrollView> | null>(null);
+    const scrollRef = useAnimatedRef<React.ComponentRef<typeof ReactNativeScrollView>>();
+
+    useScrollOffset(scrollRef, runtime.scrollOffset);
+
     const setScrollRef = React.useCallback(
       (value: React.ComponentRef<typeof ReactNativeScrollView> | null) => {
-        scrollRef.current = value;
+        scrollRef(value);
 
         if (typeof ref === 'function') ref(value);
         else if (ref) ref.current = value;
       },
-      [ref],
-    );
-    const handleScroll = React.useCallback(
-      (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-        runtime.scrollOffset.value = Math.max(0, event.nativeEvent.contentOffset.y);
-        props.onScroll?.(event);
-      },
-      [props.onScroll, runtime.scrollOffset],
+      [ref, scrollRef],
     );
     const handleLayout = React.useCallback(
       (event: Parameters<NonNullable<ScrollViewProps['onLayout']>>[0]) => {
@@ -54,25 +69,11 @@ export const ShellScrollView = React.forwardRef<React.ComponentRef<typeof ReactN
       };
     }, [runtime.scrollBounds, runtime.scrollOffset]);
 
-    return (
-      <GestureScrollView
-        {...props}
-        {...keyboardScrollProps}
-        {...gestureRelations}
-        bounces={props.bounces ?? false}
-        nestedScrollEnabled={props.nestedScrollEnabled ?? true}
-        onLayout={handleLayout}
-        onScroll={handleScroll}
-        overScrollMode={props.overScrollMode ?? 'never'}
-        ref={setScrollRef}
-        scrollEventThrottle={props.scrollEventThrottle ?? 16}
-        style={[styles.root, props.style]}
-      />
-    );
+    return <GestureScrollView {...props} {...gestureRelations} onLayout={handleLayout} ref={setScrollRef} />;
   },
 );
 
-ShellScrollView.displayName = 'ShellScrollView';
+ShellGestureScrollView.displayName = 'ShellGestureScrollView';
 
 const styles = StyleSheet.create({
   root: {

@@ -157,7 +157,7 @@ const ScreenSlotView: React.FC<ScreenSlotViewProps> = ({ progress, slot, state }
           zIndex: 1,
         };
     }
-  }, [animation, dimensions.height, dimensions.width, role]);
+  });
   const visible = role !== 'empty';
   const interactive = state.phase === 'stable' && role === 'current';
   const active = presentationActive && interactive;
@@ -171,7 +171,9 @@ const ScreenSlotView: React.FC<ScreenSlotViewProps> = ({ progress, slot, state }
       style={[styles.slot, animatedStyle]}
     >
       <ScreenActivityProvider active={active}>
-        {visible && presentation ? <React.Fragment key={presentation.key}>{presentation.content}</React.Fragment> : null}
+        {visible && presentation ? (
+          <React.Fragment key={presentation.key}>{presentation.content}</React.Fragment>
+        ) : null}
       </ScreenActivityProvider>
     </Animated.View>
   );

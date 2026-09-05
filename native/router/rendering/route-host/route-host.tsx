@@ -5,7 +5,7 @@ import type { ApplicationComponents } from '../../../application/config/applicat
 import { renderLayouts } from '../../../layout/rendering/layout-renderer';
 import type { LayoutConstructor } from '../../../layout/declaration/layout';
 import type { ModuleMetadata } from '../../../module/declaration/module';
-import { ModuleHost, type ModulePresentationMode } from '../../../module/rendering/module-host';
+import { ModuleHost } from '../../../module/rendering/module-host';
 import { ExceptionProvider } from '../../../runtime/exception/exception-context';
 import { RuntimeErrorBoundary } from '../../../runtime/exception/runtime-error-boundary';
 import { RuntimeScopeProvider } from '../../../runtime/scope/runtime-scope-context';
@@ -14,7 +14,6 @@ interface IProps {
   readonly children: React.ReactNode;
   readonly components: ApplicationComponents;
   readonly layouts: readonly LayoutConstructor[];
-  readonly presentation: ModulePresentationMode;
   readonly runtime: RouteActivationRuntime<ModuleMetadata>;
 }
 
@@ -57,7 +56,6 @@ const resolveRouteContent = (
 
 interface RouteModuleHostProps {
   readonly components: ApplicationComponents;
-  readonly presentation: ModulePresentationMode;
   readonly runtime: RouteActivationRuntime<ModuleMetadata>;
 }
 
@@ -71,7 +69,6 @@ export const RouteModuleHost: React.FC<RouteModuleHostProps> = (props) => {
       exception={props.components.exception}
       fallback={props.components.fallback}
       moduleRuntime={moduleRuntime}
-      presentation={props.presentation}
       routeRuntime={props.runtime}
     />
   );

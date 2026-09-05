@@ -20,8 +20,12 @@ const ShellRuntimeContext = React.createContext<ShellRuntimeContextValue | null>
 
 export const ShellRuntimeProvider = ShellRuntimeContext.Provider;
 
+export const useOptionalShellRuntime = (): ShellRuntimeContextValue | null => {
+  return React.useContext(ShellRuntimeContext);
+};
+
 export const useShellRuntime = (): ShellRuntimeContextValue => {
-  const runtime = React.useContext(ShellRuntimeContext);
+  const runtime = useOptionalShellRuntime();
 
   if (!runtime) {
     throw new Error('Shell API доступен только внутри Native @Shell view.');

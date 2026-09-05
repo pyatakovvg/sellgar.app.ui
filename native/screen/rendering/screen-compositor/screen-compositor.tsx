@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet, View } from 'react-native';
 
 import { ScreenActivityProvider } from '../../runtime/screen-activity-context';
 
@@ -58,8 +59,15 @@ export const ScreenLayerHost: React.FC<ScreenLayerHostProps> = ({ children, dept
   }, [compositor?.register, depth, identity, kind]);
 
   const active = compositor === null || compositor.active === null || compositor.active === identity;
+  const content = <ScreenActivityProvider active={active}>{children}</ScreenActivityProvider>;
 
-  return <ScreenActivityProvider active={active}>{children}</ScreenActivityProvider>;
+  if (kind === 'modal') return content;
+
+  return (
+    <View pointerEvents={active ? 'box-none' : 'none'} style={styles.layer}>
+      {content}
+    </View>
+  );
 };
 
 const resolveActiveLayer = (entries: readonly ScreenLayerEntry[]): ScreenLayerEntry | null => {
@@ -88,3 +96,9 @@ const SCREEN_LAYER_RANK: Readonly<Record<ScreenLayerKind, number>> = Object.free
 });
 
 const EMPTY_ENTRIES: readonly ScreenLayerEntry[] = Object.freeze([]);
+
+const styles = StyleSheet.create({
+  layer: {
+    flex: 1,
+  },
+});

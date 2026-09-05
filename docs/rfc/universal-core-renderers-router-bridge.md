@@ -605,6 +605,13 @@ app.routing({
   этого снимает pending projection. Поэтому один logical screen не исчезает
   между fallback и content и не получает повторную present-анимацию. Discard,
   interruption и новая revision также согласованно очищают обе pending-проекции.
+- Пока navigation transaction не завершена, повторный эквивалентный request не
+  отменяет и не запускает её заново, а присоединяется к тому же in-flight
+  Promise. Эквивалентность включает Router/Route path, params, query, boundary,
+  initiator, nested address, revalidation, replace и state. Только другой request
+  создаёт новую revision и прерывает предыдущую transaction. Поэтому несколько
+  уже доставленных событий одного control не способны освободить runtime,
+  который всё ещё участвует в одной physical presentation.
 - Renderer читает core projections заново при каждом наблюдаемом событии
   Application/RouterRuntime, а не хранит полученный ранее массив как logical
   navigation state.
@@ -793,6 +800,12 @@ app.routing({
   его activation retained, а Back восстанавливает Drawer открытым без fallback
   и loaders. Это не требует новых core Router classes, platform flags в
   `new Router()` или изменения application business logic.
+  Present/dismiss/replace frame начинается по canonical pending projection до
+  ожидания providers/loaders. Поздний bridge commit прикрепляет revision к той же
+  physical operation: он не перезапускает анимацию и немедленно получает
+  completion, если она уже достигла stable `visible`/`hidden`. До полного
+  размонтирования уходящий frame остаётся modal input barrier: его children и
+  dismiss-жест выключены, а жесты не проходят в нижний application screen.
 - Native `ApplicationHost` создаёт `SafeAreaProvider` только как источник
   измерений и не оборачивает приложение в `SafeAreaView`, не добавляет padding
   либо margin автоматически. Native facade экспортирует
@@ -801,9 +814,68 @@ app.routing({
   применения. Поэтому safe-area может находиться внутри интерактивного элемента
   (например, внутри нижнего tab item), сохраняя его фон и hit area до физической
   границы экрана, а не становиться внешней полосой вокруг presentation.
-- В React Native жест pull-to-refresh является стандартной presentation-
-  механикой ordinary screen `@Module()`. Его распознавание и индикатор принадлежат
-  native Module host, а не Module view и не прикладному reusable wrapper.
+- React Native `Screen` остаётся прозрачной physical presentation единицей: он
+  владеет только mount/activity, z-order и transition. `Screen` не добавляет
+  `ScrollView`, keyboard avoidance, safe-area padding либо pull-to-refresh.
+  Структуру содержимого явно объявляет пользовательская view через `Viewport`.
+  Один `Viewport` образует одну независимую content-coordinate system внутри
+  конкретной presentation: ordinary screen, frame или modal.
+- `Viewport` владеет одним вертикальным scroll owner и keyboard-aware поведением
+  этого owner. Все его дочерние блоки равноправны: `Viewport.Slot` находится в
+  основном потоке, `Viewport.Slot.Fixed` остаётся видимым и уменьшает доступную
+  content-area, `Viewport.Slot.Sticky` сначала находится в потоке и затем
+  использует нативное push-off sticky-поведение, `Viewport.Slot.Floating`
+  рисуется поверх видимой области и не занимает места в layout. Для floating
+  используются две независимые оси `vertical="top | center | bottom"` и
+  `horizontal="start | center | end"`; значения по умолчанию — `top/start`, а
+  визуальные отступы принадлежат внутренней view. Обычный Slot имеет естественную
+  высоту содержимого; `grow` и `shrink` принимают `true` (вес `1`) либо числовой
+  вес и по умолчанию равны `0`.
+- Положение fixed-блоков определяется декларативным порядком: блоки перед
+  scroll-flow образуют верхнюю fixed-area, блоки после него — нижнюю. В первой
+  версии framework не вводит отдельный валидатор ошибочных комбинаций; реальные
+  ограничения уточняются по проверенным сценариям.
+- `Viewport.Collection` заменяет обычный scroll content одним виртуализированным
+  вертикальным owner. Слоты до и после Collection остаются частью той же
+  scroll-coordinate system, а не внешним вложенным `ScrollView`. Collection
+  имеет декларативные `Collection.Item`, `Collection.Item.Sticky`,
+  `Collection.Section`, `Collection.Empty` и `Collection.LoadMore`; публичный API
+  не раскрывает `renderItem`/`renderSectionHeader` React Native. Горизонтальная
+  коллекция внутри item/slot допустима и владеет только своей горизонтальной
+  осью. Несколько вертикальных owners и вложенный `Viewport` в одной presentation
+  не входят в поддерживаемую модель. Grid/table API отложен до отдельного
+  реального сценария.
+  Как и у React Native `VirtualizedList`, локальное состояние item за пределами
+  render window не считается устойчивым: данные item принадлежат controller,
+  form state либо другому внешнему владельцу, а не размонтируемой row view.
+- `Collection.LoadMore` является end-observer, а не кнопкой и не владельцем
+  pagination state. Он принимает внешний `inProcess` и `onLoad`; решение о
+  наличии следующей страницы остаётся в controller. Вызов разрешён один раз при
+  достижении конца новым пользовательским scroll-взаимодействием. Initial mount,
+  изменение layout/content, завершение process и оставшаяся позиция у нижней
+  границы не запускают каскадную подгрузку. Следующая попытка возможна только
+  после выхода из end-zone и нового пользовательского достижения конца.
+  Дочерняя view `Collection.LoadMore` является overlay-accessory коллекции, а не
+  item, footer либо частью её scroll-flow. При переходе `inProcess` в `true`
+  accessory монтируется поверх нижней границы видимой области коллекции и
+  анимированно выезжает снизу. После завершения operation он заезжает обратно и
+  размонтируется только по завершении анимации скрытия. Анимация принадлежит
+  presentation-механике `Collection.LoadMore`; `Viewport` предоставляет ей
+  границы размещения с учётом нижней fixed-area. Появление и скрытие accessory не
+  изменяет scroll offset, не зависит от drag/momentum и не резервирует место в
+  содержимом списка. Визуал и его фактическая высота полностью определяются
+  переданной пользовательской view.
+- `useViewport().scrollToStart({ animated? })` является первым минимальным
+  imperative-контрактом. Смена data сама по себе не управляет scroll position;
+  retained смонтированный Viewport сохраняет нативный offset, а настоящий
+  unmount/remount начинает с исходной позиции. `scrollToItem` не публикуется,
+  пока framework не имеет общего контракта измерения virtualized items.
+- Pull-to-refresh включается явно маркером `<Viewport.Refreshable />` и использует
+  штатный React Native `RefreshControl`: framework не реализует собственный
+  threshold, gesture-progress или таймер. `RefreshControl` подключается к тому же
+  физическому scroll owner как для обычного потока, так и для Collection.
+  Arbitrary child не считается визуалом системного RefreshControl; custom
+  refresh-control откладывается до отдельного полного platform-контракта.
   Индикатор отражает только revalidation, инициированную этим жестом: query,
   action, повторная навигация и другой источник общей revalidation не должны
   визуально изображаться как pull-to-refresh. Сама operation по-прежнему идёт
@@ -820,19 +892,31 @@ app.routing({
   `RefreshControl.refreshing` не связывается с агрегированным
   `useRevalidate().inProcess`: это состояние отражает runtime operation независимо
   от инициатора и предназначено для общих или явно выбранных presentation-
-  индикаторов. Pull-to-refresh host хранит состояние только собственного вызова
+  индикаторов. Viewport хранит presentation-состояние только собственного вызова
   и не реагирует на параллельную либо последующую operation другого инициатора.
-  При распознавании жеста учитывается scroll offset в момент его начала. Если
-  жест начался ниже верхней границы scroll content, он до завершения принадлежит
-  прокрутке и не может перейти в pull-to-refresh после достижения `offset=0`.
-  Revalidation разрешается только новым жестом, начатым уже на верхней границе.
+  Распознавание жеста, достижение верхней границы и отмена принадлежат нативному
+  `RefreshControl`; `refreshing` немедленно становится `true` только для принятого
+  `onRefresh` и снимается после завершения вызванной Module revalidation.
+  Один touch sequence находится ровно в одном режиме: scroll либо refresh.
+  Режим выбирается в начале drag и не меняется до его завершения. Жест,
+  начавшийся ниже верхней границы scroll owner, остаётся scroll, даже если в
+  процессе достиг начала страницы; для refresh требуется следующий
+  самостоятельный свайп вниз, начавшийся уже на верхней границе. Adapter
+  ограничивает `RefreshControl` на время scroll-жеста штатными событиями
+  `onScrollBeginDrag`/`onScrollEndDrag`, не вводя собственный threshold, pan
+  recognizer или таймер.
+  Такое устройство следует контрактам React Native
+  [`RefreshControl`](https://reactnative.dev/docs/0.86/refreshcontrol) и
+  [`VirtualizedList`](https://reactnative.dev/docs/0.86/virtualizedlist): pull
+  распознаётся вертикальным scroll owner на верхней границе, а `refreshing`
+  остаётся controlled-состоянием инициировавшей его presentation.
 
 - Работа с экранной клавиатурой является ответственностью React Native adapter,
   а не core, Module/controller либо прикладной формы. Framework не хранит
   значение полей, не связывается с `react-hook-form` и не добавляет собственную
   focus-навигацию: `TextInput`, IME и submit сохраняют нативную platform-
-  семантику. Adapter только предоставляет keyboard-aware presentation для
-  scrollable Module и Shell content и разрешает конфликты с framework-жестами.
+  семантику. `Viewport` предоставляет keyboard-aware presentation для своего
+  физического scroll owner и разрешает конфликты с framework-жестами.
 - Native renderer создаёт один стабильный `KeyboardSurface` над полным деревом
   presentation: application, frame, modal и notification. Он является единым
   источником native keyboard/focused-input events и не размонтируется при смене
@@ -841,28 +925,42 @@ app.routing({
   порядок keyboard events и теряют ownership focus при возврате между native
   windows.
 - Application, Frame и Modal остаются независимыми presentation processes и
-  получают собственный keyboard-aware scroll owner. Поддерживаемый primitive
+  получают собственный `Viewport`/keyboard-aware scroll owner. Поддерживаемый primitive
   сопоставляет focused input с владельцем по native parent ScrollView target,
   поэтому keyboard geometry применяет только соответствующий scroll container.
   `KeyboardSurface` не заменяет native `Modal`, не переносит overlays под
   application Layout и не ослабляет их modality либо z-order.
-- Ordinary Module presentation сохраняет текущий сфокусированный `TextInput` и
+  Для Frame единственный `Viewport` объявляется view вложенного Module. Пользовательская
+  `@Shell()` view отвечает только за внешнюю surface/chrome (например, фон,
+  скругление и grabber), размещает `children` напрямую и не создаёт второй
+  scroll owner вокруг Module. Благодаря `ShellRuntimeContext` тот же `Viewport`
+  автоматически использует shell-aware scroll primitive и сообщает ShellHost
+  границы и offset, необходимые жесту закрытия.
+- Viewport ordinary Module presentation сохраняет текущий сфокусированный `TextInput` и
   caret видимыми над клавиатурой средствами поддерживаемого keyboard-aware scroll
-  primitive. Frame использует другую композицию: его
+  primitive. Нижняя `Viewport.Slot.Fixed` использует штатную композицию
+  `KeyboardAwareScrollView + KeyboardStickyView`: fixed-area следует за нативной
+  анимацией клавиатуры, а её измеренная высота входит в `bottomOffset` scroll owner,
+  поэтому focused input не оказывается под controls. Весь `Viewport` не оборачивается
+  дополнительным `KeyboardAvoidingView`: это повторно применило бы keyboard geometry
+  к уже keyboard-aware scroll owner. Такая композиция повторяет
+  [официальный пример библиотеки](https://github.com/kirillzyusko/react-native-keyboard-controller/blob/main/example/src/screens/Examples/AwareScrollViewStickyFooter/index.tsx).
+  Frame использует другую композицию: его
   presentation-контейнер целиком поднимает surface и ограничивает её доступной
-  над IME областью, а `ShellScrollView` отвечает только за внутреннее
-  переполнение уже расположенного frame. Он не прокручивает focused input внутри
-  неподвижной frame surface. Ручные измерения координат, `setTimeout` для
+  над IME областью, а `Viewport` отвечает только за внутреннее
+  переполнение уже расположенного frame и сохраняет focused input видимым внутри
+  этой доступной области. `ShellHost` сам не прокручивает content и не измеряет
+  положение input. Ручные измерения координат, `setTimeout` для
   focus/scroll и прикладные keyboard spacers в Module views не являются
   framework contract. Tap по доступному form control обрабатывается с первого
   нажатия; keyboard dismiss следует нативному режиму платформы (`interactive` на
   iOS, `on-drag` на Android).
-- Для пользовательской presentation, создающей отдельную scrollable surface
-  (включая Prompt в React Native `Modal`), native adapter предоставляет
-  `KeyboardScrollView`. Presentation не создаёт собственный `KeyboardSurface`:
-  она наследует единый keyboard runtime application host. При этом scroll не
-  создаётся автоматически — владелец presentation сохраняет контроль над
-  структурой содержимого и не получает вложенные scroll containers.
+- Пользовательская presentation, создающая отдельную content surface (включая
+  Prompt в React Native `Modal`), объявляет собственный `Viewport`, но не создаёт
+  `KeyboardSurface`: она наследует единый keyboard runtime application host.
+  Физический modal host, как и frame host, применяет `KeyboardAvoidingView` к
+  presentation целиком: клавиатура уменьшает доступную область модалки, а её
+  `Viewport` прокручивает длинное содержимое и сохраняет focused input видимым.
 - Деактивация screen снимает текущий native input focus. Native adapter не хранит
   последний вручную сфокусированный input и не восстанавливает его либо
   клавиатуру при повторной активации presentation. Клавиатура после активации
@@ -874,6 +972,14 @@ app.routing({
   показа native keyboard он только доводит явно autofocus-поле до видимой области.
   Механизм не требует таймеров, сохранения input identity, ручного измерения его
   координат или логики конкретной формы.
+  Интеграция virtualized owner выполняется штатным для
+  [`react-native-keyboard-controller`](https://kirillzyusko.github.io/react-native-keyboard-controller/docs/api/components/keyboard-aware-scroll-view#flatlistflashlistsectionlist-etc)
+  способом через `renderScrollComponent`; framework не реализует собственный
+  алгоритм измерения либо прокрутки focused input.
+- Keyboard-aware primitives активны только в focused presentation согласно
+  `ScreenActivityContext`. Retained screen, underlying application под frame и
+  application под native Modal остаются смонтированными, но не сдвигают свои
+  fixed/floating areas вслед за клавиатурой другой presentation.
 - Жест, начавшийся при видимой клавиатуре, не может в ходе того же touch sequence
   превратиться в pull-to-refresh или dismiss frame. В Module он только завершает
   нативное взаимодействие с клавиатурой; revalidation разрешается следующим
@@ -2262,13 +2368,13 @@ new Route({
   остаётся в revalidation state, а late completion не применяет устаревший
   результат.
 - React Native keyboard scenarios проверяются на физическом устройстве:
-  keyboard-aware Module и `ShellScrollView` оставляют нижний focused input
+  `Viewport` ordinary screen и frame оставляют нижний focused input
   видимым; первый tap по видимому action не теряется; drag, начатый при открытой
   клавиатуре, не запускает pull-to-refresh и не закрывает frame; следующий новый
   drag соответственно может ревалидировать Module либо закрыть frame. Prompt в
   React Native `Modal` получает autofocus после `onShow`, остаётся над Layout,
-  блокирует underlying interaction и использует собственный
-  `KeyboardScrollView` внутри единого application `KeyboardSurface`; focused
+  блокирует underlying interaction и использует собственный `Viewport` внутри
+  единого application `KeyboardSurface`; focused
   input и actions остаются достижимыми при открытой клавиатуре.
 - React Native navigation-history tests проверяют одинаковую семантику истории
   для tab, link, navigation item и imperative navigation, в том числе возврат

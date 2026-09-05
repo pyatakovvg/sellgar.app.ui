@@ -95,6 +95,15 @@ interface ApplicationNavigationHistoryCommit<TPresentation> {
   readonly released: readonly RouterRuntimeActivation<TPresentation>[];
 }
 
+interface ApplicationNavigationRequest {
+  readonly blockersConfirmed: boolean;
+  readonly historyTargetId: string | null;
+  readonly navigation: NavigationState;
+  readonly replaceCurrent: boolean;
+  readonly sessionBoundary: ApplicationSessionBoundary | null;
+  readonly source: RouterBridgeNavigationSource;
+}
+
 export interface ApplicationNavigationSnapshot {
   readonly decision: ApplicationNavigationDecision | null;
   readonly navigation: NavigationState | undefined;
@@ -138,6 +147,7 @@ export abstract class Application<
   private detachSessionState: (() => void) | null = null;
   private navigationAbortController: AbortController | null = null;
   private navigationPromise: Promise<boolean> | null = null;
+  private navigationRequest: ApplicationNavigationRequest | null = null;
   private navigateService: NavigateServiceInterface | null = null;
   private navigationSnapshot: ApplicationNavigationSnapshot = Object.freeze({
     decision: null,
@@ -645,6 +655,19 @@ export abstract class Application<
     replaceCurrent = false,
     sessionBoundary: ApplicationSessionBoundary | null = null,
   ): Promise<boolean> {
+    const request: ApplicationNavigationRequest = Object.freeze({
+      blockersConfirmed,
+      historyTargetId,
+      navigation,
+      replaceCurrent,
+      sessionBoundary,
+      source,
+    });
+
+    if (this.navigationPromise && this.navigationRequest && isSameNavigationRequest(this.navigationRequest, request)) {
+      return this.navigationPromise;
+    }
+
     if (
       !blockersConfirmed &&
       this.scope.has(NavigationBlockerRuntimeInterface) &&
@@ -693,11 +716,13 @@ export abstract class Application<
 
       if (this.navigationPromise === promise) {
         this.navigationPromise = null;
+        this.navigationRequest = null;
         this.setPendingNavigation(null);
       }
     });
 
     this.navigationPromise = promise;
+    this.navigationRequest = request;
 
     return promise;
   }
@@ -1254,6 +1279,54 @@ const createLinkedAbortController = (signal: AbortSignal) => {
     controller,
     dispose: () => signal.removeEventListener('abort', abort),
   };
+};
+
+const isSameNavigationRequest = (left: ApplicationNavigationRequest, right: ApplicationNavigationRequest): boolean =>
+  left.source === right.source &&
+  left.blockersConfirmed === right.blockersConfirmed &&
+  left.historyTargetId === right.historyTargetId &&
+  left.replaceCurrent === right.replaceCurrent &&
+  left.sessionBoundary === right.sessionBoundary &&
+  areNavigationStatesEqual(left.navigation, right.navigation) &&
+  hasSameNavigationMetadata(left.navigation, right.navigation);
+
+const hasSameNavigationMetadata = (left: NavigationState, right: NavigationState): boolean =>
+  left.replace === right.replace &&
+  Object.is(left.state, right.state) &&
+  isSameNavigationBoundary(left.boundary, right.boundary) &&
+  isSameNavigationInitiator(left.initiator, right.initiator) &&
+  isSameNestedAddress(left.pendingNestedAddress, right.pendingNestedAddress) &&
+  isSameNavigationRevalidation(left.revalidation, right.revalidation);
+
+const isSameNavigationBoundary = (left: NavigationState['boundary'], right: NavigationState['boundary']): boolean =>
+  left === right ||
+  (left !== null &&
+    right !== null &&
+    left.type === right.type &&
+    left.router === right.router &&
+    left.route === right.route);
+
+const isSameNavigationInitiator = (left: NavigationState['initiator'], right: NavigationState['initiator']): boolean =>
+  left === right || (left !== null && right !== null && left.kind === right.kind && left.runtimeId === right.runtimeId);
+
+const isSameNestedAddress = (
+  left: NavigationState['pendingNestedAddress'],
+  right: NavigationState['pendingNestedAddress'],
+): boolean =>
+  left === right ||
+  (left !== null &&
+    right !== null &&
+    left.length === right.length &&
+    left.every((segment, index) => segment === right[index]));
+
+const isSameNavigationRevalidation = (
+  left: NavigationState['revalidation'],
+  right: NavigationState['revalidation'],
+): boolean => {
+  if (left === right) return true;
+  if (left === null || right === null || left.kind !== right.kind) return false;
+
+  return left.kind !== 'router' || (right.kind === 'router' && left.router === right.router);
 };
 
 const MAX_POLICY_REDIRECT_DEPTH = 32;

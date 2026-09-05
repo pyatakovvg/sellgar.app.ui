@@ -3,7 +3,7 @@ import type { NavigationRouterState, NavigationState } from '../../../../core/ro
 export interface NativeFrameTransition {
   readonly depth: number;
   readonly operation: 'dismiss' | 'present' | 'replace';
-  readonly revision: number;
+  readonly revision: number | null;
 }
 
 export const resolveNativeFrameTransition = (
@@ -11,7 +11,7 @@ export const resolveNativeFrameTransition = (
   target: NavigationState | null,
   revision: number | null,
 ): NativeFrameTransition | null => {
-  if (!target || revision === null) return null;
+  if (!target) return null;
 
   let currentRouter: NavigationRouterState | null = current?.root ?? null;
   let targetRouter: NavigationRouterState | null = target.root;

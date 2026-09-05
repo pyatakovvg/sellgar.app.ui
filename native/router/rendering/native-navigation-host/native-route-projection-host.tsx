@@ -172,7 +172,7 @@ const createCommittedTarget = (props: NativeRouteOutletHostProps): NativeScreenT
   if (!entry && !runtime && props.owner) {
     return Object.freeze({
       presentation: Object.freeze({
-        content: <RouteModuleHost components={props.components} presentation="screen" runtime={props.owner.runtime} />,
+        content: <RouteModuleHost components={props.components} runtime={props.owner.runtime} />,
         key: resolveNativeRouteIndexPresentationKey(props.owner.entry, props.depth),
       }),
     });
@@ -214,11 +214,11 @@ const NativeRouteScreen: React.FC<NativeRouteScreenProps> = (props) => {
         tree={props.tree}
       />
     ) : (
-      <RouteModuleHost components={components} presentation="screen" runtime={props.runtime} />
+      <RouteModuleHost components={components} runtime={props.runtime} />
     );
 
   return (
-    <RouteHost components={components} layouts={definition.layouts} presentation="screen" runtime={props.runtime}>
+    <RouteHost components={components} layouts={definition.layouts} runtime={props.runtime}>
       {content}
     </RouteHost>
   );
@@ -241,7 +241,7 @@ const createPendingTarget = (
 
     return Object.freeze({
       presentation: Object.freeze({
-        content: <RouteModuleHost components={components} presentation="screen" runtime={owner.runtime} />,
+        content: <RouteModuleHost components={components} runtime={owner.runtime} />,
         key,
       }),
     });

@@ -4,7 +4,6 @@ import type { ApplicationNavigationDecision } from '../../../../core/application
 import type { RouterRuntime, RouterRuntimeActivationTree } from '../../../../core/router/runtime/router-runtime';
 import type { ApplicationComponents } from '../../../application/config/application-configurator';
 import type { ModuleMetadata } from '../../../module/declaration/module';
-import type { ModulePresentationMode } from '../../../module/rendering/module-host';
 import { RoutePathHost } from './route-path-host.tsx';
 import { RouterPresentationHost } from './router-presentation-host.tsx';
 
@@ -12,7 +11,6 @@ interface IProps {
   readonly components: ApplicationComponents;
   readonly decision?: ApplicationNavigationDecision | null;
   readonly pending?: boolean;
-  readonly presentation: ModulePresentationMode;
   readonly runtime: RouterRuntime<ModuleMetadata>;
   readonly tree?: RouterRuntimeActivationTree<ModuleMetadata>;
 }
@@ -43,7 +41,6 @@ const renderRouterContent = (props: IProps, components: ApplicationComponents): 
     <RoutePathHost
       components={components}
       pendingAfterRouteCount={branch.pendingLocalChange?.commonRouteCount}
-      presentation={props.presentation}
       routes={branch.routes}
     />
   );

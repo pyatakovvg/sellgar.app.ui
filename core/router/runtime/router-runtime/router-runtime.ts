@@ -1581,6 +1581,12 @@ export class RouterRuntime<TPresentation = unknown> {
     const transition = new PreparedRouterTransition<TPresentation>({
       commit: () => this.commitPreparedTransition(pending),
       complete: async ({ signal }) => {
+        if (boundary) {
+          await this.disposeBoundaryReplacedBranch(plan, boundary);
+        } else {
+          await this.disposeReplacedBranch(plan);
+        }
+
         const plans = resolveNavigationRevalidationPlans(plan, navigation, previousNavigation);
 
         if (plans.length === 0 || signal.aborted) {
@@ -1660,8 +1666,6 @@ export class RouterRuntime<TPresentation = unknown> {
     );
 
     if (pending.boundary) {
-      await this.disposeBoundaryReplacedBranch(pending.plan, pending.boundary);
-
       if (pending.boundary.kind === 'route') {
         await this.discardPlanAfterRouteBoundary(pending.boundary.plan, pending.boundary.entry);
       } else {
@@ -1669,7 +1673,6 @@ export class RouterRuntime<TPresentation = unknown> {
       }
     } else {
       this.setSnapshot({ error: null, phase: 'active' });
-      await this.disposeReplacedBranch(pending.plan);
     }
 
     return activation;

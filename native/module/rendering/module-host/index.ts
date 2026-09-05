@@ -1,1 +1,1 @@
-export { ModuleHost, type ModulePresentationMode } from './module-host.tsx';
+export { ModuleHost } from './module-host.tsx';

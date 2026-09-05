@@ -13,9 +13,9 @@ import {
   Route,
   Router,
   Shell,
-  ShellScrollView,
   type ShellContextInterface,
   ShellInterface,
+  Viewport,
   Widget,
   WidgetDefinition,
   WidgetHost,
@@ -45,7 +45,9 @@ interface FixtureWidgetProps {
 class FixtureWidget extends WidgetDefinition<FixtureWidgetProps> {}
 
 const FixtureShellView: React.FC<ShellContextInterface> = (props) => (
-  <ShellScrollView>{props.children}</ShellScrollView>
+  <Viewport>
+    <Viewport.Slot>{props.children}</Viewport.Slot>
+  </Viewport>
 );
 
 @Shell({ view: FixtureShellView })

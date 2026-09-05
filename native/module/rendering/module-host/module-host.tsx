@@ -9,15 +9,11 @@ import { RuntimeErrorBoundary } from '../../../runtime/exception/runtime-error-b
 import { RuntimeScopeProvider } from '../../../runtime/scope/runtime-scope-context';
 import { renderView } from '../../../view/renderable-view';
 import type { ModuleMetadata } from '../../declaration/module';
-import { ModuleRefreshPresentation } from './module-refresh-presentation.tsx';
-
-export type ModulePresentationMode = 'frame' | 'screen';
 
 interface IProps {
   readonly exception: React.ReactNode;
   readonly fallback: React.ReactNode;
   readonly moduleRuntime: ModuleRuntime<ModuleMetadata>;
-  readonly presentation: ModulePresentationMode;
   readonly routeRuntime: RouteActivationRuntime<ModuleMetadata>;
 }
 
@@ -44,12 +40,6 @@ export const ModuleHost: React.FC<IProps> = (props) => {
 
   const metadata = presentationModule.definition.presentation;
   const view = renderView(metadata.view, {});
-  const content =
-    props.presentation === 'screen' ? (
-      <ModuleRefreshPresentation runtime={props.routeRuntime}>{view}</ModuleRefreshPresentation>
-    ) : (
-      view
-    );
 
   return (
     <RuntimeErrorBoundary
@@ -59,7 +49,7 @@ export const ModuleHost: React.FC<IProps> = (props) => {
     >
       <RuntimeScopeProvider scope={presentationModule.scope}>
         <ControllerRuntimeProvider value={props.routeRuntime}>
-          {renderLayouts(metadata.layouts ?? [], content)}
+          {renderLayouts(metadata.layouts ?? [], view)}
         </ControllerRuntimeProvider>
       </RuntimeScopeProvider>
     </RuntimeErrorBoundary>

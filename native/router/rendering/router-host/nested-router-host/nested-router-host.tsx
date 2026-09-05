@@ -15,8 +15,7 @@ interface IProps {
   readonly children: React.ReactNode;
   readonly exception: React.ReactNode;
   readonly onPresentationComplete: () => void;
-  readonly phase: 'dismissing' | 'presenting' | 'visible';
-  readonly presentationRevision: number | null;
+  readonly phase: 'dismissing' | 'hidden' | 'presenting' | 'visible';
   readonly routing: ResolvedApplicationRouting | null;
   readonly runtime: RouterRuntime<ModuleMetadata>;
 }
@@ -42,7 +41,6 @@ export const NestedRouterHost: React.FC<IProps> = (props) => {
           metadata={shell}
           onPresentationComplete={props.onPresentationComplete}
           phase={props.phase}
-          presentationRevision={props.presentationRevision}
         >
           {props.children}
         </ShellHost>

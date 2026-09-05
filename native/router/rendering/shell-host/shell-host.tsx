@@ -29,8 +29,7 @@ interface ShellHostProps {
   readonly dismiss: () => void | Promise<void>;
   readonly metadata: ShellMetadata;
   readonly onPresentationComplete: () => void;
-  readonly phase: 'dismissing' | 'presenting' | 'visible';
-  readonly presentationRevision: number | null;
+  readonly phase: 'dismissing' | 'hidden' | 'presenting' | 'visible';
 }
 
 const DISMISS_DURATION = 180;
@@ -41,14 +40,15 @@ const VERTICAL_ACTIVATION_DISTANCE = 8;
 export const ShellHost: React.FC<ShellHostProps> = (props) => {
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
   const { dismiss } = props;
-  const requestDismiss = useShellDismissRequest(dismiss);
+  const phase = props.phase;
+  const requestCoreDismiss = useShellDismissRequest(dismiss);
   const translationY = useSharedValue(0);
   const frameHeight = useSharedValue(1);
   const frameMeasured = useSharedValue(0);
   const interactiveDismissStarted = useSharedValue(false);
-  const reportedPresentationRevision = React.useRef<number | null>(null);
   const scrollBounds = useSharedValue<ShellScrollBounds | null>(null);
   const scrollOffset = useSharedValue(0);
+  const touchStartedAtScrollOffset = useSharedValue(0);
   const initialTouchX = useSharedValue(0);
   const initialTouchY = useSharedValue(0);
   const activationTranslationY = useSharedValue(0);
@@ -56,17 +56,12 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
   const touchStartedInScrollable = useSharedValue(false);
   const touchStartedWithKeyboard = useSharedValue(false);
   const keyboardDismissRequested = useSharedValue(false);
-  const completePresentation = React.useCallback(() => {
-    if (
-      props.presentationRevision === null ||
-      reportedPresentationRevision.current === props.presentationRevision
-    ) {
-      return;
-    }
-
-    reportedPresentationRevision.current = props.presentationRevision;
-    props.onPresentationComplete();
-  }, [props.onPresentationComplete, props.presentationRevision]);
+  const gestureEnabled = useSharedValue(props.phase === 'visible');
+  const requestDismiss = React.useCallback(() => {
+    gestureEnabled.value = false;
+    requestCoreDismiss();
+  }, [gestureEnabled, requestCoreDismiss]);
+  const completePresentation = props.onPresentationComplete;
   const animateInteractiveDismiss = React.useCallback(() => {
     'worklet';
 
@@ -78,6 +73,10 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
       if (finished) scheduleOnRN(requestDismiss);
     });
   }, [frameHeight, interactiveDismissStarted, requestDismiss, translationY]);
+  const close = React.useCallback(() => {
+    gestureEnabled.value = false;
+    animateInteractiveDismiss();
+  }, [animateInteractiveDismiss, gestureEnabled]);
   const animatePresentationDismiss = React.useCallback(() => {
     cancelAnimation(translationY);
 
@@ -103,12 +102,14 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
     });
   }, [completePresentation, frameMeasured, translationY]);
 
-  React.useEffect(() => {
-    if (props.phase === 'dismissing') animatePresentationDismiss();
-    if (props.phase === 'presenting') ensurePresentationVisible();
-  }, [animatePresentationDismiss, ensurePresentationVisible, props.phase, props.presentationRevision]);
+  React.useLayoutEffect(() => {
+    gestureEnabled.value = phase === 'visible';
+    if (phase === 'dismissing') animatePresentationDismiss();
+    if (phase === 'presenting') ensurePresentationVisible();
+  }, [animatePresentationDismiss, ensurePresentationVisible, gestureEnabled, phase]);
 
   const gesture = usePanGesture({
+    enabled: gestureEnabled,
     manualActivation: true,
     onBegin: () => {
       if (interactiveDismissStarted.value) return;
@@ -125,6 +126,7 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
       initialTouchX.value = touch.absoluteX;
       initialTouchY.value = touch.absoluteY;
       touchStartedInScrollable.value = isTouchWithinShellScrollBounds(touch.absoluteY, scrollBounds.value);
+      touchStartedAtScrollOffset.value = touchStartedInScrollable.value ? scrollOffset.value : 0;
       touchStartedWithKeyboard.value = keyboardHeight.value !== 0;
     },
     onTouchesMove: (event) => {
@@ -141,7 +143,7 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
         deltaX: touch.absoluteX - initialTouchX.value,
         deltaY: touch.absoluteY - initialTouchY.value,
         horizontalTolerance: HORIZONTAL_TOLERANCE,
-        scrollOffset: touchStartedInScrollable.value ? scrollOffset.value : 0,
+        scrollOffset: touchStartedAtScrollOffset.value,
         verticalActivationDistance: VERTICAL_ACTIVATION_DISTANCE,
       });
 
@@ -157,6 +159,9 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
 
       if (intent === 'activate') GestureStateManager.activate(event.handlerTag);
       if (intent === 'fail') GestureStateManager.fail(event.handlerTag);
+    },
+    onTouchesUp: (event) => {
+      if (!gestureActivated.value) GestureStateManager.fail(event.handlerTag);
     },
     onActivate: (event) => {
       gestureActivated.value = true;
@@ -205,8 +210,8 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
   }));
   const context: ShellContextInterface = React.useMemo(() => ({ children: props.children }), [props.children]);
   const runtime: ShellRuntimeContextValue = React.useMemo(
-    () => ({ controller: { close: requestDismiss }, dismissGesture: gesture, scrollBounds, scrollOffset }),
-    [gesture, requestDismiss, scrollBounds, scrollOffset],
+    () => ({ controller: { close }, dismissGesture: gesture, scrollBounds, scrollOffset }),
+    [close, gesture, scrollBounds, scrollOffset],
   );
   const handleFrameLayout = React.useCallback(
     (event: LayoutChangeEvent) => {
@@ -219,15 +224,27 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
       translationY.value = height;
       frameMeasured.value = 1;
       translationY.value = withTiming(0, { duration: PRESENT_DURATION }, (finished) => {
-        if (finished && props.phase === 'presenting') scheduleOnRN(completePresentation);
+        if (finished && phase === 'presenting') scheduleOnRN(completePresentation);
       });
     },
-    [completePresentation, frameHeight, frameMeasured, props.phase, translationY],
+    [completePresentation, frameHeight, frameMeasured, phase, translationY],
   );
 
   return (
     <GestureDetector gesture={gesture}>
-      <View accessibilityViewIsModal style={[StyleSheet.absoluteFill, styles.overlay]}>
+      <View
+        accessibilityElementsHidden={props.phase === 'hidden'}
+        accessibilityViewIsModal={props.phase !== 'hidden'}
+        importantForAccessibility={props.phase === 'hidden' ? 'no-hide-descendants' : 'auto'}
+        pointerEvents={
+          props.phase === 'hidden'
+            ? 'none'
+            : props.phase === 'presenting' || props.phase === 'visible'
+              ? 'auto'
+              : 'box-only'
+        }
+        style={[StyleSheet.absoluteFill, styles.overlay]}
+      >
         <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]} />
         <KeyboardAvoidingView
           automaticOffset

@@ -64,11 +64,8 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
     props.source.getNavigation,
     props.source.getNavigation,
   );
-  const presentation = useNativePresentationCycle(
-    props.source.routerBridge,
-    navigation.navigation,
-    navigation.pending,
-  );
+  const presentation = useNativePresentationCycle(props.source.routerBridge, navigation.navigation, navigation.pending);
+  const dismissPendingFrame = React.useCallback(() => props.source.routerBridge.back(), [props.source.routerBridge]);
 
   if (lifecycle.phase === 'disposing' || lifecycle.phase === 'disposed') return null;
 
@@ -111,7 +108,9 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
           components={props.source.components}
           decision={navigation.decision}
           depth={0}
+          dismissPending={dismissPendingFrame}
           onPresentationComplete={presentation.completeFrame}
+          pending={navigation.pending?.root}
           retainedTree={retainedFrameTree}
           routing={props.source.routing}
           runtime={runtime}

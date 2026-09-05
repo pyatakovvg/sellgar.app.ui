@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal, StyleSheet } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
 import type { ScreenPresentation } from '../../../screen/declaration/screen-presentation';
 import { ScreenLayerHost } from '../../../screen/rendering/screen-compositor';
@@ -16,9 +17,17 @@ export const ModalHost: React.FC<ModalHostProps> = (props) => {
 
   return (
     <ScreenLayerHost kind="modal">
-      <Modal animationType="none" onRequestClose={props.onRequestClose} onShow={() => setShown(true)} transparent visible>
+      <Modal
+        animationType="none"
+        onRequestClose={props.onRequestClose}
+        onShow={() => setShown(true)}
+        transparent
+        visible
+      >
         <ScreenActivityGate active={shown}>
-          <ScreenRenderer presentation={props.presentation} style={styles.screen} />
+          <KeyboardAvoidingView automaticOffset behavior="padding" style={styles.screen}>
+            <ScreenRenderer presentation={props.presentation} style={styles.screen} />
+          </KeyboardAvoidingView>
         </ScreenActivityGate>
       </Modal>
     </ScreenLayerHost>
