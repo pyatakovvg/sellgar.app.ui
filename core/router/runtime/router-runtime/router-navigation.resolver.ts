@@ -258,17 +258,34 @@ const expandRoutePath = (
 
   if (definition.defaultTo && isFirstAvailableRouteDefaultValue(definition.defaultTo)) {
     return definition.routes.flatMap((route) => {
+      if (!hasResolvableParams(route, context)) {
+        return [];
+      }
+
       return expandRoutePath(appendDirectChild(path, route, context), context, true, true);
     });
   }
 
   if (definition.token === undefined && definition.address === undefined) {
     return definition.routes.flatMap((route) => {
+      if (!hasResolvableParams(route, context)) {
+        return [];
+      }
+
       return expandRoutePath(appendDirectChild(path, route, context), context, true, replace);
     });
   }
 
   throw new Error('Target Route с дочерними routes должна разрешаться через index Route или defaultTo.');
+};
+
+const hasResolvableParams = (route: RouteDeclaration, context: ResolverContext): boolean => {
+  try {
+    validateRouteParams(route, context.currentParams.get(route) ?? EMPTY_PARAMS);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const appendDirectChild = (

@@ -2,6 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createModuleRuntimeDefinition } from '../../../module/contract/module-runtime-definition';
 import type { ModuleExportResolverInterface } from '../../../module/resolution/module-export-resolver';
+import { Controller } from '../../../controller/contract/controller';
+import type { BindingModuleInterface } from '../../../di/binding/binding-module';
+import type { BindingRegistryInterface } from '../../../di/binding/binding-registry';
+import { UseBindings } from '../../../di/composition/use-bindings';
+import { Inject } from '../../../di/injection/decorators';
 import { Policy } from '../../../policy/contract/policy';
 import type { PolicyResult } from '../../../policy/contract/policy-result';
 import type {
@@ -51,6 +56,29 @@ abstract class ProductRoute {
   abstract readonly productId: string;
 }
 
+abstract class NavigateActionControllerInterface {
+  abstract action(): Promise<void>;
+}
+
+@Controller()
+class NavigateActionController implements NavigateActionControllerInterface {
+  constructor(
+    @Inject(NavigateServiceInterface)
+    private readonly navigate: NavigateServiceInterface,
+  ) {}
+
+  action(): Promise<void> {
+    return this.navigate.to(SecondRoute);
+  }
+}
+
+class TestBindings implements BindingModuleInterface {
+  register(registry: BindingRegistryInterface): void {
+    registry.bind(NavigateActionControllerInterface).to(NavigateActionController);
+  }
+}
+
+@UseBindings(TestBindings)
 class TestModule {}
 
 @Provider()
@@ -215,6 +243,30 @@ describe('Application routing lifecycle', () => {
     expect(app.activeRoutes).toEqual([workspaceRuntime, firstRuntime]);
     expect(firstRuntime!.getSnapshot().phase).toBe('active');
     expect(secondRuntime!.getSnapshot().phase).toBe('disposed');
+
+    await app.dispose();
+  });
+
+  it('settles an action that navigates its Module runtime into retained state', async () => {
+    const router = new Router({
+      routes: [createModuleRoute(FirstRoute, 'first'), createModuleRoute(SecondRoute, 'second')],
+    });
+    const app = await createApplication(router, (navigate) => navigate.to(FirstRoute));
+    const firstRuntime = app.activeRoutes[0]!;
+
+    await firstRuntime.action(NavigateActionControllerInterface, undefined);
+
+    expect(firstRuntime.getSnapshot().phase).toBe('retained');
+    expect(firstRuntime.getModuleRuntime().getActionState(NavigateActionControllerInterface)).toEqual({
+      data: undefined,
+      error: undefined,
+      inProcess: false,
+    });
+
+    await app.navigate.back();
+
+    expect(firstRuntime.getSnapshot().phase).toBe('active');
+    expect(firstRuntime.getModuleRuntime().getActionState(NavigateActionControllerInterface).inProcess).toBe(false);
 
     await app.dispose();
   });

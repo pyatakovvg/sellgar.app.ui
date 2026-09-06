@@ -1797,6 +1797,11 @@ await navigate.query({ tab: 'history' }, { revalidate: false });
 - Успешный controller action сам по себе не запускает implicit revalidation.
   Обновление выполняется только явной navigation/revalidate operation, как в
   текущем runtime после удаления React Router action transport.
+- Если controller action инициировал forward navigation и его Module runtime
+  был переведён в `retained`, action всё равно обязан завершить собственный
+  observable state. При последующем Back сохранённый экран возвращается с
+  `inProcess: false`; late data/error не применяются к уже заменённому или
+  освобождённому Module runtime.
 - `RevalidateServiceInterface` ближайшего Module/Widget runtime сохраняет
   общий и controller-targeted режимы, observable `inProcess/error` и не
   маршрутизирует локальный вызов через renderer bridge.

@@ -425,6 +425,10 @@ export class ModuleRuntime<TPresentation = unknown> {
       }
     } finally {
       this.activeActions.delete(controllerToken);
+
+      if (this.isRetainedModule(activeModule) && this.getActionState(controllerToken).inProcess) {
+        this.setActionState(controllerToken, DEFAULT_ACTION_STATE);
+      }
     }
   }
 
@@ -897,6 +901,10 @@ export class ModuleRuntime<TPresentation = unknown> {
 
   private isActiveModule(moduleRuntime: ActiveModuleRuntime<TPresentation>): boolean {
     return this.state.phase === 'active' && this.state.active === moduleRuntime;
+  }
+
+  private isRetainedModule(moduleRuntime: ActiveModuleRuntime<TPresentation>): boolean {
+    return this.state.phase === 'retained' && this.state.active === moduleRuntime;
   }
 
   private isCurrentRevalidate(
