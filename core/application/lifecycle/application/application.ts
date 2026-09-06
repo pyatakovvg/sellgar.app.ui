@@ -1,6 +1,7 @@
 import type { DependencyConstructor } from '../../../di/binding/binding-builder';
 import { UseBindings } from '../../../di/composition/use-bindings';
 import type { DependencyToken } from '../../../di/token/dependency-token';
+import { Exception } from '../../../exception/contract/exception';
 import { NavigationBlockerRuntimeInterface } from '../../../features/navigation-blocker/runtime/navigation-blocker-runtime';
 import type { NavigationBlockerBoundary } from '../../../features/navigation-blocker/runtime/navigation-blocker-runtime';
 import type { ModuleExportResolverInterface } from '../../../module/resolution/module-export-resolver';
@@ -1259,7 +1260,7 @@ const createApplicationRuntimeSource = (operation: string): RuntimeFailureSource
   };
 };
 
-class ApplicationInitializerRejected extends Error {
+class ApplicationInitializerRejected extends Exception {
   constructor(readonly cause: unknown) {
     super('Application initializer was rejected by an expected operation result.', { cause });
   }

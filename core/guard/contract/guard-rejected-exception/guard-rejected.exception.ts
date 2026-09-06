@@ -1,3 +1,4 @@
+import { Exception } from '../../../exception/contract/exception';
 import type { GuardToken } from '../guard';
 
 export interface GuardRejectedExceptionOptions {
@@ -5,7 +6,7 @@ export interface GuardRejectedExceptionOptions {
   readonly method?: string | symbol;
 }
 
-export class GuardRejectedException extends Error {
+export class GuardRejectedException extends Exception {
   readonly guard: GuardToken;
   readonly method: string | symbol | undefined;
 

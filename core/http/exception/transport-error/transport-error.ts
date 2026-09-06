@@ -1,3 +1,4 @@
+import { Exception } from '../../../exception/contract/exception';
 import type { HttpRequestSource } from '../http-exception';
 
 export interface TransportErrorOptions {
@@ -5,7 +6,7 @@ export interface TransportErrorOptions {
   readonly request?: HttpRequestSource;
 }
 
-export class NetworkError extends Error {
+export class NetworkError extends Exception {
   constructor(message: string, options: TransportErrorOptions = {}) {
     super(message, { cause: options.cause });
     this.name = new.target.name;
@@ -15,7 +16,7 @@ export class NetworkError extends Error {
   readonly request: HttpRequestSource | undefined;
 }
 
-export class TransportTimeoutError extends Error {
+export class TransportTimeoutError extends Exception {
   constructor(message: string, options: TransportErrorOptions = {}) {
     super(message, { cause: options.cause });
     this.name = new.target.name;

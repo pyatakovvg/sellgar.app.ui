@@ -1,3 +1,5 @@
+import { Exception } from '../../../exception/contract/exception';
+
 export interface HttpRequestSource {
   readonly method?: string;
   readonly url?: string;
@@ -10,7 +12,7 @@ export interface HttpExceptionOptions {
 
 const HTTP_EXCEPTION = Symbol.for('tiyn.app.http-exception');
 
-export class HttpException<TResponse = unknown> extends Error {
+export class HttpException<TResponse = unknown> extends Exception {
   readonly [HTTP_EXCEPTION] = true;
 
   constructor(

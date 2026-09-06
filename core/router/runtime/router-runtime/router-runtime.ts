@@ -1,5 +1,6 @@
 import type { ApplicationControllerInterface } from '../../../application/lifecycle/application-lifecycle';
 import type { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
+import { Exception } from '../../../exception/contract/exception';
 import type { NavigationBlockerBoundary } from '../../../features/navigation-blocker/runtime/navigation-blocker-runtime';
 import type { ModuleExportResolverInterface } from '../../../module/resolution/module-export-resolver';
 import type { PolicyBoundaryDecision } from '../../../policy/contract/policy-boundary-decision';
@@ -2934,7 +2935,7 @@ const createInterruptedResult = <TPresentation>(reason: unknown): RouterRuntimeP
   type: 'interrupted',
 });
 
-class ActionPolicyDecisionError extends Error {
+class ActionPolicyDecisionError extends Exception {
   constructor(readonly decision: Extract<PolicyBoundaryDecision, { readonly type: 'forbidden' | 'not-found' }>) {
     super(`Controller action отклонён policy-решением ${decision.type}.`);
   }

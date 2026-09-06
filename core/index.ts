@@ -66,6 +66,8 @@ export { UseBindings } from './di/composition/use-bindings';
 export { Inject, Injectable, MultiInject, Optional } from './di/injection/decorators';
 export type { AbstractDependencyConstructor, DependencyToken } from './di/token/dependency-token';
 
+export { Exception, type ExceptionOptions } from './exception/contract/exception';
+
 export {
   BadGatewayException,
   BadRequestException,
