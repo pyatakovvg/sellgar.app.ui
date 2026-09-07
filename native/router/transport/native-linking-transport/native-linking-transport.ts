@@ -1,3 +1,5 @@
+import { Linking } from 'react-native';
+
 import type { NativeRouterTransportInterface, NativeRouterTransportListener } from '../native-router-transport';
 import { decodeNativeLocation, type NativeLocationCodecOptions } from './native-location-codec.ts';
 
@@ -7,30 +9,18 @@ export class NativeLinkingTransport implements NativeRouterTransportInterface {
   constructor(private readonly options: NativeLinkingTransportOptions = {}) {}
 
   async getInitialLocation(signal: AbortSignal) {
-    const { Linking } = await import('react-native');
     const url = await Linking.getInitialURL();
 
-    if (signal.aborted || url === null) return null;
+    if (signal.aborted || url == null) return null;
     return decodeNativeLocation(url, this.options);
   }
 
   subscribe(listener: NativeRouterTransportListener): () => void {
-    let active = true;
-    let remove: (() => void) | null = null;
+    const subscription = Linking.addEventListener('url', ({ url }) =>
+      listener(decodeNativeLocation(url, this.options)),
+    );
 
-    void import('react-native').then(({ Linking }) => {
-      if (!active) return;
-
-      const subscription = Linking.addEventListener('url', ({ url }) =>
-        listener(decodeNativeLocation(url, this.options)),
-      );
-      remove = () => subscription.remove();
-    });
-
-    return () => {
-      active = false;
-      remove?.();
-    };
+    return () => subscription.remove();
   }
 }
 
