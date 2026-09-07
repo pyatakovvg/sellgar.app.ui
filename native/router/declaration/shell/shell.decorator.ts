@@ -13,6 +13,7 @@ export interface ShellController {
 }
 
 export interface ShellMetadata {
+  readonly backdrop?: RenderableView;
   readonly view: RenderableView<ShellContextInterface>;
 }
 

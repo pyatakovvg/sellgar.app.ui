@@ -39,7 +39,10 @@ export const ScreenRenderer: React.FC<ScreenRendererProps> = ({ onPresentationCo
   const progress = useSharedValue(1);
 
   React.useLayoutEffect(() => {
-    setState((current) => presentScreen(current, presentation));
+    setState((current) => {
+      if (hasPresentationIdentity(current, presentation)) return current;
+      return presentScreen(current, presentation);
+    });
   }, [presentation]);
 
   const finishTransition = React.useCallback((transitionId: number) => {
@@ -73,22 +76,25 @@ export const ScreenRenderer: React.FC<ScreenRendererProps> = ({ onPresentationCo
 
   return (
     <View pointerEvents={state.phase === 'transitioning' ? 'none' : 'auto'} style={[styles.host, style]}>
-      <ScreenSlotView progress={progress} slot="primary" state={state} />
-      <ScreenSlotView progress={progress} slot="secondary" state={state} />
+      <ScreenSlotView presentation={presentation} progress={progress} slot="primary" state={state} />
+      <ScreenSlotView presentation={presentation} progress={progress} slot="secondary" state={state} />
     </View>
   );
 };
 
 interface ScreenSlotViewProps {
+  readonly presentation: ScreenPresentation | null;
   readonly progress: SharedValue<number>;
   readonly slot: ScreenSlot;
   readonly state: ScreenMachineState;
 }
 
-const ScreenSlotView: React.FC<ScreenSlotViewProps> = ({ progress, slot, state }) => {
+const ScreenSlotView: React.FC<ScreenSlotViewProps> = ({ presentation: requestedPresentation, progress, slot, state }) => {
   const presentationActive = useScreenActive();
   const dimensions = useWindowDimensions();
-  const presentation = resolveScreenSlotPresentation(state, slot);
+  const storedPresentation = resolveScreenSlotPresentation(state, slot);
+  const presentation =
+    requestedPresentation?.key === storedPresentation?.key ? requestedPresentation : storedPresentation;
   const role = resolveScreenSlotRole(state, slot);
   const animation = state.phase === 'transitioning' ? state.incoming.transition?.animation : undefined;
   const animatedStyle = useAnimatedStyle(() => {
@@ -177,6 +183,16 @@ const ScreenSlotView: React.FC<ScreenSlotViewProps> = ({ progress, slot, state }
       </ScreenActivityProvider>
     </Animated.View>
   );
+};
+
+const hasPresentationIdentity = (
+  state: ScreenMachineState,
+  presentation: ScreenPresentation | null,
+): boolean => {
+  if (presentation === null) return state.phase === 'empty';
+  if (state.phase === 'stable') return state.current.key === presentation.key;
+  if (state.phase === 'transitioning') return state.incoming.key === presentation.key;
+  return false;
 };
 
 const styles = StyleSheet.create({

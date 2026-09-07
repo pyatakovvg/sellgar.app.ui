@@ -229,6 +229,7 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
     },
     [completePresentation, frameHeight, frameMeasured, phase, translationY],
   );
+  const backdrop = props.metadata.backdrop ? renderView(props.metadata.backdrop, {}) : null;
 
   return (
     <GestureDetector gesture={gesture}>
@@ -245,7 +246,9 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
         }
         style={[StyleSheet.absoluteFill, styles.overlay]}
       >
-        <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]} />
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, backdropStyle]}>
+          {backdrop}
+        </Animated.View>
         <KeyboardAvoidingView
           automaticOffset
           behavior="padding"
@@ -262,9 +265,6 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
 };
 
 const styles = StyleSheet.create({
-  backdrop: {
-    backgroundColor: 'rgba(0, 0, 0, 0.56)',
-  },
   frame: {
     maxHeight: '100%',
   },

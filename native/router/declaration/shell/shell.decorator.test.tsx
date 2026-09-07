@@ -4,8 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { getShellMetadata, isShellConstructor, Shell, ShellInterface, type ShellContextInterface } from './index.ts';
 
 const ShellView: React.FC<ShellContextInterface> = (props) => <>{props.children}</>;
+const ShellBackdrop: React.FC = () => <>backdrop</>;
 
-@Shell({ view: ShellView })
+@Shell({ backdrop: ShellBackdrop, view: ShellView })
 class TestShell extends ShellInterface {}
 
 class UndeclaredShell extends ShellInterface {}
@@ -15,6 +16,7 @@ describe('Native Shell declaration', () => {
     const metadata = getShellMetadata(TestShell);
 
     expect(isShellConstructor(TestShell)).toBe(true);
+    expect(metadata.backdrop).toBe(ShellBackdrop);
     expect(metadata.view).toBe(ShellView);
     expect(Object.isFrozen(metadata)).toBe(true);
   });

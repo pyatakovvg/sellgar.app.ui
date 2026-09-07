@@ -100,6 +100,7 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
           decision={navigation.decision}
           getHistoryEntries={props.source.getRouterHistoryEntries}
           onPresentationComplete={presentation.completeScreen}
+          pending={navigation.pending}
           runtime={runtime}
         />,
       );

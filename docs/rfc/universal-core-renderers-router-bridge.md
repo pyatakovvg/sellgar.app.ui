@@ -874,6 +874,13 @@ app.routing({
   изменение layout/content, завершение process и оставшаяся позиция у нижней
   границы не запускают каскадную подгрузку. Следующая попытка возможна только
   после выхода из end-zone и нового пользовательского достижения конца.
+  Определение end-zone, его threshold и повторного достижения полностью
+  делегируется `VirtualizedList.onEndReached`; adapter не вычисляет дистанцию до
+  конца повторно и не выводит её из platform-specific порядка drag/momentum,
+  `velocity` либо других scroll events. Его единственная защита поверх
+  `VirtualizedList` — не принимать initial callback до пользовательского scroll,
+  повторный callback во время текущего `inProcess` и каскадный callback без
+  следующего пользовательского взаимодействия.
   Дочерняя view `Collection.LoadMore` является overlay-accessory коллекции, а не
   item, footer либо частью её scroll-flow. При переходе `inProcess` в `true`
   accessory монтируется поверх нижней границы видимой области коллекции и
@@ -920,13 +927,16 @@ app.routing({
   Режим выбирается в начале drag и не меняется до его завершения. Жест,
   начавшийся ниже верхней границы scroll owner, остаётся scroll, даже если в
   процессе достиг начала страницы; для refresh требуется следующий
-  самостоятельный свайп вниз, начавшийся уже на верхней границе. Adapter
-  ограничивает `RefreshControl` на время scroll-жеста штатными событиями
-  `onScrollBeginDrag`/`onScrollEndDrag`, не вводя собственный threshold, pan
-  recognizer или таймер.
+  самостоятельный свайп вниз, начавшийся уже на верхней границе. Adapter не
+  отбрасывает `onRefresh` на основании предполагаемого порядка JS scroll-events:
+  распознавание принятого pull остаётся нативным. Там, где React Native
+  предоставляет штатное управление доступностью RefreshControl, adapter
+  запрещает его для жеста, начавшегося вне верхней границы, и снова разрешает
+  только после завершения этого scroll. Собственный pull threshold, pan
+  recognizer и таймер не вводятся.
   Такое устройство следует контрактам React Native
-  [`RefreshControl`](https://reactnative.dev/docs/0.86/refreshcontrol) и
-  [`VirtualizedList`](https://reactnative.dev/docs/0.86/virtualizedlist): pull
+  [`RefreshControl`](https://reactnative.dev/docs/refreshcontrol) и
+  [`VirtualizedList`](https://reactnative.dev/docs/virtualizedlist): pull
   распознаётся вертикальным scroll owner на верхней границе, а `refreshing`
   остаётся controlled-состоянием инициировавшей его presentation.
 
@@ -988,9 +998,11 @@ app.routing({
   `useScreenAutoFocus` связывает focusable ref с activity screen и одинаково
   применим к обычному `TextInput`, полям формы и пользовательским input-
   компонентам. Keyboard-aware scroll owner не выбирает focus: после подтверждения
-  показа native keyboard он только доводит явно autofocus-поле до видимой области.
-  Механизм не требует таймеров, сохранения input identity, ручного измерения его
-  координат или логики конкретной формы.
+  показа native keyboard сам поддерживаемый `KeyboardAwareScrollView` доводит
+  focused input до видимой области. Framework hook только применяет `focus()` к
+  явно autofocus-полю активного screen и не повторяет библиотечный scroll
+  imperative API. Механизм не требует таймеров, сохранения input identity,
+  `findNodeHandle`, ручного измерения координат или логики конкретной формы.
   Интеграция virtualized owner выполняется штатным для
   [`react-native-keyboard-controller`](https://kirillzyusko.github.io/react-native-keyboard-controller/docs/api/components/keyboard-aware-scroll-view#flatlistflashlistsectionlist-etc)
   способом через `renderScrollComponent`; framework не реализует собственный
@@ -1048,21 +1060,27 @@ dismissing | hidden`. Источник logical close ему неизвестен
   presentation одновременно.
 
   ```tsx
-  @Shell({ view: DrawerView })
+  const DrawerBackdrop = () => <Blur />;
+
+  @Shell({ backdrop: DrawerBackdrop, view: DrawerView })
   export class DrawerShell extends ShellInterface {}
   ```
 
   Native `ShellView` получает `children` и описывает пользовательский chrome.
+  Необязательный `backdrop` является отдельной renderer-specific view и
+  определяет только внешний вид слоя позади frame: цвет, blur, gradient либо
+  прозрачность. Он не создаёт собственную модальность, gesture runtime или
+  lifecycle.
   Она выбирает место внутреннего scrollable content через framework primitive
   `ShellScrollView`, а через `useShell()` может запросить явный scoped `close()`,
   например из собственного header. Эти API не передают view пороги, gesture
-  state, animation callbacks или navigation runtime. Backdrop, измерение и
-  ограничение frame, scroll/dismiss arbitration, interactive pan,
+  state, animation callbacks или navigation runtime. Размещение и анимацию
+  backdrop, измерение и ограничение frame, scroll/dismiss arbitration, interactive pan,
   displacement, dismiss/cancel animation и фактический scoped `close()`
   реализует единый native Shell host. `useShell().close()` только запрашивает ту
-  же scoped `navigate.close()` и не управляет физической анимацией. Backdrop
-  только затемняет owner screen и
-  блокирует взаимодействие с ним; tap по backdrop не закрывает frame. Dismiss
+  же scoped `navigate.close()` и не управляет физической анимацией. Полный shell
+  layer блокирует взаимодействие с owner screen независимо от визуального
+  содержимого backdrop; tap по backdrop не закрывает frame. Dismiss
   запускается ровно один раз; после core commit nested host целиком
   размонтируется вместе с backdrop, gesture layer и Shell view. Прикладной
   shell не создаёт собственный gesture state и не вызывает navigation по

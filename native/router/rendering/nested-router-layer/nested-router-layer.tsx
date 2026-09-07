@@ -22,7 +22,7 @@ import { ScreenLayerHost } from '../../../screen/rendering/screen-compositor';
 import { ScreenRenderer } from '../../../screen/rendering/screen-renderer';
 import { getRoutePresentationDefinition } from '../../declaration/route';
 import { getRouterPresentationDefinition } from '../../declaration/router';
-import { NestedRouterHost, PendingNestedRouterHost } from '../router-host/nested-router-host';
+import { NestedRouterHost } from '../router-host/nested-router-host';
 import { RouterHost } from '../router-host';
 import type { NativeFrameTransition } from '../presentation-cycle';
 
@@ -185,44 +185,43 @@ const FramePresentation: React.FC<FramePresentationProps> = (props) => {
     if (!target) return null;
 
     return Object.freeze({
-      content: target.runtime ? (
+      content: (
         <NestedRouterHost
+          dismissPending={props.dismissPending}
           exception={target.components.exception}
-          onPresentationComplete={handlePresentationComplete}
-          phase={state.phase}
-          routing={target.routing}
-          runtime={target.runtime}
-        >
-          <RouterHost
-            components={target.components}
-            pending={target.childPending}
-            runtime={target.runtime}
-            tree={target.tree}
-          />
-          {target.childPending ? null : (
-            <NestedRouterLayer
-              components={target.components}
-              depth={props.depth + 1}
-              dismissPending={props.dismissPending}
-              onPresentationComplete={props.onPresentationComplete}
-              pending={props.pending}
-              retainedTree={props.retainedTarget?.tree}
-              routing={target.routing}
-              runtime={target.runtime}
-              transition={props.transition}
-              tree={target.tree}
-            />
-          )}
-        </NestedRouterHost>
-      ) : (
-        <PendingNestedRouterHost
-          dismiss={props.dismissPending}
-          fallback={target.components.fallback}
           onPresentationComplete={handlePresentationComplete}
           phase={state.phase}
           router={target.router}
           routing={target.routing}
-        />
+          runtime={target.runtime}
+        >
+          {target.runtime ? (
+            <>
+              <RouterHost
+                components={target.components}
+                pending={target.childPending}
+                runtime={target.runtime}
+                tree={target.tree}
+              />
+              {target.childPending ? null : (
+                <NestedRouterLayer
+                  components={target.components}
+                  depth={props.depth + 1}
+                  dismissPending={props.dismissPending}
+                  onPresentationComplete={props.onPresentationComplete}
+                  pending={props.pending}
+                  retainedTree={props.retainedTarget?.tree}
+                  routing={target.routing}
+                  runtime={target.runtime}
+                  transition={props.transition}
+                  tree={target.tree}
+                />
+              )}
+            </>
+          ) : (
+            target.components.fallback
+          )}
+        </NestedRouterHost>
       ),
       key: `frame-${resolveFramePresentationKey(target.owner, target.router)}`,
     });

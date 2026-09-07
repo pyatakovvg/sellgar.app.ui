@@ -29,6 +29,7 @@ interface NativeRouteProjectionHostProps {
   readonly entries: readonly ApplicationRouterHistoryEntry<ModuleMetadata>[];
   readonly onPresentationComplete: () => void;
   readonly pending: NavigationState | null;
+  readonly retainedTree: RouterRuntimeActivationTree<ModuleMetadata> | null;
 }
 
 export const NativeRouteProjectionHost: React.FC<NativeRouteProjectionHostProps> = (props) => {
@@ -48,8 +49,11 @@ export const NativeRouteProjectionHost: React.FC<NativeRouteProjectionHostProps>
 
   const pending = resolveNativePendingRouteProjection(current, props.pending);
   const focusedTree = focusedEntry?.tree ?? null;
-  const sourcePath = pending ? currentPath : previousPath.current;
   const targetPath = pending?.path ?? currentPath;
+  const projectedPath = props.retainedTree ? targetPath : currentPath;
+  const projectedPending = props.retainedTree ? null : pending;
+  const projectedTree = props.retainedTree ?? focusedTree;
+  const sourcePath = pending ? currentPath : previousPath.current;
   const transitionDepth = pending?.changeDepth ?? resolveNativeRouteChangeDepth(sourcePath, targetPath);
   const transition =
     transitionDepth === null
@@ -65,7 +69,7 @@ export const NativeRouteProjectionHost: React.FC<NativeRouteProjectionHostProps>
     presentationDepth.current = currentPath.length - 1;
   }
 
-  if (focusedTree === null && pending === null) {
+  if (projectedTree === null && projectedPending === null) {
     return props.components.fallback ?? null;
   }
 
@@ -73,12 +77,12 @@ export const NativeRouteProjectionHost: React.FC<NativeRouteProjectionHostProps>
     <NativeRouteOutletHost
       components={props.components}
       completionDepth={presentationDepth.current}
-      currentPath={currentPath}
+      currentPath={projectedPath}
       depth={0}
       onPresentationComplete={props.onPresentationComplete}
-      pending={pending}
+      pending={projectedPending}
       transition={transition}
-      tree={focusedTree}
+      tree={projectedTree}
     />
   );
 };

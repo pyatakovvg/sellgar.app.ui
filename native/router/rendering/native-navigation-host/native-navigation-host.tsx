@@ -21,6 +21,7 @@ interface NativeNavigationHostProps {
   readonly decision: ApplicationNavigationDecision | null;
   readonly getHistoryEntries: () => readonly ApplicationRouterHistoryEntry<ModuleMetadata>[];
   readonly onPresentationComplete: () => void;
+  readonly pending: NavigationState | null;
   readonly runtime: RouterRuntime<ModuleMetadata>;
 }
 
@@ -38,7 +39,10 @@ export const NativeNavigationHost: React.FC<NativeNavigationHostProps> = (props)
   );
   const historyEntries = props.getHistoryEntries();
   const focusedEntry = historyEntries.at(-1) ?? null;
-  const pending = props.runtime.getPendingNavigation();
+  const pending = props.pending ?? props.runtime.getPendingNavigation();
+  const pendingActivation = pending ? props.runtime.findActivation(pending) : null;
+  const retainedTree =
+    pendingActivation?.getSnapshot().phase === 'retained' ? pendingActivation.getTreeSnapshot() : null;
 
   React.useEffect(() => {
     rootBackPressedAt.current = null;
@@ -81,6 +85,7 @@ export const NativeNavigationHost: React.FC<NativeNavigationHostProps> = (props)
           entries={historyEntries}
           onPresentationComplete={props.onPresentationComplete}
           pending={pending}
+          retainedTree={retainedTree}
         />
       )}
     </RouterPresentationHost>

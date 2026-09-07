@@ -76,10 +76,8 @@ const RefreshableViewport: React.FC<{ readonly structure: ViewportStructure }> =
   const keyboard = useKeyboardRuntime();
   const revalidate = useRevalidate();
   const keyboardDragActive = React.useRef(false);
-  const [draggingWithKeyboard, setDraggingWithKeyboard] = React.useState(false);
   const [refreshAtTop, setRefreshAtTop] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
-  const gestureMode = React.useRef<ViewportGestureMode>('idle');
   const updateRefreshAtTop = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     setRefreshAtTop(event.nativeEvent.contentOffset.y <= REFRESH_START_TOLERANCE);
   }, []);
@@ -88,25 +86,19 @@ const RefreshableViewport: React.FC<{ readonly structure: ViewportStructure }> =
       const startedAtTop = event.nativeEvent.contentOffset.y <= REFRESH_START_TOLERANCE;
 
       keyboardDragActive.current = keyboard.visible;
-      setDraggingWithKeyboard(keyboard.visible);
-      gestureMode.current = !keyboard.visible && startedAtTop ? 'refresh' : 'scroll';
-      updateRefreshAtTop(event);
+      setRefreshAtTop(startedAtTop);
     },
-    [keyboard.visible, updateRefreshAtTop],
+    [keyboard.visible],
   );
   const handleScrollEnd = React.useCallback<NonNullable<ScrollViewProps['onScrollEndDrag']>>(
     (event) => {
       updateRefreshAtTop(event);
-
-      if (!keyboardDragActive.current) return;
-
       keyboardDragActive.current = false;
-      setDraggingWithKeyboard(false);
     },
     [updateRefreshAtTop],
   );
   const handleRefresh = React.useCallback(async () => {
-    if (refreshing || gestureMode.current !== 'refresh' || keyboard.visible || keyboardDragActive.current) {
+    if (refreshing || keyboard.visible || keyboardDragActive.current) {
       if (keyboard.visible || keyboardDragActive.current) keyboard.dismiss();
       return;
     }
@@ -117,10 +109,9 @@ const RefreshableViewport: React.FC<{ readonly structure: ViewportStructure }> =
       await revalidate();
     } finally {
       setRefreshing(false);
-      gestureMode.current = 'idle';
     }
   }, [keyboard, refreshing, revalidate]);
-  const refreshEnabled = refreshAtTop && !keyboard.visible && !draggingWithKeyboard;
+  const refreshEnabled = refreshAtTop && !keyboard.visible;
 
   return (
     <ViewportContent
@@ -177,32 +168,21 @@ const ViewportContent: React.FC<ViewportContentProps> = (props) => {
   const handleScrollBeginDrag = React.useCallback<NonNullable<ScrollViewProps['onScrollBeginDrag']>>(
     (event) => {
       props.onScrollBeginDrag?.(event);
-      loadMore.onScrollBeginDrag(event);
+      loadMore.onScrollBeginDrag();
     },
     [loadMore.onScrollBeginDrag, props.onScrollBeginDrag],
   );
-  const handleMomentumScrollBegin = React.useCallback(() => {
-    loadMore.onMomentumScrollBegin();
-  }, [loadMore.onMomentumScrollBegin]);
   const handleMomentumScrollEnd = React.useCallback<NonNullable<ScrollViewProps['onMomentumScrollEnd']>>(
     (event) => {
       props.onMomentumScrollEnd?.(event);
-      loadMore.onMomentumScrollEnd();
     },
-    [loadMore.onMomentumScrollEnd, props.onMomentumScrollEnd],
-  );
-  const handleCollectionScroll = React.useCallback<NonNullable<ScrollViewProps['onScroll']>>(
-    (event) => {
-      loadMore.onScroll(event);
-    },
-    [loadMore.onScroll],
+    [props.onMomentumScrollEnd],
   );
   const handleScrollEndDrag = React.useCallback<NonNullable<ScrollViewProps['onScrollEndDrag']>>(
     (event) => {
       props.onScrollEndDrag?.(event);
-      loadMore.onScrollEndDrag(event);
     },
-    [loadMore.onScrollEndDrag, props.onScrollEndDrag],
+    [props.onScrollEndDrag],
   );
 
   return (
@@ -218,9 +198,7 @@ const ViewportContent: React.FC<ViewportContentProps> = (props) => {
             keyExtractor={getFlowItemKey}
             onEndReached={loadMore.onEndReached}
             onEndReachedThreshold={LOAD_MORE_THRESHOLD}
-            onMomentumScrollBegin={handleMomentumScrollBegin}
             onMomentumScrollEnd={handleMomentumScrollEnd}
-            onScroll={handleCollectionScroll}
             onScrollBeginDrag={handleScrollBeginDrag}
             onScrollEndDrag={handleScrollEndDrag}
             ref={(value) => {
@@ -310,7 +288,6 @@ const LOAD_MORE_THRESHOLD = 0.1;
 const LOAD_MORE_TRANSITION_DURATION = 180;
 const REFRESH_START_TOLERANCE = 0.5;
 const DEFAULT_KEYBOARD_BOTTOM_OFFSET = 40;
-type ViewportGestureMode = 'idle' | 'refresh' | 'scroll';
 
 const CollectionLoadMoreAccessory: React.FC<{
   readonly bottom: number;
@@ -391,54 +368,27 @@ const CollectionLoadMoreAccessory: React.FC<{
 };
 
 const useLoadMoreObserver = (structure: ViewportStructure) => {
-  const interaction = React.useRef(false);
-  const eligible = React.useRef(false);
-  const fired = React.useRef(false);
-  const lastDistanceFromEnd = React.useRef(Number.POSITIVE_INFINITY);
-  const updateDistance = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    const distance = contentSize.height - layoutMeasurement.height - contentOffset.y;
-    const threshold = layoutMeasurement.height * LOAD_MORE_THRESHOLD;
-
-    lastDistanceFromEnd.current = distance;
-    if (interaction.current && distance > threshold) eligible.current = true;
+  const interacted = React.useRef(false);
+  const loading = React.useRef(false);
+  const onScrollBeginDrag = React.useCallback(() => {
+    interacted.current = true;
   }, []);
-  const onScrollBeginDrag = React.useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      interaction.current = true;
-      fired.current = false;
-      updateDistance(event);
-      eligible.current = lastDistanceFromEnd.current > event.nativeEvent.layoutMeasurement.height * LOAD_MORE_THRESHOLD;
-    },
-    [updateDistance],
-  );
-  const onScroll = React.useCallback(
-    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-      updateDistance(event);
-    },
-    [updateDistance],
-  );
-  const onEndReached = React.useCallback(() => {
+  const onEndReached = React.useCallback(async () => {
     const loadMore = structure.loadMore;
 
-    if (!loadMore || !interaction.current || !eligible.current || fired.current || loadMore.inProcess) return;
+    if (!loadMore || !interacted.current || loading.current || loadMore.inProcess) return;
 
-    fired.current = true;
-    eligible.current = false;
-    void loadMore.onLoad();
+    interacted.current = false;
+    loading.current = true;
+
+    try {
+      await loadMore.onLoad();
+    } finally {
+      loading.current = false;
+    }
   }, [structure.loadMore]);
-  const onScrollEndDrag = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const velocity = event.nativeEvent.velocity?.y ?? 0;
-    if (Math.abs(velocity) < 0.01) interaction.current = false;
-  }, []);
-  const onMomentumScrollBegin = React.useCallback(() => {
-    interaction.current = true;
-  }, []);
-  const onMomentumScrollEnd = React.useCallback(() => {
-    interaction.current = false;
-  }, []);
 
-  return { onEndReached, onMomentumScrollBegin, onMomentumScrollEnd, onScroll, onScrollBeginDrag, onScrollEndDrag };
+  return { onEndReached, onScrollBeginDrag };
 };
 
 const getFlowItem = (data: ArrayLike<ViewportFlowEntry> | null | undefined, index: number): ViewportFlowEntry => {
