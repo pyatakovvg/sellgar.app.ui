@@ -13,6 +13,7 @@ import type {
   RouterBridgeCommitContextInterface,
   RouterBridgeInitializeContextInterface,
   RouterBridgeInterface,
+  RouterBridgeLocationInterface,
   RouterBridgeRuntimeRetention,
 } from '../../../router/bridge/router-bridge';
 import { param, segments } from '../../../router/declaration/address';
@@ -23,6 +24,7 @@ import { RoutePolicyInterface } from '../../../router/runtime/route-policy';
 import type { RouteRuntimeContextInterface } from '../../../router/runtime/route-runtime-context';
 import type { RouteRuntime } from '../../../router/runtime/route-runtime';
 import { createScopedNavigate, NavigateServiceInterface } from '../../../router/service/navigate-service';
+import { BackServiceInterface, type BackInterception } from '../../../router/service/back-service';
 import { Provider, ProviderInterface } from '../../../runtime/provider/provider';
 import { ApplicationConfig } from '../../config/application-config';
 import type { ApplicationConfiguratorInterface } from '../../config/application-configurator';
@@ -60,6 +62,31 @@ abstract class NavigateActionControllerInterface {
   abstract action(): Promise<void>;
 }
 
+abstract class BackControllerInterface {
+  abstract readonly handled: number;
+  abstract enabled: boolean;
+}
+
+@Controller()
+class BackController implements BackControllerInterface {
+  enabled = false;
+  handled = 0;
+  private readonly interception: BackInterception;
+
+  constructor(@Inject(BackServiceInterface) back: BackServiceInterface) {
+    this.interception = back.intercept(
+      () => this.enabled,
+      () => {
+        this.handled += 1;
+      },
+    );
+  }
+
+  dispose(): void {
+    this.interception.dispose();
+  }
+}
+
 @Controller()
 class NavigateActionController implements NavigateActionControllerInterface {
   constructor(
@@ -74,6 +101,7 @@ class NavigateActionController implements NavigateActionControllerInterface {
 
 class TestBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
+    registry.bind(BackControllerInterface).to(BackController);
     registry.bind(NavigateActionControllerInterface).to(NavigateActionController);
   }
 }
@@ -124,12 +152,24 @@ class TestRouterBridge implements RouterBridgeInterface {
     this.lastBackResult = (await this.context?.back()) ?? false;
   }
 
+  confirm(location: RouterBridgeLocationInterface, signal: AbortSignal): Promise<boolean> {
+    if (!this.context) throw new Error('Router bridge не инициализирован.');
+
+    return this.context.confirm(location, signal);
+  }
+
   async initialize(context: RouterBridgeInitializeContextInterface): Promise<void> {
     this.context = context;
     await this.initialNavigation(context.navigate);
   }
 
   commit(_navigation: NavigationState, _context: RouterBridgeCommitContextInterface): void {}
+
+  restore(location: RouterBridgeLocationInterface, blockersConfirmed: boolean): Promise<boolean> {
+    if (!this.context) throw new Error('Router bridge не инициализирован.');
+
+    return this.context.restore(location, { blockersConfirmed });
+  }
 
   dispose(): void {}
 }
@@ -243,6 +283,84 @@ describe('Application routing lifecycle', () => {
     expect(app.activeRoutes).toEqual([workspaceRuntime, firstRuntime]);
     expect(firstRuntime!.getSnapshot().phase).toBe('active');
     expect(secondRuntime!.getSnapshot().phase).toBe('disposed');
+
+    await app.dispose();
+  });
+
+  it('lets the focused Module consume Back before navigation history changes', async () => {
+    const router = new Router({
+      routes: [createModuleRoute(FirstRoute, 'first'), createModuleRoute(SecondRoute, 'second')],
+    });
+    const app = await createApplication(router, (navigate) => navigate.to(FirstRoute));
+
+    await app.navigate.to(SecondRoute);
+
+    const secondRuntime = app.activeRoutes[0]!;
+    const controller = secondRuntime.getController(BackControllerInterface);
+
+    controller.enabled = true;
+    await app.navigate.back();
+
+    expect(controller.handled).toBe(1);
+    expect(app.activeRoutes).toEqual([secondRuntime]);
+    expect(app.historyEntries).toHaveLength(2);
+    expect(app.bridge.lastBackResult).toBe(true);
+
+    controller.enabled = false;
+    await app.navigate.back();
+
+    expect(app.activeRoutes[0]).not.toBe(secondRuntime);
+    expect(secondRuntime.getSnapshot().phase).toBe('disposed');
+    expect(app.historyEntries).toHaveLength(1);
+
+    await app.dispose();
+  });
+
+  it('does not invoke a retained Module Back interception', async () => {
+    const router = new Router({
+      routes: [createModuleRoute(FirstRoute, 'first'), createModuleRoute(SecondRoute, 'second')],
+    });
+    const app = await createApplication(router, (navigate) => navigate.to(FirstRoute));
+    const firstRuntime = app.activeRoutes[0]!;
+    const controller = firstRuntime.getController(BackControllerInterface);
+
+    controller.enabled = true;
+    await app.navigate.to(SecondRoute);
+    await app.navigate.back();
+
+    expect(controller.handled).toBe(0);
+    expect(app.activeRoutes).toEqual([firstRuntime]);
+
+    await app.dispose();
+  });
+
+  it('lets a bridge cancel a backward traversal consumed by the focused Module', async () => {
+    const router = new Router({
+      routes: [createModuleRoute(FirstRoute, 'first'), createModuleRoute(SecondRoute, 'second')],
+    });
+    const app = await createApplication(router, (navigate) => navigate.to(FirstRoute));
+    const firstEntryId = app.historyEntries[0]!.key;
+
+    await app.navigate.to(SecondRoute);
+
+    const secondRuntime = app.activeRoutes[0]!;
+    const controller = secondRuntime.getController(BackControllerInterface);
+    const location = createBridgeLocation(['first'], firstEntryId);
+    const signal = new AbortController().signal;
+
+    controller.enabled = true;
+
+    await expect(app.bridge.confirm(location, signal)).resolves.toBe(false);
+    expect(controller.handled).toBe(1);
+    expect(app.activeRoutes).toEqual([secondRuntime]);
+    expect(app.historyEntries).toHaveLength(2);
+
+    controller.enabled = false;
+
+    await expect(app.bridge.confirm(location, signal)).resolves.toBe(true);
+    await expect(app.bridge.restore(location, true)).resolves.toBe(true);
+    expect(app.activeRoutes[0]).not.toBe(secondRuntime);
+    expect(app.historyEntries).toHaveLength(1);
 
     await app.dispose();
   });
@@ -833,6 +951,14 @@ describe('Application routing lifecycle', () => {
 
     await app.dispose();
   });
+});
+
+const createBridgeLocation = (address: readonly string[], entryId: string): RouterBridgeLocationInterface => ({
+  address,
+  entryId,
+  nested: null,
+  query: {},
+  state: undefined,
 });
 
 const createApplication = async (

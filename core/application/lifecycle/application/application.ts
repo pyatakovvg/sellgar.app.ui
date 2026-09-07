@@ -29,6 +29,8 @@ import {
   resolveCoreRootNavigation,
 } from '../../../router/service/navigate-service';
 import type { NavigateServiceInterface } from '../../../router/service/navigate-service';
+import { BackBindings } from '../../../router/binding/back-bindings';
+import { BackRuntimeInterface } from '../../../router/runtime/back-runtime';
 import { RuntimeOperationCoordinator } from '../../../runtime/operation/runtime-operation-coordinator';
 import {
   createRuntimeRevisionGuard,
@@ -129,7 +131,7 @@ export interface ApplicationRouterHistoryEntry<TPresentation> {
 
 export type ApplicationNavigationListener = () => void;
 
-@UseBindings(ApplicationEventBusBindings, ApplicationStoreBindings)
+@UseBindings(ApplicationEventBusBindings, ApplicationStoreBindings, BackBindings)
 export abstract class Application<
   TPresentation = unknown,
   TConfigurator extends ApplicationConfiguratorInterface = ApplicationConfiguratorInterface,
@@ -523,24 +525,43 @@ export abstract class Application<
     return this.scope.get(initializerToken);
   }
 
-  private restoreBridgeLocation(
+  private async restoreBridgeLocation(
     location: RouterBridgeLocationInterface,
     context: RouterBridgeRestoreContextInterface,
   ): Promise<boolean> {
+    if (!context.blockersConfirmed && this.isBackwardBridgeLocation(location) && (await this.handleBack())) {
+      return false;
+    }
+
     const entry = location.entryId ? this.navigationHistory.find(location.entryId) : null;
     const navigation = resolveRouterBridgeLocation(this.config.routerValue, location);
 
-    return entry
-      ? this.restoreHistoryEntry(entry.id, navigation, context.blockersConfirmed)
-      : this.executeNavigation(navigation, 'external', context.blockersConfirmed);
+    if (entry) {
+      return this.restoreHistoryEntry(entry.id, navigation, context.blockersConfirmed);
+    }
+
+    return this.executeNavigation(navigation, 'external', context.blockersConfirmed);
   }
 
-  private confirmBridgeLocation(location: RouterBridgeLocationInterface, signal: AbortSignal): Promise<boolean> {
+  private async confirmBridgeLocation(location: RouterBridgeLocationInterface, signal: AbortSignal): Promise<boolean> {
+    if (this.isBackwardBridgeLocation(location) && (await this.handleBack())) {
+      return false;
+    }
+
     return this.getRouterRuntime().confirm(resolveRouterBridgeLocation(this.config.routerValue, location), {
       app: this,
       session: this.session,
       signal,
     });
+  }
+
+  private isBackwardBridgeLocation(location: RouterBridgeLocationInterface): boolean {
+    if (!location.entryId) return false;
+
+    const entries = this.navigationHistory.snapshot();
+    const targetIndex = entries.findIndex((entry) => entry.id === location.entryId);
+
+    return targetIndex >= 0 && targetIndex < entries.length - 1;
   }
 
   private cancelPendingNavigation(): boolean {
@@ -555,17 +576,19 @@ export abstract class Application<
   private async backNavigation(): Promise<boolean> {
     if (this.cancelPendingNavigation()) return true;
 
-    const target = this.navigationHistory.previous();
-
-    if (!target) return false;
-
-    if (target.activation === null) {
-      return this.executeNavigation(target.navigation, 'external', false, target.id);
-    }
-
     const linkedSignal = createLinkedAbortController(this.applicationAbortController.signal);
 
     try {
+      if (await this.handleBack()) return true;
+
+      const target = this.navigationHistory.previous();
+
+      if (!target) return false;
+
+      if (target.activation === null) {
+        return this.executeNavigation(target.navigation, 'external', false, target.id);
+      }
+
       if (!(await this.getRouterRuntime().confirmActivation(target.activation, linkedSignal.controller.signal))) {
         return false;
       }
@@ -594,6 +617,19 @@ export abstract class Application<
     } finally {
       linkedSignal.dispose();
     }
+  }
+
+  private handleBack(): Promise<boolean> {
+    const activation = this.getRouterRuntime().getFocusedActivation();
+
+    if (!activation) return Promise.resolve(false);
+
+    const boundaries = activation
+      .getRouteRuntimes()
+      .map((runtime) => runtime.getBackBoundary())
+      .reverse();
+
+    return this.scope.get(BackRuntimeInterface).handle(boundaries);
   }
 
   private async closeNavigation(navigation: NavigationState): Promise<void> {

@@ -249,6 +249,12 @@ export type {
   RouteQueryServiceListener,
 } from './router/service/route-query-service';
 export type { NavigateQueryOptions, NavigateTerminalOptions, NavigateThrough } from './router/service/navigate-service';
+export {
+  BackServiceInterface,
+  type BackCondition,
+  type BackHandler,
+  type BackInterception,
+} from './router/service/back-service';
 export type {
   NavigationRequest,
   NavigationRequestBinding,

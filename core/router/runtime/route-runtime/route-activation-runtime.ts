@@ -7,6 +7,8 @@ import {
   NavigationBlockerService,
   type NavigationBlockerBoundary,
 } from '../../../features/navigation-blocker/runtime/navigation-blocker-runtime';
+import { BackServiceInterface } from '../../service/back-service';
+import { BackRuntimeInterface, BackService, createBackBoundary, type BackBoundary } from '../back-runtime';
 import type { ModuleExportResolverInterface } from '../../../module/resolution/module-export-resolver';
 import { RouterParamsConverterInterface } from '../../params/router-params-converter';
 import {
@@ -113,6 +115,7 @@ type RouteRuntimeState =
 
 export class RouteActivationRuntime<TPresentation = unknown> {
   private readonly definition: RouteDefinition;
+  private readonly backBoundary: BackBoundary;
   private readonly lifecycleAbortController = new AbortController();
   private readonly listeners = new Set<RouteRuntimeListener>();
   private readonly locationService: ScopedLocationService | null;
@@ -142,6 +145,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
     assertRouteId(runtimeId);
 
     this.definition = getRouteDefinition(route);
+    this.backBoundary = createBackBoundary();
     this.navigationBlockerBoundary = createNavigationBlockerBoundary();
     this.owner = { id: runtimeId, kind: 'route' };
     this.locationService =
@@ -151,9 +155,17 @@ export class RouteActivationRuntime<TPresentation = unknown> {
             ownerScope.get(RouterParamsConverterInterface),
           )
         : null;
+    const backService = ownerScope.has(BackRuntimeInterface)
+      ? new BackService(ownerScope.get(BackRuntimeInterface), this.backBoundary)
+      : null;
+
     this.routeScope = new RouteScope(ownerScope, (registry) => {
       if (this.locationService !== null) {
         registry.bind(LocationServiceInterface).toConstantValue(this.locationService);
+      }
+
+      if (backService) {
+        registry.bind(BackServiceInterface).toConstantValue(backService);
       }
 
       if (ownerScope.has(NavigationBlockerRuntimeInterface)) {
@@ -175,6 +187,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
         .bind(NavigateServiceInterface)
         .toConstantValue(createRouteScopedNavigate(ownerScope.get(NavigateServiceInterface), runtimeId));
     });
+    this.routeScope.onDispose(() => backService?.dispose());
 
     try {
       for (const bindingOwner of this.definition.bindingOwners) {
@@ -240,6 +253,10 @@ export class RouteActivationRuntime<TPresentation = unknown> {
 
   getNavigationBlockerBoundary(): NavigationBlockerBoundary {
     return this.navigationBlockerBoundary;
+  }
+
+  getBackBoundary(): BackBoundary {
+    return this.backBoundary;
   }
 
   getBoundaryModuleOrNull(): ActiveModuleRuntime<TPresentation> | null {

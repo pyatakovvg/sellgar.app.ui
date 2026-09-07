@@ -729,6 +729,25 @@ app.routing({
   animation, а Back не показывает fallback/splash и не запускает loaders либо
   revalidation предыдущего screen. В `release` Back является новой подготовкой
   target и использует обычный route fallback до commit.
+- До обращения к navigation blocker и history core передаёт Back intent
+  локальным interceptions focused Route/Module runtime. Controller либо другой
+  DI-владелец текущего runtime регистрирует interception через route-scoped
+  `BackServiceInterface`, задавая `condition` и `handler`. Condition вычисляется
+  в момент Back; первый enabled handler вызывается и поглощает intent без
+  history mutation, route transition, fallback или screen animation. Если все
+  conditions вернули `false`, выполняется обычный Back pipeline.
+- Interceptions обходятся от самой глубокой focused Router boundary к
+  родительской, а внутри одной boundary — от последней регистрации к первой.
+  Retained runtime сохраняет свои регистрации, но не участвует в обработке,
+  пока снова не станет focused. Регистрации освобождаются их владельцем либо
+  автоматически при dispose Route runtime; повторный Back во время async
+  handler считается обработанным и не запускает параллельную операцию. Ошибка
+  handler не разрешает history pop как fallback.
+- Back interception и navigation blocker имеют разные назначения. Interception
+  обрабатывает локальное состояние текущего Module; blocker подтверждает уже
+  определённый уход с Route boundary. Platform Back, gesture, header control и
+  `navigate.back()` должны входить в один core Back intent pipeline; renderer
+  только передаёт intent и показывает dismiss после фактического history pop.
 - Native `Route` принимает необязательное renderer-specific свойство
   `animation`. При отсутствии свойства screen появляется и удаляется без
   анимации. Значение принадлежит только Route, на котором объявлено: дочерние
