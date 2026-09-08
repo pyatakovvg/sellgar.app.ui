@@ -66,6 +66,7 @@ export interface RouterRuntimeActivationSnapshot {
 export interface RouterRuntimePrepareContext {
   readonly app: ApplicationControllerInterface;
   readonly blockersConfirmed?: boolean;
+  readonly onNavigationAccepted?: (navigation: NavigationState) => void;
   readonly session: SessionRuntimeStateInterface;
   readonly signal: AbortSignal;
 }
@@ -1139,11 +1140,15 @@ export class RouterRuntime<TPresentation = unknown> {
     const navigationConfirmed =
       context.blockersConfirmed || (await this.confirmActivation(activation, abortController.signal));
 
+    throwIfAborted(abortController.signal);
+
     if (!navigationConfirmed) {
       this.clearPendingNavigation(revision, candidate.navigation);
       disposeLinkedSignal();
       return createInterruptedResult(new Error('Навигация отменена blocker-решением.'));
     }
+
+    context.onNavigationAccepted?.(candidate.navigation);
 
     for (const boundary of ['canMatch', 'canActivate'] as const) {
       const decision = await this.executeActivationPolicies(root, boundary, context, abortController.signal);
@@ -1268,6 +1273,8 @@ export class RouterRuntime<TPresentation = unknown> {
         this.restoreCommittedSnapshot();
         return createInterruptedResult(new Error('Навигация отменена blocker-решением.'));
       }
+
+      context.onNavigationAccepted?.(candidate.navigation);
 
       const canMatchResult = await this.executePlanPolicies(plan, 'canMatch', context, abortController.signal);
 

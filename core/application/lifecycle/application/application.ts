@@ -721,8 +721,6 @@ export abstract class Application<
     const abortController = linkedSignal.controller;
 
     this.navigationAbortController = abortController;
-    this.setPendingNavigation(navigation);
-
     const promise = (async () => {
       await previous?.catch(() => undefined);
 
@@ -796,9 +794,16 @@ export abstract class Application<
       throw new Error('Policy navigation превысила допустимую глубину redirect.');
     }
 
+    let navigationAccepted = false;
     const prepareContext = {
       app: this,
       blockersConfirmed,
+      onNavigationAccepted: (acceptedNavigation: NavigationState): void => {
+        if (navigationAccepted) return;
+
+        navigationAccepted = true;
+        this.setPendingNavigation(acceptedNavigation);
+      },
       session: this.session,
       signal,
     };
