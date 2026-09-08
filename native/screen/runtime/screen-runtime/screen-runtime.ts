@@ -13,6 +13,7 @@ export interface ScreenSceneSnapshot {
 }
 
 export type ScreenRuntimeListener = () => void;
+export type ScreenTransitionStartListener = (transitionId: number) => void;
 
 export class ScreenSceneRuntime {
   private descriptor: ScreenPresentation;
@@ -65,12 +66,18 @@ export class ScreenRuntime {
   private readonly listeners = new Set<ScreenRuntimeListener>();
   private readonly scenes = new Map<string, ScreenSceneRuntime>();
   private snapshot: ScreenRuntimeSnapshot = createRuntimeSnapshot(createScreenMachine(), []);
+  private readonly transitionStartListeners = new Set<ScreenTransitionStartListener>();
 
   getSnapshot = (): ScreenRuntimeSnapshot => this.snapshot;
 
   subscribe = (listener: ScreenRuntimeListener): (() => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  };
+
+  subscribeTransitionStart = (listener: ScreenTransitionStartListener): (() => void) => {
+    this.transitionStartListeners.add(listener);
+    return () => this.transitionStartListeners.delete(listener);
   };
 
   project(
@@ -130,6 +137,15 @@ export class ScreenRuntime {
 
   private publish(machine: ScreenMachineState): void {
     if (machine === this.snapshot.machine) return;
+
+    const transitionStarted =
+      machine.phase === 'transitioning' &&
+      (this.snapshot.machine.phase !== 'transitioning' ||
+        this.snapshot.machine.transitionId !== machine.transitionId);
+
+    if (transitionStarted) {
+      for (const listener of this.transitionStartListeners) listener(machine.transitionId);
+    }
 
     const activeKeys = new Set(machine.presentations.map((presentation) => presentation.key));
 

@@ -28,9 +28,17 @@ const TRANSITION_DURATION: Readonly<Record<ScreenTransitionOperation, number>> =
 
 export const ScreenRenderer: React.FC<ScreenRendererProps> = React.memo(
   ({ onPresentationComplete, runtime, style }) => {
+    const progress = useSharedValue(runtime.getSnapshot().machine.phase === 'transitioning' ? 0 : 1);
+
+    React.useLayoutEffect(() => {
+      return runtime.subscribeTransitionStart(() => {
+        cancelAnimation(progress);
+        progress.value = 0;
+      });
+    }, [progress, runtime]);
+
     const snapshot = React.useSyncExternalStore(runtime.subscribe, runtime.getSnapshot, runtime.getSnapshot);
     const machine = snapshot.machine;
-    const progress = useSharedValue(1);
     const finishTransition = React.useCallback(
       (transitionId: number) => runtime.completeTransition(transitionId),
       [runtime],
