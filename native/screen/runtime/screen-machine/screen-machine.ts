@@ -1,166 +1,173 @@
 import type { ScreenPresentation } from '../../declaration/screen-presentation';
 
-export type ScreenSlot = 'primary' | 'secondary';
+export type ScreenSceneRole = 'current' | 'incoming' | 'retained';
 
-export type ScreenMachineState = ScreenMachineEmptyState | ScreenMachineStableState | ScreenMachineTransitionState;
-
-export interface ScreenMachineEmptyState {
-  readonly current: null;
-  readonly currentSlot: ScreenSlot;
-  readonly incoming: null;
-  readonly phase: 'empty';
-  readonly transitionId: number;
-}
-
-export interface ScreenMachineStableState {
-  readonly current: ScreenPresentation;
-  readonly currentSlot: ScreenSlot;
-  readonly incoming: null;
-  readonly phase: 'stable';
-  readonly transitionId: number;
-}
-
-export interface ScreenMachineTransitionState {
-  readonly current: ScreenPresentation | null;
-  readonly currentSlot: ScreenSlot;
-  readonly incoming: ScreenPresentation;
-  readonly phase: 'transitioning';
+export interface ScreenMachineState {
+  readonly currentKey: string | null;
+  readonly incomingKey: string | null;
+  readonly phase: 'empty' | 'stable' | 'transitioning';
+  readonly presentations: readonly ScreenPresentation[];
+  readonly retainedKeys: readonly string[];
   readonly transitionId: number;
 }
 
 export const createScreenMachine = (): ScreenMachineState => {
-  return emptyState('primary', 0);
+  return createState({
+    currentKey: null,
+    incomingKey: null,
+    phase: 'empty',
+    presentations: EMPTY_PRESENTATIONS,
+    retainedKeys: EMPTY_KEYS,
+    transitionId: 0,
+  });
 };
 
 export const presentScreen = (
   state: ScreenMachineState,
   presentation: ScreenPresentation | null,
+  retainedPresentations: readonly ScreenPresentation[] = EMPTY_PRESENTATIONS,
 ): ScreenMachineState => {
-  if (presentation === null) {
-    if (state.phase === 'empty') return state;
-    return emptyState(state.currentSlot, state.transitionId + 1);
-  }
+  if (presentation === null) return createScreenMachine();
 
   assertPresentation(presentation);
+  retainedPresentations.forEach(assertPresentation);
+
+  const retainedKeys = uniqueKeys(retainedPresentations);
+  const currentTargetKey = state.phase === 'transitioning' ? state.incomingKey : state.currentKey;
+  const presentations = mergePresentations(
+    retainedPresentations,
+    presentation,
+    state,
+    currentTargetKey === presentation.key,
+  );
 
   if (state.phase === 'empty') {
     if (presentation.transition === undefined) {
-      return stableState(presentation, state.currentSlot, state.transitionId + 1);
+      return stableState(presentation.key, presentations, retainedKeys, state.transitionId + 1);
     }
 
-    return transitionState(null, presentation, state.currentSlot, state.transitionId + 1);
+    return transitionState(null, presentation.key, presentations, retainedKeys, state.transitionId + 1);
   }
 
-  if (state.phase === 'stable') {
-    if (state.current.key === presentation.key) {
-      return stableState(refreshPresentation(state.current, presentation), state.currentSlot, state.transitionId);
-    }
+  const targetKey = currentTargetKey;
 
-    if (presentation.transition === undefined) {
-      return stableState(presentation, oppositeSlot(state.currentSlot), state.transitionId + 1);
-    }
-
-    return transitionState(state.current, presentation, state.currentSlot, state.transitionId + 1);
+  if (targetKey === presentation.key) {
+    return state.phase === 'transitioning'
+      ? transitionState(state.currentKey, presentation.key, presentations, retainedKeys, state.transitionId)
+      : stableState(presentation.key, presentations, retainedKeys, state.transitionId);
   }
 
-  if (state.incoming.key === presentation.key) {
-    return transitionState(
-      state.current,
-      refreshPresentation(state.incoming, presentation),
-      state.currentSlot,
-      state.transitionId,
-    );
-  }
-
-  if (state.current?.key === presentation.key) {
-    return stableState(refreshPresentation(state.current, presentation), state.currentSlot, state.transitionId + 1);
+  if (state.phase === 'transitioning' && state.currentKey === presentation.key) {
+    return stableState(presentation.key, presentations, retainedKeys, state.transitionId + 1);
   }
 
   if (presentation.transition === undefined) {
-    return stableState(presentation, oppositeSlot(state.currentSlot), state.transitionId + 1);
+    return stableState(presentation.key, presentations, retainedKeys, state.transitionId + 1);
   }
 
-  return transitionState(state.incoming, presentation, oppositeSlot(state.currentSlot), state.transitionId + 1);
+  return transitionState(targetKey, presentation.key, presentations, retainedKeys, state.transitionId + 1);
 };
 
 export const completeScreenTransition = (state: ScreenMachineState, transitionId: number): ScreenMachineState => {
-  if (state.phase !== 'transitioning' || state.transitionId !== transitionId) return state;
+  if (state.phase !== 'transitioning' || state.transitionId !== transitionId || state.incomingKey === null) {
+    return state;
+  }
 
-  return stableState(state.incoming, oppositeSlot(state.currentSlot), state.transitionId);
+  return stableState(state.incomingKey, state.presentations, state.retainedKeys, state.transitionId);
 };
 
-export const resolveScreenSlotPresentation = (
-  state: ScreenMachineState,
-  slot: ScreenSlot,
-): ScreenPresentation | null => {
-  if (state.phase === 'empty') return null;
-  if (slot === state.currentSlot) return state.current;
-  if (state.phase === 'transitioning') return state.incoming;
-  return null;
-};
+export const resolveScreenSceneRole = (state: ScreenMachineState, key: string): ScreenSceneRole => {
+  if (state.phase === 'transitioning') {
+    if (state.incomingKey === key) return 'incoming';
+    if (state.currentKey === key) return 'current';
+  } else if (state.currentKey === key) {
+    return 'current';
+  }
 
-export const resolveScreenSlotRole = (
-  state: ScreenMachineState,
-  slot: ScreenSlot,
-): 'current' | 'incoming' | 'empty' => {
-  if (state.phase === 'empty') return 'empty';
-  if (slot === state.currentSlot && state.current !== null) return 'current';
-  if (state.phase === 'transitioning' && slot !== state.currentSlot) return 'incoming';
-  return 'empty';
-};
-
-const emptyState = (currentSlot: ScreenSlot, transitionId: number): ScreenMachineEmptyState => {
-  return Object.freeze({
-    current: null,
-    currentSlot,
-    incoming: null,
-    phase: 'empty',
-    transitionId,
-  });
+  return 'retained';
 };
 
 const stableState = (
-  current: ScreenPresentation,
-  currentSlot: ScreenSlot,
+  currentKey: string,
+  presentations: readonly ScreenPresentation[],
+  retainedKeys: readonly string[],
   transitionId: number,
-): ScreenMachineStableState => {
-  return Object.freeze({
-    current,
-    currentSlot,
-    incoming: null,
+): ScreenMachineState => {
+  return createState({
+    currentKey,
+    incomingKey: null,
     phase: 'stable',
+    presentations: retainPresentations(presentations, new Set([...retainedKeys, currentKey])),
+    retainedKeys,
     transitionId,
   });
 };
 
 const transitionState = (
-  current: ScreenPresentation | null,
-  incoming: ScreenPresentation,
-  currentSlot: ScreenSlot,
+  currentKey: string | null,
+  incomingKey: string,
+  presentations: readonly ScreenPresentation[],
+  retainedKeys: readonly string[],
   transitionId: number,
-): ScreenMachineTransitionState => {
-  return Object.freeze({
-    current,
-    currentSlot,
-    incoming,
+): ScreenMachineState => {
+  const visibleKeys = new Set([...retainedKeys, incomingKey]);
+
+  if (currentKey !== null) visibleKeys.add(currentKey);
+
+  return createState({
+    currentKey,
+    incomingKey,
     phase: 'transitioning',
+    presentations: retainPresentations(presentations, visibleKeys),
+    retainedKeys,
     transitionId,
   });
 };
 
-const refreshPresentation = (current: ScreenPresentation, next: ScreenPresentation): ScreenPresentation => {
-  return Object.freeze({
-    ...next,
-    transition: current.transition,
-  });
+const mergePresentations = (
+  retainedPresentations: readonly ScreenPresentation[],
+  presentation: ScreenPresentation,
+  state: ScreenMachineState,
+  preserveTransition: boolean,
+): readonly ScreenPresentation[] => {
+  const byKey = new Map<string, ScreenPresentation>();
+
+  for (const stored of state.presentations) byKey.set(stored.key, stored);
+  for (const retained of retainedPresentations) {
+    byKey.set(retained.key, refreshPresentation(byKey.get(retained.key), retained));
+  }
+  byKey.set(
+    presentation.key,
+    preserveTransition ? refreshPresentation(byKey.get(presentation.key), presentation) : presentation,
+  );
+
+  return Object.freeze([...byKey.values()]);
 };
 
-const oppositeSlot = (slot: ScreenSlot): ScreenSlot => {
-  return slot === 'primary' ? 'secondary' : 'primary';
+const refreshPresentation = (current: ScreenPresentation | undefined, next: ScreenPresentation): ScreenPresentation => {
+  if (!current || current.transition === undefined) return next;
+
+  return Object.freeze({ ...next, transition: current.transition });
 };
+
+const retainPresentations = (
+  presentations: readonly ScreenPresentation[],
+  keys: ReadonlySet<string>,
+): readonly ScreenPresentation[] => {
+  return Object.freeze(presentations.filter((presentation) => keys.has(presentation.key)));
+};
+
+const uniqueKeys = (presentations: readonly ScreenPresentation[]): readonly string[] => {
+  return Object.freeze([...new Set(presentations.map((presentation) => presentation.key))]);
+};
+
+const createState = (state: ScreenMachineState): ScreenMachineState => Object.freeze(state);
 
 const assertPresentation = (presentation: ScreenPresentation): void => {
   if (presentation.key.length === 0) {
     throw new Error('Screen presentation key не может быть пустым.');
   }
 };
+
+const EMPTY_KEYS: readonly string[] = Object.freeze([]);
+const EMPTY_PRESENTATIONS: readonly ScreenPresentation[] = Object.freeze([]);

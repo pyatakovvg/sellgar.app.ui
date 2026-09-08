@@ -2,13 +2,6 @@ export {
   completeScreenTransition,
   createScreenMachine,
   presentScreen,
-  resolveScreenSlotPresentation,
-  resolveScreenSlotRole,
+  resolveScreenSceneRole,
 } from './screen-machine.ts';
-export type {
-  ScreenMachineEmptyState,
-  ScreenMachineStableState,
-  ScreenMachineState,
-  ScreenMachineTransitionState,
-  ScreenSlot,
-} from './screen-machine.ts';
+export type { ScreenMachineState, ScreenSceneRole } from './screen-machine.ts';

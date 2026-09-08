@@ -1,8 +1,12 @@
-import { act, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ApplicationRouterHistoryEntry } from '../../../../core/application/lifecycle/application';
+import type {
+  ApplicationRouterHistoryEntry,
+  ApplicationRouterRuntimeEntry,
+} from '../../../../core/application/lifecycle/application';
+import type { NavigationState } from '../../../../core/router/runtime/navigation-state';
 import type { RouterRuntime } from '../../../../core/router/runtime/router-runtime';
 import type { ModuleMetadata } from '../../../module/declaration/module';
 import type { NativeRouterBridge } from '../../bridge/native-router-bridge';
@@ -28,184 +32,76 @@ vi.mock('../router-host', () => ({
 vi.mock('./native-route-projection-host.tsx', () => ({
   NativeRouteProjectionHost: ({
     entries,
+    pendingTree,
   }: {
     readonly entries: readonly ApplicationRouterHistoryEntry<ModuleMetadata>[];
-  }) => <div>{entries.map((entry) => entry.key).join(',')}</div>,
+    readonly pendingTree: unknown;
+  }) => <div>{`${entries.map((entry) => entry.key).join(',')}:${pendingTree ? 'pending-tree' : 'no-tree'}`}</div>,
 }));
 
 describe('NativeNavigationHost', () => {
-  it('reads current core history again when the native bridge commits retained focus', () => {
-    let bridgeListener: (() => void) | undefined;
-    let bridgeSnapshot = { ...TRANSPORT_SNAPSHOT };
-    let entries = [createEntry('activation:1')];
-    const runtime = createRuntime();
-    const bridge = {
-      back: vi.fn(async () => undefined),
-      completePresentation: vi.fn(),
-      getPresentationRevision: () => 0,
-      getSnapshot: () => bridgeSnapshot,
-      registerDriver: () => () => undefined,
-      subscribe: (listener: () => void) => {
-        bridgeListener = listener;
-        return () => undefined;
-      },
-    } as unknown as NativeRouterBridge;
+  it('projects the authoritative core entries supplied by its parent snapshot', () => {
+    let entries = [createHistoryEntry('activation:1')];
+    const props = createProps(() => entries);
+    const view = render(<NativeNavigationHost {...props} />);
 
-    render(
-      <NativeNavigationHost
-        bridge={bridge}
-        components={{}}
-        current={undefined}
-        decision={null}
-        getHistoryEntries={() => entries}
-        onPresentationComplete={() => undefined}
-        runtime={runtime}
-      />,
-    );
+    expect(screen.getByText('activation:1:no-tree')).toBeInTheDocument();
 
-    entries = [createEntry('activation:1', 'retained'), createEntry('activation:2')];
-    bridgeSnapshot = { ...TRANSPORT_SNAPSHOT, index: 1 };
-    act(() => bridgeListener?.());
+    entries = [createHistoryEntry('activation:1', 'retained'), createHistoryEntry('activation:2')];
+    view.rerender(<NativeNavigationHost {...props} />);
 
-    expect(screen.getByText('activation:1,activation:2')).toBeInTheDocument();
+    expect(screen.getByText('activation:1,activation:2:no-tree')).toBeInTheDocument();
   });
 
-  it('reads current core history again when RouterRuntime emits', () => {
-    let runtimeListener: (() => void) | undefined;
-    let runtimeSnapshot = Object.freeze({ error: null, phase: 'active' as const });
-    let entries = [createEntry('activation:1')];
+  it('projects a retained activation without subscribing to RouterRuntime a second time', () => {
+    const tree = { routes: [] };
+    const subscribe = vi.fn(() => () => undefined);
+    const pending = {} as NavigationState;
     const runtime = {
-      getBranchSnapshot: () => ({
-        child: null,
-        childPending: false,
-        pending: false,
-        pendingLocalChange: null,
-        routes: [],
-      }),
-      getPendingNavigation: () => null,
-      getSnapshot: () => runtimeSnapshot,
-      subscribe: (listener: () => void) => {
-        runtimeListener = listener;
-        return () => undefined;
-      },
+      findActivation: () => ({ getTreeSnapshot: () => tree }),
+      getSnapshot: () => Object.freeze({ error: null, phase: 'active' as const }),
+      subscribe,
     } as unknown as RouterRuntime<ModuleMetadata>;
-    const bridge = {
-      back: vi.fn(async () => undefined),
-      completePresentation: vi.fn(),
-      getPresentationRevision: () => 0,
-      getSnapshot: () => TRANSPORT_SNAPSHOT,
-      registerDriver: () => () => undefined,
-      subscribe: () => () => undefined,
-    } as unknown as NativeRouterBridge;
 
     render(
       <NativeNavigationHost
-        bridge={bridge}
-        components={{}}
-        current={undefined}
-        decision={null}
-        getHistoryEntries={() => entries}
-        onPresentationComplete={() => undefined}
+        {...createProps(() => [createHistoryEntry('activation:1')])}
+        pending={pending}
         runtime={runtime}
       />,
     );
 
-    expect(screen.getByText('activation:1')).toBeInTheDocument();
-
-    entries = [createEntry('activation:1', 'retained')];
-    runtimeSnapshot = Object.freeze({ error: null, phase: 'pending' as const });
-    act(() => runtimeListener?.());
-
-    expect(screen.getByText('activation:1')).toBeInTheDocument();
-
-    entries = [createEntry('activation:1', 'retained'), createEntry('activation:2')];
-    runtimeSnapshot = Object.freeze({ error: null, phase: 'active' as const });
-    act(() => runtimeListener?.());
-
-    expect(screen.getByText('activation:1,activation:2')).toBeInTheDocument();
-  });
-
-  it('keeps the retained projection mounted while a nested activation has no focused history entry', () => {
-    let runtimeListener: (() => void) | undefined;
-    let runtimeSnapshot = Object.freeze({ error: null, phase: 'active' as const });
-    let entries = [createEntry('activation:1')];
-    const runtime = {
-      getBranchSnapshot: () => ({
-        child: null,
-        childPending: false,
-        pending: false,
-        pendingLocalChange: null,
-        routes: [],
-      }),
-      getPendingNavigation: () => null,
-      getSnapshot: () => runtimeSnapshot,
-      subscribe: (listener: () => void) => {
-        runtimeListener = listener;
-        return () => undefined;
-      },
-    } as unknown as RouterRuntime<ModuleMetadata>;
-    const bridge = {
-      back: vi.fn(async () => undefined),
-      completePresentation: vi.fn(),
-      getPresentationRevision: () => 0,
-      getSnapshot: () => TRANSPORT_SNAPSHOT,
-      registerDriver: () => () => undefined,
-      subscribe: () => () => undefined,
-    } as unknown as NativeRouterBridge;
-
-    render(
-      <NativeNavigationHost
-        bridge={bridge}
-        components={{ fallback: <div>fallback</div> }}
-        current={undefined}
-        decision={null}
-        getHistoryEntries={() => entries}
-        onPresentationComplete={() => undefined}
-        runtime={runtime}
-      />,
-    );
-
-    entries = [createEntry('activation:1', 'retained')];
-    runtimeSnapshot = Object.freeze({ error: null, phase: 'pending' as const });
-    act(() => runtimeListener?.());
-
-    expect(screen.getByText('activation:1')).toBeInTheDocument();
-    expect(screen.queryByText('fallback')).not.toBeInTheDocument();
-
-    entries = [createEntry('activation:1', 'retained'), createEntry('activation:2')];
-    runtimeSnapshot = Object.freeze({ error: null, phase: 'active' as const });
-    act(() => runtimeListener?.());
-
-    expect(screen.getByText('activation:1,activation:2')).toBeInTheDocument();
+    expect(screen.getByText('activation:1:pending-tree')).toBeInTheDocument();
+    expect(subscribe).not.toHaveBeenCalled();
   });
 });
 
-const createRuntime = (): RouterRuntime<ModuleMetadata> => {
-  const snapshot = Object.freeze({ error: null, phase: 'active' as const });
+const createProps = (getHistoryEntries: () => readonly ApplicationRouterHistoryEntry<ModuleMetadata>[]) => ({
+  bridge: {
+    back: vi.fn(async () => undefined),
+    registerDriver: () => () => undefined,
+  } as unknown as NativeRouterBridge,
+  components: {},
+  current: undefined,
+  decision: null,
+  getHistoryEntries,
+  getRuntimeEntries: () => [] as readonly ApplicationRouterRuntimeEntry<ModuleMetadata>[],
+  navigation: Object.freeze({ action: null, backInProgress: false, entries: [], index: 0 }),
+  onPresentationComplete: () => undefined,
+  pending: null,
+  runtime: createRuntime(),
+  source: undefined,
+});
 
+const createRuntime = (): RouterRuntime<ModuleMetadata> => {
   return {
-    getBranchSnapshot: () => ({
-      child: null,
-      childPending: false,
-      pending: false,
-      pendingLocalChange: null,
-      routes: [],
-    }),
-    getPendingNavigation: () => null,
-    getSnapshot: () => snapshot,
+    findActivation: () => null,
+    getSnapshot: () => Object.freeze({ error: null, phase: 'active' as const }),
     subscribe: () => () => undefined,
   } as unknown as RouterRuntime<ModuleMetadata>;
 };
 
-const TRANSPORT_SNAPSHOT = Object.freeze({
-  action: null,
-  backInProgress: false,
-  index: 0,
-  length: 1,
-  location: null,
-});
-
-const createEntry = (
+const createHistoryEntry = (
   key: string,
   phase: 'focused' | 'retained' = 'focused',
 ): ApplicationRouterHistoryEntry<ModuleMetadata> => {

@@ -2,47 +2,16 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { ScreenActivityProvider } from '../../runtime/screen-activity-context';
+import { ScreenCompositorRuntime, type ScreenLayerKind } from '../../runtime/screen-compositor-runtime';
 
-export type ScreenLayerKind = 'application' | 'frame' | 'modal';
-
-interface ScreenLayerEntry {
-  readonly depth: number;
-  readonly identity: symbol;
-  readonly kind: ScreenLayerKind;
-  readonly order: number;
-}
-
-interface ScreenCompositorValue {
-  readonly active: symbol | null;
-  readonly entries: readonly ScreenLayerEntry[];
-  readonly register: (identity: symbol, kind: ScreenLayerKind, depth: number) => () => void;
-}
-
-const ScreenCompositorContext = React.createContext<ScreenCompositorValue | null>(null);
+const ScreenCompositorContext = React.createContext<ScreenCompositorRuntime | null>(null);
 
 export const ScreenCompositor: React.FC<React.PropsWithChildren> = (props) => {
-  const sequence = React.useRef(0);
-  const [entries, setEntries] = React.useState<readonly ScreenLayerEntry[]>(EMPTY_ENTRIES);
-  const register = React.useCallback((identity: symbol, kind: ScreenLayerKind, depth: number) => {
-    const entry = Object.freeze({ depth, identity, kind, order: ++sequence.current });
+  const runtime = React.useRef<ScreenCompositorRuntime>(null);
 
-    setEntries((current) => Object.freeze([...current.filter((item) => item.identity !== identity), entry]));
+  if (runtime.current === null) runtime.current = new ScreenCompositorRuntime();
 
-    return () => {
-      setEntries((current) => {
-        const next = current.filter((item) => item.identity !== identity);
-
-        return next.length === current.length ? current : Object.freeze(next);
-      });
-    };
-  }, []);
-  const active = resolveActiveLayer(entries)?.identity ?? null;
-  const value = React.useMemo<ScreenCompositorValue>(
-    () => Object.freeze({ active, entries, register }),
-    [active, entries, register],
-  );
-
-  return <ScreenCompositorContext.Provider value={value}>{props.children}</ScreenCompositorContext.Provider>;
+  return <ScreenCompositorContext.Provider value={runtime.current}>{props.children}</ScreenCompositorContext.Provider>;
 };
 
 interface ScreenLayerHostProps extends React.PropsWithChildren {
@@ -56,9 +25,14 @@ export const ScreenLayerHost: React.FC<ScreenLayerHostProps> = ({ children, dept
 
   React.useLayoutEffect(() => {
     return compositor?.register(identity, kind, depth);
-  }, [compositor?.register, depth, identity, kind]);
+  }, [compositor, depth, identity, kind]);
 
-  const active = compositor === null || compositor.active === null || compositor.active === identity;
+  const subscribe = React.useCallback(
+    (listener: () => void) => compositor?.subscribe(listener) ?? EMPTY_UNSUBSCRIBE,
+    [compositor],
+  );
+  const getActive = React.useCallback(() => compositor?.isActive(identity) ?? true, [compositor, identity]);
+  const active = React.useSyncExternalStore(subscribe, getActive, getActive);
   const content = <ScreenActivityProvider active={active}>{children}</ScreenActivityProvider>;
 
   if (kind === 'modal') return content;
@@ -70,32 +44,7 @@ export const ScreenLayerHost: React.FC<ScreenLayerHostProps> = ({ children, dept
   );
 };
 
-const resolveActiveLayer = (entries: readonly ScreenLayerEntry[]): ScreenLayerEntry | null => {
-  let active: ScreenLayerEntry | null = null;
-
-  for (const entry of entries) {
-    if (!active || compareLayers(entry, active) > 0) active = entry;
-  }
-
-  return active;
-};
-
-const compareLayers = (left: ScreenLayerEntry, right: ScreenLayerEntry): number => {
-  const rank = SCREEN_LAYER_RANK[left.kind] - SCREEN_LAYER_RANK[right.kind];
-
-  if (rank !== 0) return rank;
-  if (left.depth !== right.depth) return left.depth - right.depth;
-
-  return left.order - right.order;
-};
-
-const SCREEN_LAYER_RANK: Readonly<Record<ScreenLayerKind, number>> = Object.freeze({
-  application: 0,
-  frame: 1,
-  modal: 2,
-});
-
-const EMPTY_ENTRIES: readonly ScreenLayerEntry[] = Object.freeze([]);
+const EMPTY_UNSUBSCRIBE = () => undefined;
 
 const styles = StyleSheet.create({
   layer: {

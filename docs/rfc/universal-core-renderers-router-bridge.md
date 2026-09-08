@@ -59,6 +59,17 @@ boundary outcome являются последовательными состо�
 владеет только physical presentation и связывает её с authoritative core
 projection.
 
+Согласованная 2026-09-06 модель retained physical presentation уточняет эту
+границу. Core по-прежнему является единственным владельцем logical history и
+Route activations. Native adapter проецирует множество уникальных retained
+activation identities в renderer-owned registry физических presentation. Этот
+registry не является второй history: он не хранит порядок переходов, Back,
+Route, token или navigation action. Его назначение — оставить React subtree
+retained screen смонтированным и скрытым, пока соответствующая activation
+существует в core. Одна identity всегда соответствует одному physical screen,
+даже если core history содержит несколько позиций, ссылающихся на одну
+activation.
+
 Переход на текущую архитектуру не сохраняет backward compatibility как
 отдельное требование.
 Старые имена и aliases удаляются вместе с переводом consumers; наличие временного
@@ -652,11 +663,14 @@ app.routing({
 - `NativeNavigationHost` рекурсивно оставляет общую Route/Layout ancestry вне
   ближайшего screen renderer. В первом различающемся outlet adapter разрешает
   identity желаемой presentation из authoritative core projection и передаёт
-  renderer готовый content. Логические history positions и retained activations
-  остаются в core и не материализуются внутри блока B как параллельный массив
-  физических экранов. Повторный выбор той же presentation identity обновляет её
-  content без remount и animation; новая identity создаёт новый физический
-  screen. Последовательные history entries, различающиеся только дочерним
+  renderer текущую presentation вместе с уникальным множеством retained
+  physical presentations этого outlet. Логические history positions и порядок
+  переходов остаются только в core; registry блока B является производной
+  physical storage и не способен выполнять навигацию. Повторный выбор той же
+  presentation identity обновляет её content без remount и animation; новая
+  identity создаёт новый физический screen. Освобождение activation в core
+  удаляет соответствующую скрытую presentation после завершения текущего
+  transition. Последовательные history entries, различающиеся только дочерним
   `Route.routing`, схлопываются для основной screen projection, поскольку frame
   отображается отдельным shell layer. Поэтому общий tab/layout не дублируется,
   а открытие или закрытие frame не создаёт обычный screen transition.
@@ -762,15 +776,19 @@ app.routing({
   animation metadata и authoritative направлению core transition. Это сохраняет
   `dismiss` при Back между двумя history entries одного animated Route с разными
   params, но не передаёт блоку B navigation/history semantics.
-  Блок B реализован двумя физически неподвижными
-  слотами: в стабильном состоянии заполнен один слот, во время transition —
-  текущий и входящий. Слоты никогда не переставляются в native view hierarchy и
-  после завершения меняются ролями. Новая presentation во время незавершённой
-  animation отменяет прежнюю физическую операцию, фиксирует её target как текущий,
-  немедленно переиспользует освободившийся слот и запускает только одну новую
-  animation. Устаревший completion игнорируется по operation identity. Поэтому
-  renderer всегда стремится к последнему желаемому визуальному состоянию без
-  очереди экранов, конкурирующих transition и пустого промежуточного кадра.
+  Блок B реализован registry уникальных presentation identities. В stable state
+  только focused presentation видима и интерактивна; retained presentations
+  остаются в том же React tree под `React.Activity mode="hidden"`, сохраняя
+  component state и native view state, но приостанавливая effects и подписки.
+  Во время transition одновременно видимы только source и target; после
+  завершения source становится hidden либо удаляется, если adapter больше не
+  передаёт её в retained projection. Новая presentation во время незавершённой
+  animation отменяет прежнюю физическую операцию, считает её target визуальным
+  source следующей операции и запускает только одну новую animation. Устаревший
+  completion игнорируется по operation identity. Registry не содержит
+  дубликатов для повторяющихся history positions и не переставляет native views
+  местами. Поэтому renderer стремится к последнему желаемому визуальному
+  состоянию без очереди конкурирующих transition и пустого промежуточного кадра.
   Правило не зависит от инициатора навигации и одинаково применяется к
   tokenized navigation, tab/link/navigation item, imperative navigation,
   `replace` и Back. При подготовке нового target native transition начинается с
@@ -783,6 +801,15 @@ app.routing({
   animation. Animation остаётся только native presentation metadata: она не
   меняет core history, lifecycle или pending и не применяется к
   `Route.routing`/`@Shell()`.
+- Adapter формирует одну атомарную physical projection из application pending,
+  последней подтверждённой bridge presentation и уникальных core runtime
+  entries. Отдельные уведомления фаз core state machine не являются командами
+  `create screen`. Изменение content той же identity, включая fallback ->
+  Module, не создаёт новую physical operation. Target presentation входит в
+  React tree в том же render, в котором adapter впервые получил новый pending;
+  перенос входной presentation в локальный state через Effect запрещён.
+  Layout effect допустим только на границе с фактической native animation и для
+  подтверждения уже committed stable presentation внешнему bridge.
 - Блок B сообщает adapter только о том, что переданная presentation достигла
   stable state. Adapter сопоставляет это событие с текущей bridge revision, а
   bridge завершает ожидающий `commit()`. Core после этого освобождает удалённые

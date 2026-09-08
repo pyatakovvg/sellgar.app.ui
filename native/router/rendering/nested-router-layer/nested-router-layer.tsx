@@ -17,9 +17,7 @@ import type {
   ResolvedApplicationRouting,
 } from '../../../application/config/application-configurator';
 import type { ModuleMetadata } from '../../../module/declaration/module';
-import type { ScreenPresentation } from '../../../screen/declaration/screen-presentation';
 import { ScreenLayerHost } from '../../../screen/rendering/screen-compositor';
-import { ScreenRenderer } from '../../../screen/rendering/screen-renderer';
 import { getRoutePresentationDefinition } from '../../declaration/route';
 import { getRouterPresentationDefinition } from '../../declaration/router';
 import { NestedRouterHost } from '../router-host/nested-router-host';
@@ -135,7 +133,6 @@ const FramePresentation: React.FC<FramePresentationProps> = (props) => {
         ? props.retainedTarget
         : props.target,
   }));
-
   React.useLayoutEffect(() => {
     setState((current) => reconcileFramePresentation(current, props.target, props.retainedTarget, localTransition));
   }, [localTransition, props.retainedTarget, props.target]);
@@ -179,52 +176,49 @@ const FramePresentation: React.FC<FramePresentationProps> = (props) => {
       };
     });
   }, []);
-  const presentation = React.useMemo<ScreenPresentation | null>(() => {
+  const content = React.useMemo<React.ReactNode>(() => {
     const target = state.target;
 
     if (!target) return null;
 
-    return Object.freeze({
-      content: (
-        <NestedRouterHost
-          dismissPending={props.dismissPending}
-          exception={target.components.exception}
-          onPresentationComplete={handlePresentationComplete}
-          phase={state.phase}
-          router={target.router}
-          routing={target.routing}
-          runtime={target.runtime}
-        >
-          {target.runtime ? (
-            <>
-              <RouterHost
+    return (
+      <NestedRouterHost
+        dismissPending={props.dismissPending}
+        exception={target.components.exception}
+        onPresentationComplete={handlePresentationComplete}
+        phase={state.phase}
+        router={target.router}
+        routing={target.routing}
+        runtime={target.runtime}
+      >
+        {target.runtime ? (
+          <>
+            <RouterHost
+              components={target.components}
+              pending={target.childPending}
+              runtime={target.runtime}
+              tree={target.tree}
+            />
+            {target.childPending ? null : (
+              <NestedRouterLayer
                 components={target.components}
-                pending={target.childPending}
+                depth={props.depth + 1}
+                dismissPending={props.dismissPending}
+                onPresentationComplete={props.onPresentationComplete}
+                pending={props.pending}
+                retainedTree={props.retainedTarget?.tree}
+                routing={target.routing}
                 runtime={target.runtime}
+                transition={props.transition}
                 tree={target.tree}
               />
-              {target.childPending ? null : (
-                <NestedRouterLayer
-                  components={target.components}
-                  depth={props.depth + 1}
-                  dismissPending={props.dismissPending}
-                  onPresentationComplete={props.onPresentationComplete}
-                  pending={props.pending}
-                  retainedTree={props.retainedTarget?.tree}
-                  routing={target.routing}
-                  runtime={target.runtime}
-                  transition={props.transition}
-                  tree={target.tree}
-                />
-              )}
-            </>
-          ) : (
-            target.components.fallback
-          )}
-        </NestedRouterHost>
-      ),
-      key: `frame-${resolveFramePresentationKey(target.owner, target.router)}`,
-    });
+            )}
+          </>
+        ) : (
+          target.components.fallback
+        )}
+      </NestedRouterHost>
+    );
   }, [
     handlePresentationComplete,
     props.depth,
@@ -238,7 +232,7 @@ const FramePresentation: React.FC<FramePresentationProps> = (props) => {
     state.target,
   ]);
 
-  if (!presentation) return null;
+  if (!content) return null;
 
   return (
     <View
@@ -252,7 +246,7 @@ const FramePresentation: React.FC<FramePresentationProps> = (props) => {
       style={StyleSheet.absoluteFill}
     >
       <ScreenLayerHost depth={props.depth} kind="frame">
-        <ScreenRenderer presentation={presentation} style={StyleSheet.absoluteFill} />
+        <View style={StyleSheet.absoluteFill}>{content}</View>
       </ScreenLayerHost>
     </View>
   );
@@ -435,6 +429,7 @@ const matchesFrameTransition = (
 
   switch (transition.operation) {
     case 'dismiss':
+      if (current.phase === 'hidden') return true;
       return sameFrameTarget(current.target, retainedTarget ?? current.target);
     case 'present':
       return current.target === null || target === null || sameFrameTarget(current.target, target);
@@ -468,7 +463,7 @@ const reconcileCurrentFrameTransition = (
         ...current,
         completedRevision,
         revision: transition.revision,
-        target: current.target ?? retainedTarget,
+        target: current.phase === 'hidden' ? null : (current.target ?? retainedTarget),
       };
     case 'present':
       return {
@@ -537,23 +532,6 @@ const createPendingNestedRouterTarget = (
     tree: undefined,
   });
 };
-
-const resolveFramePresentationKey = (owner: RouteDeclaration, router: RouterDeclaration): string =>
-  `${resolveDeclarationPresentationKey(owner)}-${resolveDeclarationPresentationKey(router)}`;
-
-const resolveDeclarationPresentationKey = (declaration: object): number => {
-  const current = declarationPresentationKeys.get(declaration);
-
-  if (current !== undefined) return current;
-
-  const key = ++declarationPresentationSequence;
-
-  declarationPresentationKeys.set(declaration, key);
-  return key;
-};
-
-const declarationPresentationKeys = new WeakMap<object, number>();
-let declarationPresentationSequence = 0;
 
 const resolveNestedComponents = (
   props: IProps,

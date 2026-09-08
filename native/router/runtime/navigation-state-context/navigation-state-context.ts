@@ -1,9 +1,9 @@
 import React from 'react';
 
-import type { ApplicationNavigationSnapshot } from '../../../../core/application/lifecycle/application';
+import type { NativePresentationRuntime } from '../native-presentation-runtime';
 
 export interface NavigationStateContextValue {
-  readonly snapshot: ApplicationNavigationSnapshot;
+  readonly source: NativePresentationRuntime;
 }
 
 export const NavigationStateContext = React.createContext<NavigationStateContextValue | null>(null);

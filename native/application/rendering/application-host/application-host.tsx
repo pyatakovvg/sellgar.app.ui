@@ -8,11 +8,6 @@ import type {
   ApplicationLifecycleSnapshot,
 } from '../../../../core/application/lifecycle/application-lifecycle';
 import type { ApplicationFeatureInterface } from '../../../../core/application/feature/application-feature';
-import type {
-  ApplicationNavigationListener,
-  ApplicationNavigationSnapshot,
-  ApplicationRouterHistoryEntry,
-} from '../../../../core/application/lifecycle/application';
 import type { RouterRuntime } from '../../../../core/router/runtime/router-runtime';
 import type { RuntimeScope } from '../../../../core/runtime/scope/base/runtime-scope';
 import { renderApplicationFeatures } from '../../feature/application-feature-renderer';
@@ -21,9 +16,9 @@ import { renderLayouts } from '../../../layout/rendering/layout-renderer';
 import type { LayoutConstructor } from '../../../layout/declaration/layout';
 import type { ModuleMetadata } from '../../../module/declaration/module';
 import type { NativeRouterBridge } from '../../../router/bridge/native-router-bridge';
+import type { NativePresentationRuntime } from '../../../router/runtime/native-presentation-runtime';
 import { NestedRouterLayer } from '../../../router/rendering/nested-router-layer';
 import { NativeNavigationHost } from '../../../router/rendering/native-navigation-host';
-import { useNativePresentationCycle } from '../../../router/rendering/presentation-cycle';
 import { NavigationStateProvider } from '../../../router/runtime/navigation-state-context';
 import { ExceptionProvider } from '../../../runtime/exception/exception-context';
 import { RuntimeErrorBoundary } from '../../../runtime/exception/runtime-error-boundary';
@@ -38,15 +33,13 @@ export interface ApplicationViewSource {
   readonly failRender: (error: unknown) => void | Promise<void>;
   readonly features: readonly ApplicationFeatureInterface[];
   readonly getLifecycle: () => ApplicationLifecycleSnapshot;
-  readonly getNavigation: () => ApplicationNavigationSnapshot;
   readonly getRouterRuntime: () => RouterRuntime<ModuleMetadata>;
-  readonly getRouterHistoryEntries: () => readonly ApplicationRouterHistoryEntry<ModuleMetadata>[];
   readonly layouts: readonly LayoutConstructor[];
   readonly routing: ResolvedApplicationRouting | null;
   readonly routerBridge: NativeRouterBridge;
+  readonly presentationRuntime: NativePresentationRuntime;
   readonly scope: RuntimeScope;
   readonly subscribeLifecycle: (listener: ApplicationLifecycleListener) => () => void;
-  readonly subscribeNavigation: (listener: ApplicationNavigationListener) => () => void;
 }
 
 interface IProps {
@@ -59,14 +52,6 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
     props.source.getLifecycle,
     props.source.getLifecycle,
   );
-  const navigation = React.useSyncExternalStore(
-    props.source.subscribeNavigation,
-    props.source.getNavigation,
-    props.source.getNavigation,
-  );
-  const presentation = useNativePresentationCycle(props.source.routerBridge, navigation.navigation, navigation.pending);
-  const dismissPendingFrame = React.useCallback(() => props.source.routerBridge.back(), [props.source.routerBridge]);
-
   if (lifecycle.phase === 'disposing' || lifecycle.phase === 'disposed') return null;
 
   let content: React.ReactNode;
@@ -84,43 +69,17 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
   } else if (lifecycle.phase !== 'ready') {
     content = props.source.components.splash ?? null;
   } else {
-    if (navigation.navigation || navigation.pending) {
-      const runtime = props.source.getRouterRuntime();
-      const retainedFrameTree =
-        presentation.frame && navigation.navigation
-          ? runtime.findActivation(navigation.navigation)?.getTreeSnapshot()
-          : undefined;
+    const runtime = props.source.getRouterRuntime();
 
-      content = renderLayouts(
-        props.source.layouts,
-        <NativeNavigationHost
-          bridge={props.source.routerBridge}
-          components={props.source.components}
-          current={navigation.navigation}
-          decision={navigation.decision}
-          getHistoryEntries={props.source.getRouterHistoryEntries}
-          onPresentationComplete={presentation.completeScreen}
-          pending={navigation.pending}
-          runtime={runtime}
-        />,
-      );
-      framePresentation = (
-        <NestedRouterLayer
-          components={props.source.components}
-          decision={navigation.decision}
-          depth={0}
-          dismissPending={dismissPendingFrame}
-          onPresentationComplete={presentation.completeFrame}
-          pending={navigation.pending?.root}
-          retainedTree={retainedFrameTree}
-          routing={props.source.routing}
-          runtime={runtime}
-          transition={presentation.frame}
-        />
-      );
-    } else {
-      content = props.source.components.fallback ?? null;
-    }
+    content = renderLayouts(
+      props.source.layouts,
+      <NativeNavigationHost
+        components={props.source.components}
+        presentationRuntime={props.source.presentationRuntime}
+        runtime={runtime}
+      />,
+    );
+    framePresentation = <NativeFramePresentationHost source={props.source} />;
 
     applicationFeatures = renderApplicationFeatures(props.source.features, PresentationLayer.Application);
     modalFeatures = renderApplicationFeatures(props.source.features, PresentationLayer.Modal);
@@ -129,7 +88,7 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
 
   return (
     <RuntimeScopeProvider scope={props.source.scope}>
-      <NavigationStateProvider snapshot={navigation}>
+      <NavigationStateProvider source={props.source.presentationRuntime}>
         <ApplicationComponentsProvider components={props.source.components}>
           <GestureHandlerRootView style={styles.root}>
             <SafeAreaProvider style={styles.root}>
@@ -148,6 +107,42 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
         </ApplicationComponentsProvider>
       </NavigationStateProvider>
     </RuntimeScopeProvider>
+  );
+};
+
+const NativeFramePresentationHost: React.FC<IProps> = ({ source }) => {
+  const presentation = React.useSyncExternalStore(
+    source.presentationRuntime.subscribeFrame,
+    source.presentationRuntime.getFrameSnapshot,
+    source.presentationRuntime.getFrameSnapshot,
+  );
+  const dismissPending = React.useCallback(() => source.routerBridge.back(), [source.routerBridge]);
+
+  if (!presentation) return null;
+
+  const navigation = presentation.application;
+
+  if (!navigation.navigation && !navigation.pending) return null;
+
+  const runtime = source.getRouterRuntime();
+  const retainedTree =
+    presentation.transition && navigation.navigation
+      ? runtime.findActivation(navigation.navigation)?.getTreeSnapshot()
+      : undefined;
+
+  return (
+    <NestedRouterLayer
+      components={source.components}
+      decision={navigation.decision}
+      depth={0}
+      dismissPending={dismissPending}
+      onPresentationComplete={source.presentationRuntime.completeFrame}
+      pending={navigation.pending?.root}
+      retainedTree={retainedTree}
+      routing={source.routing}
+      runtime={runtime}
+      transition={presentation.transition}
+    />
   );
 };
 

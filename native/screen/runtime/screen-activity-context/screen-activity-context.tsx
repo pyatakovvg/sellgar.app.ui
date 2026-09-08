@@ -27,15 +27,15 @@ export const useScreenActive = (): boolean => {
 };
 
 const useReleaseScreenFocus = (active: boolean): void => {
-  const previousActive = React.useRef(active);
-
   React.useLayoutEffect(() => {
-    if (previousActive.current && !active) {
-      const focused = TextInput.State.currentlyFocusedInput();
-
-      if (focused) TextInput.State.blurTextInput(focused);
-    }
-
-    previousActive.current = active;
+    return () => {
+      if (active) releaseFocusedInput();
+    };
   }, [active]);
+};
+
+const releaseFocusedInput = (): void => {
+  const focused = TextInput.State.currentlyFocusedInput();
+
+  if (focused) TextInput.State.blurTextInput(focused);
 };

@@ -10,22 +10,14 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { ScreenAnimation } from '../../declaration/screen-animation';
-import type { ScreenPresentation } from '../../declaration/screen-presentation';
 import type { ScreenTransitionOperation } from '../../declaration/screen-transition';
-import {
-  completeScreenTransition,
-  createScreenMachine,
-  presentScreen,
-  resolveScreenSlotPresentation,
-  resolveScreenSlotRole,
-  type ScreenMachineState,
-  type ScreenSlot,
-} from '../../runtime/screen-machine';
+import { resolveScreenSceneRole, type ScreenMachineState, type ScreenSceneRole } from '../../runtime/screen-machine';
 import { ScreenActivityProvider, useScreenActive } from '../../runtime/screen-activity-context';
+import { ScreenRuntime, type ScreenSceneRuntime } from '../../runtime/screen-runtime';
 
 export interface ScreenRendererProps {
-  readonly onPresentationComplete?: () => void;
-  readonly presentation: ScreenPresentation | null;
+  readonly onPresentationComplete?: (runtime: ScreenRuntime) => void;
+  readonly runtime: ScreenRuntime;
   readonly style?: StyleProp<ViewStyle>;
 }
 
@@ -34,165 +26,185 @@ const TRANSITION_DURATION: Readonly<Record<ScreenTransitionOperation, number>> =
   present: 240,
 });
 
-export const ScreenRenderer: React.FC<ScreenRendererProps> = ({ onPresentationComplete, presentation, style }) => {
-  const [state, setState] = React.useState<ScreenMachineState>(createScreenMachine);
-  const progress = useSharedValue(1);
+export const ScreenRenderer: React.FC<ScreenRendererProps> = React.memo(
+  ({ onPresentationComplete, runtime, style }) => {
+    const snapshot = React.useSyncExternalStore(runtime.subscribe, runtime.getSnapshot, runtime.getSnapshot);
+    const machine = snapshot.machine;
+    const progress = useSharedValue(1);
+    const finishTransition = React.useCallback(
+      (transitionId: number) => runtime.completeTransition(transitionId),
+      [runtime],
+    );
 
-  React.useLayoutEffect(() => {
-    setState((current) => {
-      if (hasPresentationIdentity(current, presentation)) return current;
-      return presentScreen(current, presentation);
-    });
-  }, [presentation]);
+    React.useLayoutEffect(() => {
+      cancelAnimation(progress);
 
-  const finishTransition = React.useCallback((transitionId: number) => {
-    setState((current) => completeScreenTransition(current, transitionId));
-  }, []);
+      if (machine.phase !== 'transitioning' || machine.incomingKey === null) {
+        progress.value = 1;
+        return;
+      }
 
-  React.useLayoutEffect(() => {
-    cancelAnimation(progress);
+      const incoming = findPresentation(machine, machine.incomingKey);
+      const transition = incoming.transition;
 
-    if (state.phase !== 'transitioning') {
-      progress.value = 1;
-      return;
-    }
+      if (!transition) {
+        finishTransition(machine.transitionId);
+        return;
+      }
 
-    const transitionId = state.transitionId;
-    const duration = TRANSITION_DURATION[state.incoming.transition!.operation];
+      const transitionId = machine.transitionId;
+      const duration = TRANSITION_DURATION[transition.operation];
 
-    progress.value = 0;
-    progress.value = withTiming(1, { duration }, (finished) => {
-      if (finished) runOnJS(finishTransition)(transitionId);
-    });
+      progress.value = 0;
+      progress.value = withTiming(1, { duration }, (finished) => {
+        if (finished) runOnJS(finishTransition)(transitionId);
+      });
 
-    return () => cancelAnimation(progress);
-  }, [finishTransition, progress, state.phase, state.transitionId]);
+      return () => cancelAnimation(progress);
+    }, [finishTransition, machine.phase, machine.transitionId, progress]);
 
-  React.useEffect(() => {
-    if (state.phase === 'stable' && presentation !== null && state.current.key === presentation.key) {
-      onPresentationComplete?.();
-    }
-  }, [onPresentationComplete, presentation?.key, state.current?.key, state.phase]);
+    return (
+      <View pointerEvents={machine.phase === 'transitioning' ? 'none' : 'auto'} style={[styles.host, style]}>
+        {snapshot.scenes.map((scene) => (
+          <ScreenSceneView
+            key={scene.key}
+            machine={machine}
+            onPresentationComplete={onPresentationComplete}
+            owner={runtime}
+            progress={progress}
+            runtime={scene}
+          />
+        ))}
+      </View>
+    );
+  },
+);
 
-  return (
-    <View pointerEvents={state.phase === 'transitioning' ? 'none' : 'auto'} style={[styles.host, style]}>
-      <ScreenSlotView presentation={presentation} progress={progress} slot="primary" state={state} />
-      <ScreenSlotView presentation={presentation} progress={progress} slot="secondary" state={state} />
-    </View>
-  );
-};
-
-interface ScreenSlotViewProps {
-  readonly presentation: ScreenPresentation | null;
+interface ScreenSceneViewProps {
+  readonly machine: ScreenMachineState;
+  readonly onPresentationComplete?: (runtime: ScreenRuntime) => void;
+  readonly owner: ScreenRuntime;
   readonly progress: SharedValue<number>;
-  readonly slot: ScreenSlot;
-  readonly state: ScreenMachineState;
+  readonly runtime: ScreenSceneRuntime;
 }
 
-const ScreenSlotView: React.FC<ScreenSlotViewProps> = ({ presentation: requestedPresentation, progress, slot, state }) => {
-  const presentationActive = useScreenActive();
-  const dimensions = useWindowDimensions();
-  const storedPresentation = resolveScreenSlotPresentation(state, slot);
-  const presentation =
-    requestedPresentation?.key === storedPresentation?.key ? requestedPresentation : storedPresentation;
-  const role = resolveScreenSlotRole(state, slot);
-  const animation = state.phase === 'transitioning' ? state.incoming.transition?.animation : undefined;
-  const animatedStyle = useAnimatedStyle(() => {
-    const value = progress.value;
+const ScreenSceneView: React.FC<ScreenSceneViewProps> = React.memo(
+  ({ machine, onPresentationComplete, owner, progress, runtime }) => {
+    const scene = React.useSyncExternalStore(runtime.subscribe, runtime.getSnapshot, runtime.getSnapshot);
+    const presentationActive = useScreenActive();
+    const dimensions = useWindowDimensions();
+    const role = resolveScreenSceneRole(machine, runtime.key);
+    const incoming = machine.incomingKey ? findPresentation(machine, machine.incomingKey) : null;
+    const animation = machine.phase === 'transitioning' ? incoming?.transition?.animation : undefined;
+    const animatedStyle = useAnimatedStyle(() =>
+      resolveAnimatedStyle(role, animation, progress.value, dimensions.width, dimensions.height),
+    );
+    const visible = role !== 'retained';
+    const interactive = machine.phase === 'stable' && role === 'current';
+    const active = presentationActive && interactive;
 
-    if (role === 'empty') {
-      return {
-        opacity: 0,
-        transform: [{ translateX: 0 }, { translateY: 0 }],
-        zIndex: -1,
-      };
-    }
+    React.useLayoutEffect(() => {
+      if (interactive) onPresentationComplete?.(owner);
+    }, [interactive, onPresentationComplete, owner, scene.content]);
 
-    if (role === 'current') {
-      switch (animation) {
-        case ScreenAnimation.SlideFromRight:
-          return {
-            opacity: 1,
-            transform: [{ translateX: -dimensions.width * 0.25 * value }, { translateY: 0 }],
-            zIndex: 0,
-          };
-        case ScreenAnimation.SlideFromLeft:
-          return {
-            opacity: 1,
-            transform: [{ translateX: dimensions.width * value }, { translateY: 0 }],
-            zIndex: 1,
-          };
-        default:
-          return {
-            opacity: 1,
-            transform: [{ translateX: 0 }, { translateY: 0 }],
-            zIndex: 0,
-          };
-      }
-    }
+    return (
+      <Animated.View
+        accessibilityElementsHidden={!interactive}
+        aria-hidden={!interactive}
+        importantForAccessibility={interactive ? 'auto' : 'no-hide-descendants'}
+        pointerEvents={interactive ? 'auto' : 'none'}
+        style={[styles.scene, animatedStyle]}
+      >
+        <React.Activity mode={visible ? 'visible' : 'hidden'}>
+          <ScreenActivityProvider active={active}>{scene.content}</ScreenActivityProvider>
+        </React.Activity>
+      </Animated.View>
+    );
+  },
+);
 
+const findPresentation = (machine: ScreenMachineState, key: string) => {
+  const presentation = machine.presentations.find((candidate) => candidate.key === key);
+
+  if (!presentation) {
+    throw new Error(`Screen presentation ${key} отсутствует в physical registry.`);
+  }
+
+  return presentation;
+};
+
+const resolveAnimatedStyle = (
+  role: ScreenSceneRole,
+  animation: ScreenAnimation | undefined,
+  progress: number,
+  width: number,
+  height: number,
+): { readonly opacity: number; readonly transform: readonly object[]; readonly zIndex: number } => {
+  'worklet';
+
+  if (role === 'retained') {
+    return {
+      opacity: 0,
+      transform: [{ translateX: 0 }, { translateY: 0 }],
+      zIndex: -1,
+    };
+  }
+
+  if (role === 'current') {
     switch (animation) {
-      case ScreenAnimation.Fade:
-        return {
-          opacity: value,
-          transform: [{ translateX: 0 }, { translateY: 0 }],
-          zIndex: 1,
-        };
-      case ScreenAnimation.SlideFromBottom:
+      case ScreenAnimation.SlideFromRight:
         return {
           opacity: 1,
-          transform: [{ translateX: 0 }, { translateY: dimensions.height * (1 - value) }],
-          zIndex: 1,
+          transform: [{ translateX: -width * 0.25 * progress }, { translateY: 0 }],
+          zIndex: 0,
         };
       case ScreenAnimation.SlideFromLeft:
         return {
           opacity: 1,
-          transform: [{ translateX: -dimensions.width * 0.25 * (1 - value) }, { translateY: 0 }],
-          zIndex: 0,
-        };
-      case ScreenAnimation.SlideFromRight:
-        return {
-          opacity: 1,
-          transform: [{ translateX: dimensions.width * (1 - value) }, { translateY: 0 }],
+          transform: [{ translateX: width * progress }, { translateY: 0 }],
           zIndex: 1,
         };
       default:
         return {
           opacity: 1,
           transform: [{ translateX: 0 }, { translateY: 0 }],
-          zIndex: 1,
+          zIndex: 0,
         };
     }
-  });
-  const visible = role !== 'empty';
-  const interactive = state.phase === 'stable' && role === 'current';
-  const active = presentationActive && interactive;
+  }
 
-  return (
-    <Animated.View
-      accessibilityElementsHidden={!interactive}
-      aria-hidden={!interactive}
-      importantForAccessibility={interactive ? 'auto' : 'no-hide-descendants'}
-      pointerEvents={interactive ? 'auto' : 'none'}
-      style={[styles.slot, animatedStyle]}
-    >
-      <ScreenActivityProvider active={active}>
-        {visible && presentation ? (
-          <React.Fragment key={presentation.key}>{presentation.content}</React.Fragment>
-        ) : null}
-      </ScreenActivityProvider>
-    </Animated.View>
-  );
-};
-
-const hasPresentationIdentity = (
-  state: ScreenMachineState,
-  presentation: ScreenPresentation | null,
-): boolean => {
-  if (presentation === null) return state.phase === 'empty';
-  if (state.phase === 'stable') return state.current.key === presentation.key;
-  if (state.phase === 'transitioning') return state.incoming.key === presentation.key;
-  return false;
+  switch (animation) {
+    case ScreenAnimation.Fade:
+      return {
+        opacity: progress,
+        transform: [{ translateX: 0 }, { translateY: 0 }],
+        zIndex: 1,
+      };
+    case ScreenAnimation.SlideFromBottom:
+      return {
+        opacity: 1,
+        transform: [{ translateX: 0 }, { translateY: height * (1 - progress) }],
+        zIndex: 1,
+      };
+    case ScreenAnimation.SlideFromLeft:
+      return {
+        opacity: 1,
+        transform: [{ translateX: -width * 0.25 * (1 - progress) }, { translateY: 0 }],
+        zIndex: 0,
+      };
+    case ScreenAnimation.SlideFromRight:
+      return {
+        opacity: 1,
+        transform: [{ translateX: width * (1 - progress) }, { translateY: 0 }],
+        zIndex: 1,
+      };
+    default:
+      return {
+        opacity: 1,
+        transform: [{ translateX: 0 }, { translateY: 0 }],
+        zIndex: 1,
+      };
+  }
 };
 
 const styles = StyleSheet.create({
@@ -200,7 +212,7 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
-  slot: {
+  scene: {
     bottom: 0,
     left: 0,
     position: 'absolute',

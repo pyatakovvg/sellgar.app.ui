@@ -4,7 +4,6 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 
 import type { ScreenPresentation } from '../../../screen/declaration/screen-presentation';
 import { ScreenLayerHost } from '../../../screen/rendering/screen-compositor';
-import { ScreenRenderer } from '../../../screen/rendering/screen-renderer';
 import { ScreenActivityGate } from '../../../screen/runtime/screen-activity-context';
 
 interface ModalHostProps {
@@ -26,7 +25,7 @@ export const ModalHost: React.FC<ModalHostProps> = (props) => {
       >
         <ScreenActivityGate active={shown}>
           <KeyboardAvoidingView automaticOffset behavior="padding" style={styles.screen}>
-            <ScreenRenderer presentation={props.presentation} style={styles.screen} />
+            {props.presentation.content}
           </KeyboardAvoidingView>
         </ScreenActivityGate>
       </Modal>

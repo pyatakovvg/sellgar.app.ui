@@ -1,14 +1,24 @@
 import React from 'react';
 
-import type { NavigationStateContextValue } from './navigation-state-context.ts';
+import type { ApplicationNavigationSnapshot } from '../../../../core/application/lifecycle/application';
 import { NavigationStateContext } from './navigation-state-context.ts';
 
-export const useNavigationState = (): NavigationStateContextValue => {
+export interface NavigationStateValue {
+  readonly snapshot: ApplicationNavigationSnapshot;
+}
+
+export const useNavigationState = (): NavigationStateValue => {
   const state = React.useContext(NavigationStateContext);
 
   if (state === null) {
     throw new Error('Navigation state недоступен вне Application view.');
   }
 
-  return state;
+  const presentation = React.useSyncExternalStore(
+    state.source.subscribeNavigation,
+    state.source.getNavigationSnapshot,
+    state.source.getNavigationSnapshot,
+  );
+
+  return React.useMemo(() => Object.freeze({ snapshot: presentation }), [presentation]);
 };
