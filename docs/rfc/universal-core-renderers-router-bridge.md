@@ -1009,8 +1009,10 @@ app.routing({
   presentation-контейнер целиком поднимает surface и ограничивает её доступной
   над IME областью, а `Viewport` отвечает только за внутреннее
   переполнение уже расположенного frame и сохраняет focused input видимым внутри
-  этой доступной области. `ShellHost` сам не прокручивает content и не измеряет
-  положение input. Ручные измерения координат, `setTimeout` для
+  этой доступной области. `ShellHost` является единственным владельцем keyboard
+  geometry frame; shell-aware scroll не применяет высоту клавиатуры повторно.
+  `ShellHost` сам не прокручивает content и не измеряет положение input. Ручные
+  измерения координат, `setTimeout` для
   focus/scroll и прикладные keyboard spacers в Module views не являются
   framework contract. Tap по доступному form control обрабатывается с первого
   нажатия; keyboard dismiss следует нативному режиму платформы (`interactive` на
@@ -1031,9 +1033,13 @@ app.routing({
   компонентам. Keyboard-aware scroll owner не выбирает focus: после подтверждения
   показа native keyboard сам поддерживаемый `KeyboardAwareScrollView` доводит
   focused input до видимой области. Framework hook только применяет `focus()` к
-  явно autofocus-полю активного screen и не повторяет библиотечный scroll
-  imperative API. Механизм не требует таймеров, сохранения input identity,
-  `findNodeHandle`, ручного измерения координат или логики конкретной формы.
+  явно autofocus-полю активного screen. При переходе keyboard-aware owner из
+  inactive в active adapter один раз вызывает публичный
+  `assureFocusedInputVisible()`: это синхронизирует уже начавшийся native focus/
+  keyboard process с вновь активированной presentation, но не реализует
+  собственный scroll algorithm. Механизм не требует таймеров, сохранения input
+  identity, `findNodeHandle`, ручного измерения координат или логики конкретной
+  формы.
   Интеграция virtualized owner выполняется штатным для
   [`react-native-keyboard-controller`](https://kirillzyusko.github.io/react-native-keyboard-controller/docs/api/components/keyboard-aware-scroll-view#flatlistflashlistsectionlist-etc)
   способом через `renderScrollComponent`; framework не реализует собственный
