@@ -1094,7 +1094,11 @@ dismissing | hidden`. Источник logical close ему неизвестен
   backdrop: свайп вниз можно начать в любой точке экрана. Ограничение по scroll
   offset применяется только к жесту, начатому внутри `ShellScrollView`; жест вне
   scrollable области сразу управляет shell. Scroll и shell не изменяют
-  presentation одновременно.
+  presentation одновременно. Dismiss recognizer декларативно включён только в
+  фазе `visible`; переходы `presenting | dismissing | hidden` обновляют его native
+  configuration через renderer lifecycle. `SharedValue` хранит только
+  непрерывные gesture/animation coordinates и не подменяет lifecycle-состояние
+  доступности recognizer.
 
   ```tsx
   const DrawerBackdrop = () => <Blur />;

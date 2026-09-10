@@ -41,7 +41,7 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
   const { dismiss } = props;
   const phase = props.phase;
-  const requestCoreDismiss = useShellDismissRequest(dismiss);
+  const requestDismiss = useShellDismissRequest(dismiss);
   const translationY = useSharedValue(0);
   const frameHeight = useSharedValue(1);
   const frameMeasured = useSharedValue(0);
@@ -56,11 +56,6 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
   const touchStartedInScrollable = useSharedValue(false);
   const touchStartedWithKeyboard = useSharedValue(false);
   const keyboardDismissRequested = useSharedValue(false);
-  const gestureEnabled = useSharedValue(props.phase === 'visible');
-  const requestDismiss = React.useCallback(() => {
-    gestureEnabled.value = false;
-    requestCoreDismiss();
-  }, [gestureEnabled, requestCoreDismiss]);
   const completePresentation = props.onPresentationComplete;
   const animateInteractiveDismiss = React.useCallback(() => {
     'worklet';
@@ -74,9 +69,8 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
     });
   }, [frameHeight, interactiveDismissStarted, requestDismiss, translationY]);
   const close = React.useCallback(() => {
-    gestureEnabled.value = false;
     animateInteractiveDismiss();
-  }, [animateInteractiveDismiss, gestureEnabled]);
+  }, [animateInteractiveDismiss]);
   const animatePresentationDismiss = React.useCallback(() => {
     cancelAnimation(translationY);
 
@@ -103,13 +97,12 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
   }, [completePresentation, frameMeasured, translationY]);
 
   React.useLayoutEffect(() => {
-    gestureEnabled.value = phase === 'visible';
     if (phase === 'dismissing') animatePresentationDismiss();
     if (phase === 'presenting') ensurePresentationVisible();
-  }, [animatePresentationDismiss, ensurePresentationVisible, gestureEnabled, phase]);
+  }, [animatePresentationDismiss, ensurePresentationVisible, phase]);
 
   const gesture = usePanGesture({
-    enabled: gestureEnabled,
+    enabled: phase === 'visible',
     manualActivation: true,
     onBegin: () => {
       if (interactiveDismissStarted.value) return;
