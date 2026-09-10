@@ -368,17 +368,17 @@ const CollectionLoadMoreAccessory: React.FC<{
 };
 
 const useLoadMoreObserver = (structure: ViewportStructure) => {
-  const interacted = React.useRef(false);
+  const [armed, setArmed] = React.useState(false);
   const loading = React.useRef(false);
   const onScrollBeginDrag = React.useCallback(() => {
-    interacted.current = true;
-  }, []);
+    if (!loading.current && !structure.loadMore?.inProcess) setArmed(true);
+  }, [structure.loadMore?.inProcess]);
   const onEndReached = React.useCallback(async () => {
     const loadMore = structure.loadMore;
 
-    if (!loadMore || !interacted.current || loading.current || loadMore.inProcess) return;
+    if (!loadMore || loading.current || loadMore.inProcess) return;
 
-    interacted.current = false;
+    setArmed(false);
     loading.current = true;
 
     try {
@@ -387,8 +387,9 @@ const useLoadMoreObserver = (structure: ViewportStructure) => {
       loading.current = false;
     }
   }, [structure.loadMore]);
+  const enabled = armed && structure.loadMore !== null && !structure.loadMore.inProcess;
 
-  return { onEndReached, onScrollBeginDrag };
+  return { onEndReached: enabled ? onEndReached : undefined, onScrollBeginDrag };
 };
 
 const getFlowItem = (data: ArrayLike<ViewportFlowEntry> | null | undefined, index: number): ViewportFlowEntry => {
