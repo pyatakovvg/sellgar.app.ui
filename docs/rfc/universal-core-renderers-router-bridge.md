@@ -762,6 +762,10 @@ app.routing({
   определённый уход с Route boundary. Platform Back, gesture, header control и
   `navigate.back()` должны входить в один core Back intent pipeline; renderer
   только передаёт intent и показывает dismiss после фактического history pop.
+  React Native adapter нормализует Android `BackHandler` и iOS leading-edge
+  gesture в один `NativeBackRuntime.request()`. iOS gesture не изменяет
+  physical screen stack напрямую: это сохранило бы вторую history и обошло бы
+  core interception/navigation blocker до принятия решения.
 - Native `Route` принимает необязательное renderer-specific свойство
   `animation`. При отсутствии свойства screen появляется и удаляется без
   анимации. Значение принадлежит только Route, на котором объявлено: дочерние

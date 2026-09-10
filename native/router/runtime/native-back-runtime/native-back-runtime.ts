@@ -1,4 +1,4 @@
-import { BackHandler, ToastAndroid } from 'react-native';
+import { BackHandler, Platform, ToastAndroid } from 'react-native';
 
 import type {
   ApplicationLifecycleListener,
@@ -14,6 +14,7 @@ export interface NativeBackLifecycleSource {
 /** Owns the platform Back input and delegates logical navigation to core through the bridge. */
 export class NativeBackRuntime {
   private pressedAt: number | null = null;
+  private requestPromise: Promise<void> | null = null;
   private removeBackListener: (() => void) | null = null;
   private unregisterDriver: (() => void) | null = null;
   private unsubscribeBridge: (() => void) | null = null;
@@ -32,6 +33,17 @@ export class NativeBackRuntime {
     this.unsubscribeLifecycle();
   }
 
+  request = (): Promise<void> => {
+    if (this.requestPromise) return this.requestPromise;
+
+    const promise = this.bridge.back().finally(() => {
+      if (this.requestPromise === promise) this.requestPromise = null;
+    });
+
+    this.requestPromise = promise;
+    return promise;
+  };
+
   private readonly synchronize = (): void => {
     if (this.lifecycle.getLifecycle().phase === 'ready') {
       this.activate();
@@ -47,8 +59,11 @@ export class NativeBackRuntime {
 
     this.unsubscribeBridge = this.bridge.subscribe(this.resetRootBack);
     this.unregisterDriver = this.bridge.registerDriver(driver);
-    const subscription = BackHandler.addEventListener('hardwareBackPress', this.handleBack);
-    this.removeBackListener = () => subscription.remove();
+
+    if (Platform.OS === 'android') {
+      const subscription = BackHandler.addEventListener('hardwareBackPress', this.handleBack);
+      this.removeBackListener = () => subscription.remove();
+    }
   }
 
   private deactivate(): void {
@@ -59,14 +74,17 @@ export class NativeBackRuntime {
     this.unregisterDriver = null;
     this.unsubscribeBridge = null;
     this.pressedAt = null;
+    this.requestPromise = null;
   }
 
   private readonly handleBack = (): boolean => {
-    void this.bridge.back();
+    void this.request();
     return true;
   };
 
   private readonly handleRootBack = (): void => {
+    if (Platform.OS !== 'android') return;
+
     const resolution = resolveRootBack(this.pressedAt, Date.now());
 
     this.pressedAt = resolution.pressedAt;

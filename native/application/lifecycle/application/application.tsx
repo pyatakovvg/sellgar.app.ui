@@ -76,6 +76,7 @@ export abstract class Application extends CoreApplication<ModuleMetadata, Applic
       routerBridge: this.nativeRouterBridge,
       presentationRuntime,
       getRouterRuntime: () => this.getRouterRuntime(),
+      requestBack: backRuntime.request,
       scope: this.getApplicationScope(),
       subscribeLifecycle: (listener: ApplicationLifecycleListener) => this.subscribe(listener),
     });

@@ -35,6 +35,7 @@ export interface ApplicationViewSource {
   readonly getLifecycle: () => ApplicationLifecycleSnapshot;
   readonly getRouterRuntime: () => RouterRuntime<ModuleMetadata>;
   readonly layouts: readonly LayoutConstructor[];
+  readonly requestBack: () => void | Promise<void>;
   readonly routing: ResolvedApplicationRouting | null;
   readonly routerBridge: NativeRouterBridge;
   readonly presentationRuntime: NativePresentationRuntime;
@@ -76,6 +77,7 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
       <NativeNavigationHost
         components={props.source.components}
         presentationRuntime={props.source.presentationRuntime}
+        requestBack={props.source.requestBack}
         runtime={runtime}
       />,
     );

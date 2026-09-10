@@ -17,6 +17,15 @@ vi.mock('react-native', () => ({
     addEventListener: () => ({ remove: vi.fn() }),
     exitApp: vi.fn(),
   },
+  I18nManager: {
+    isRTL: false,
+  },
+  Platform: {
+    OS: 'android',
+  },
+  StyleSheet: {
+    create: (styles: object) => styles,
+  },
   ToastAndroid: {
     SHORT: 0,
     show: vi.fn(),
@@ -89,6 +98,7 @@ const createProps = (getHistoryEntries: () => readonly ApplicationRouterHistoryE
   navigation: Object.freeze({ action: null, backInProgress: false, entries: [], index: 0 }),
   onPresentationComplete: () => undefined,
   pending: null,
+  requestBack: vi.fn(async () => undefined),
   runtime: createRuntime(),
   source: undefined,
 });
