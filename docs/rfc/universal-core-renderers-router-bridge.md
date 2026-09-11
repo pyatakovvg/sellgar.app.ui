@@ -909,9 +909,13 @@ app.routing({
   делегируется `VirtualizedList.onEndReached`; adapter не вычисляет дистанцию до
   конца повторно и не выводит её из platform-specific порядка drag/momentum,
   `velocity` либо других scroll events. Его единственная защита поверх
-  `VirtualizedList` — не принимать initial callback до пользовательского scroll,
-  повторный callback во время текущего `inProcess` и каскадный callback без
-  следующего пользовательского взаимодействия.
+  `VirtualizedList` — регистрировать `onEndReached` только после начала нового
+  пользовательского scroll-взаимодействия и снимать его перед запуском
+  `onLoad`. Initial callback нельзя принимать и отбрасывать внутри handler:
+  `VirtualizedList` уже считает его доставленным для текущей длины content, из-за
+  чего реальное достижение конца может не породить повторный callback. Во время
+  текущего `inProcess` и до следующего пользовательского взаимодействия handler
+  остаётся незарегистрированным.
   Дочерняя view `Collection.LoadMore` является overlay-accessory коллекции, а не
   item, footer либо частью её scroll-flow. При переходе `inProcess` в `true`
   accessory монтируется поверх нижней границы видимой области коллекции и
@@ -931,8 +935,13 @@ app.routing({
   штатный React Native `RefreshControl`: framework не реализует собственный
   threshold, gesture-progress или таймер. `RefreshControl` подключается к тому же
   физическому scroll owner как для обычного потока, так и для Collection.
-  Arbitrary child не считается визуалом системного RefreshControl; custom
-  refresh-control откладывается до отдельного полного platform-контракта.
+  Свойство `color` задаёт цвет системного индикатора и адаптируется в
+  platform-specific `tintColor` на iOS и `colors` на Android. Произвольная
+  дочерняя view не поддерживается: React Native не предоставляет единого
+  кроссплатформенного контракта полной замены native pull-indicator без замены
+  самого gesture/scroll owner. Framework не имитирует такую замену вторым
+  overlay-индикатором, поскольку две несинхронные presentation-фазы дают
+  непредсказуемое поведение пользователю.
   Индикатор отражает только revalidation, инициированную этим жестом: query,
   action, повторная навигация и другой источник общей revalidation не должны
   визуально изображаться как pull-to-refresh. Сама operation по-прежнему идёт

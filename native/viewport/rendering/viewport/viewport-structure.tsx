@@ -7,6 +7,7 @@ import {
   type ViewportFloatingHorizontal,
   type ViewportFloatingSlotProps,
   type ViewportFloatingVertical,
+  type ViewportRefreshableProps,
   type ViewportSlotProps,
 } from './viewport-primitives.tsx';
 
@@ -30,11 +31,15 @@ export interface ViewportLoadMore {
   readonly onLoad: () => unknown | Promise<unknown>;
 }
 
+export interface ViewportRefreshable {
+  readonly color: ViewportRefreshableProps['color'];
+}
+
 export interface ViewportStructure {
   readonly collection: boolean;
   readonly floating: readonly ViewportFloatingEntry[];
   readonly flow: readonly ViewportFlowEntry[];
-  readonly refreshable: boolean;
+  readonly refreshable: ViewportRefreshable | null;
   readonly lowerFixed: readonly React.ReactNode[];
   readonly loadMore: ViewportLoadMore | null;
   readonly upperFixed: readonly React.ReactNode[];
@@ -45,7 +50,7 @@ export const resolveViewportStructure = (children: React.ReactNode): ViewportStr
   const firstFlowIndex = nodes.findIndex(isFlowNode);
   let collection = false;
   let loadMore: ViewportLoadMore | null = null;
-  let refreshable = false;
+  let refreshable: ViewportRefreshable | null = null;
   const floating: ViewportFloatingEntry[] = [];
   const flow: ViewportFlowEntry[] = [];
   const lowerFixed: React.ReactNode[] = [];
@@ -55,8 +60,10 @@ export const resolveViewportStructure = (children: React.ReactNode): ViewportStr
     const kind = getViewportPrimitiveKind(node);
     const key = resolveNodeKey(node, 'viewport', index);
 
-    if (kind === 'refreshable') {
-      refreshable = true;
+    if (kind === 'refreshable' && React.isValidElement<ViewportRefreshableProps>(node)) {
+      refreshable ??= {
+        color: node.props.color,
+      };
       return;
     }
 

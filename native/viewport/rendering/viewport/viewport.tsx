@@ -112,6 +112,7 @@ const RefreshableViewport: React.FC<{ readonly structure: ViewportStructure }> =
     }
   }, [keyboard, refreshing, revalidate]);
   const refreshEnabled = refreshAtTop && !keyboard.visible;
+  const color = props.structure.refreshable?.color;
 
   return (
     <ViewportContent
@@ -119,7 +120,13 @@ const RefreshableViewport: React.FC<{ readonly structure: ViewportStructure }> =
       onScrollBeginDrag={handleScrollBeginDrag}
       onScrollEndDrag={handleScrollEnd}
       refreshControl={
-        <RefreshControl enabled={refreshEnabled} onRefresh={() => void handleRefresh()} refreshing={refreshing} />
+        <RefreshControl
+          colors={color ? [color] : undefined}
+          enabled={refreshEnabled}
+          onRefresh={() => void handleRefresh()}
+          refreshing={refreshing}
+          tintColor={color}
+        />
       }
       structure={props.structure}
     />

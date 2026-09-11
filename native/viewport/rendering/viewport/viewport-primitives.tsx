@@ -1,4 +1,5 @@
 import React from 'react';
+import { type ColorValue } from 'react-native';
 
 export type ViewportFlexWeight = boolean | number;
 
@@ -15,7 +16,9 @@ export interface ViewportFloatingSlotProps extends React.PropsWithChildren {
   readonly vertical?: ViewportFloatingVertical;
 }
 
-export interface ViewportRefreshableProps {}
+export interface ViewportRefreshableProps {
+  readonly color?: ColorValue;
+}
 
 export interface ViewportCollectionProps extends React.PropsWithChildren {}
 export interface CollectionItemProps extends React.PropsWithChildren {}
