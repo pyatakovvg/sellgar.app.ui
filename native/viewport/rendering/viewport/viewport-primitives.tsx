@@ -26,6 +26,7 @@ export interface CollectionSectionProps extends React.PropsWithChildren {}
 export interface CollectionEmptyProps extends React.PropsWithChildren {}
 
 export interface CollectionLoadMoreProps extends React.PropsWithChildren {
+  readonly color?: ColorValue;
   readonly inProcess: boolean;
   readonly onLoad: () => unknown | Promise<unknown>;
 }

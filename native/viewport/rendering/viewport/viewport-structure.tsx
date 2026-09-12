@@ -25,6 +25,7 @@ export interface ViewportFloatingEntry {
 }
 
 export interface ViewportLoadMore {
+  readonly color: CollectionLoadMoreProps['color'];
   readonly inProcess: boolean;
   readonly key: string;
   readonly node: React.ReactNode;
@@ -133,6 +134,7 @@ const resolveCollection = (children: React.ReactNode, prefix: string): ResolvedC
 
       if (kind === 'collection-load-more' && React.isValidElement<CollectionLoadMoreProps>(node)) {
         const candidate: ViewportLoadMore = {
+          color: node.props.color,
           inProcess: node.props.inProcess,
           key,
           node: node.props.children,

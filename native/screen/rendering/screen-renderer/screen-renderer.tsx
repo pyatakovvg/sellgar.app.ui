@@ -8,6 +8,7 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
+import { runOnUISync } from 'react-native-worklets';
 
 import { ScreenAnimation } from '../../declaration/screen-animation';
 import type { ScreenTransitionOperation } from '../../declaration/screen-transition';
@@ -32,8 +33,11 @@ export const ScreenRenderer: React.FC<ScreenRendererProps> = React.memo(
 
     React.useLayoutEffect(() => {
       return runtime.subscribeTransitionStart(() => {
-        cancelAnimation(progress);
-        progress.value = 0;
+        runOnUISync(() => {
+          'worklet';
+          cancelAnimation(progress);
+          progress.value = 0;
+        });
       });
     }, [progress, runtime]);
 

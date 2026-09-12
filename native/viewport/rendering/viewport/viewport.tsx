@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   Animated,
   RefreshControl,
   StyleSheet,
@@ -349,6 +350,10 @@ const CollectionLoadMoreAccessory: React.FC<{
 
   if (!inProcess && !mounted) return null;
 
+  const indicator = props.loadMore?.node ?? (
+    <ActivityIndicator color={props.loadMore?.color} size="large" style={styles.loadMoreIndicator} />
+  );
+
   return (
     <Animated.View
       onLayout={handleLayout}
@@ -369,7 +374,7 @@ const CollectionLoadMoreAccessory: React.FC<{
         },
       ]}
     >
-      {props.loadMore?.node}
+      {indicator}
     </Animated.View>
   );
 };
@@ -439,6 +444,9 @@ const styles = StyleSheet.create({
     left: 0,
     position: 'absolute',
     right: 0,
+  },
+  loadMoreIndicator: {
+    marginBottom: 16,
   },
   root: {
     flex: 1,

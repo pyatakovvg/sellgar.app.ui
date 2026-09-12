@@ -279,7 +279,13 @@ export class NativeRouteProjectionRuntime {
       if (!candidateKey || candidateKey === currentKey || presentations.has(candidateKey)) continue;
 
       const presentation = this.createCommittedPresentation(
-        { ...projection, tracksCompletion: false },
+        {
+          ...projection,
+          currentPath: path,
+          pending: null,
+          tracksCompletion: false,
+          transition: null,
+        },
         path,
         runtimeEntry.tree,
       );

@@ -924,8 +924,11 @@ app.routing({
   presentation-механике `Collection.LoadMore`; `Viewport` предоставляет ей
   границы размещения с учётом нижней fixed-area. Появление и скрытие accessory не
   изменяет scroll offset, не зависит от drag/momentum и не резервирует место в
-  содержимом списка. Визуал и его фактическая высота полностью определяются
-  переданной пользовательской view.
+  содержимом списка. Без дочерней view `Collection.LoadMore` отображает штатный
+  React Native `ActivityIndicator`; его цвет задаётся необязательным `color`.
+  Переданная дочерняя view полностью заменяет штатный индикатор, при этом не
+  получает владение trigger, process state, размещением или анимацией accessory.
+  Её фактическая высота определяет амплитуду presentation-анимации.
 - `useViewport().scrollToStart({ animated? })` является первым минимальным
   imperative-контрактом. Смена data сама по себе не управляет scroll position;
   retained смонтированный Viewport сохраняет нативный offset, а настоящий
