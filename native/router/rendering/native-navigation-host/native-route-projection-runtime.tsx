@@ -71,7 +71,7 @@ export class NativeRouteProjectionRuntime {
   private readonly touchedContent = new Set<string>();
   private readonly touchedOutlets = new Set<string>();
   private completionRuntime: ScreenRuntime = this.root;
-  private completionChanged = false;
+  private completionPending = false;
 
   constructor(private readonly onPresentationComplete: () => void) {}
 
@@ -84,16 +84,16 @@ export class NativeRouteProjectionRuntime {
     this.touchedOutlets.clear();
     this.touchedOutlets.add(ROOT_OUTLET);
     this.completionRuntime = this.root;
-    this.completionChanged = false;
+    this.completionPending = false;
 
     const focusedEntry = input.entries.at(-1) ?? null;
     const current = focusedEntry?.activation.navigation ?? input.current;
     const currentPath = current?.root.path ?? EMPTY_PATH;
 
     if (input.pending && input.pending.root.path.length === 0) {
-      this.completionChanged = this.root.project(
+      this.completionPending = this.root.project(
         createFallbackPresentation(ROOT_FALLBACK_KEY, input.components.fallback),
-      );
+      ).awaitsCompletion;
       this.prune();
       return this.awaitsPresentation();
     }
@@ -114,9 +114,9 @@ export class NativeRouteProjectionRuntime {
           });
 
     if (projectedTree === null && projectedPending === null) {
-      this.completionChanged = this.root.project(
+      this.completionPending = this.root.project(
         createFallbackPresentation(ROOT_FALLBACK_KEY, input.components.fallback),
-      );
+      ).awaitsCompletion;
       this.prune();
       return this.awaitsPresentation();
     }
@@ -152,11 +152,11 @@ export class NativeRouteProjectionRuntime {
     const presentation = target ? Object.freeze({ ...target, transition }) : null;
     const retained = this.createRetainedPresentations(projection, presentation?.key ?? null);
 
-    const changed = runtime.project(presentation, retained);
+    const result = runtime.project(presentation, retained);
 
     if (projection.tracksCompletion && projection.completionDepth === projection.depth) {
       this.completionRuntime = runtime;
-      this.completionChanged = this.completionChanged || changed;
+      this.completionPending = this.completionPending || result.awaitsCompletion;
     }
     return runtime;
   }
@@ -355,7 +355,7 @@ export class NativeRouteProjectionRuntime {
   }
 
   private awaitsPresentation(): boolean {
-    return this.completionChanged || this.completionRuntime.getSnapshot().machine.phase === 'transitioning';
+    return this.completionPending || this.completionRuntime.getSnapshot().machine.phase === 'transitioning';
   }
 }
 

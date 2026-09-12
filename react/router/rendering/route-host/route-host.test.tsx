@@ -11,7 +11,7 @@ describe('RouteHost', () => {
   it('renders only the child screen Module for a Route.routes stack', () => {
     const scope = new ApplicationScope();
     const getModuleRuntimeOrNull = vi.fn(() => null);
-    const snapshot = { error: null, phase: 'active' as const };
+    const snapshot = { exception: null, phase: 'active' as const };
     const runtime = {
       failRender: vi.fn(async () => undefined),
       getModuleRuntimeOrNull,
@@ -35,7 +35,7 @@ describe('RouteHost', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const failRender = vi.fn(async () => undefined);
     const scope = new ApplicationScope();
-    const snapshot = { error: null, phase: 'active' as const };
+    const snapshot = { exception: null, phase: 'active' as const };
     const runtime = {
       failRender,
       getModuleRuntimeOrNull: () => null,

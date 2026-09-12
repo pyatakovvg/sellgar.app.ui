@@ -68,7 +68,7 @@ describe('NativeNavigationHost', () => {
     const pending = {} as NavigationState;
     const runtime = {
       findActivation: () => ({ getTreeSnapshot: () => tree }),
-      getSnapshot: () => Object.freeze({ error: null, phase: 'active' as const }),
+      getSnapshot: () => Object.freeze({ exception: null, phase: 'active' as const }),
       subscribe,
     } as unknown as RouterRuntime<ModuleMetadata>;
 
@@ -106,7 +106,7 @@ const createProps = (getHistoryEntries: () => readonly ApplicationRouterHistoryE
 const createRuntime = (): RouterRuntime<ModuleMetadata> => {
   return {
     findActivation: () => null,
-    getSnapshot: () => Object.freeze({ error: null, phase: 'active' as const }),
+    getSnapshot: () => Object.freeze({ exception: null, phase: 'active' as const }),
     subscribe: () => () => undefined,
   } as unknown as RouterRuntime<ModuleMetadata>;
 };

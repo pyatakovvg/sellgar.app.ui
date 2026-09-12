@@ -35,6 +35,7 @@ export const NestedRouterHost: React.FC<IProps> = (props) => {
     <RuntimeErrorBoundary
       exception={props.exception}
       onError={(error) => void props.runtime.failRender(error)}
+      resolveException={(error) => props.runtime.createRenderException(error)}
       resetKeys={[props.runtime]}
     >
       <RuntimeScopeProvider scope={scope}>

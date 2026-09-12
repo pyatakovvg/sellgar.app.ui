@@ -17,6 +17,7 @@ interface IProps {
   readonly dismissPending: () => void | Promise<void>;
   readonly exception: React.ReactNode;
   readonly onPresentationComplete: () => void;
+  readonly ownerRuntime: RouterRuntime<ModuleMetadata>;
   readonly phase: 'dismissing' | 'hidden' | 'presenting' | 'visible';
   readonly router: RouterDeclaration;
   readonly routing: ResolvedApplicationRouting | null;
@@ -35,14 +36,17 @@ export const NestedRouterHost: React.FC<IProps> = (props) => {
     return props.runtime.getRouterScope().get(NavigateServiceInterface).close();
   }, [props.dismissPending, props.runtime]);
   const handleError = React.useCallback(
-    (error: unknown) => {
-      if (props.runtime) void props.runtime.failRender(error);
-    },
-    [props.runtime],
+    (error: unknown) => void props.ownerRuntime.failRender(error),
+    [props.ownerRuntime],
   );
 
   return (
-    <RuntimeErrorBoundary exception={props.exception} onError={handleError} resetKeys={[props.runtime]}>
+    <RuntimeErrorBoundary
+      exception={props.exception}
+      onError={handleError}
+      resolveException={(error) => props.ownerRuntime.createRenderException(error)}
+      resetKeys={[props.runtime]}
+    >
       <RuntimeScopeProvider scope={scope}>
         <ShellHost
           dismiss={dismiss}

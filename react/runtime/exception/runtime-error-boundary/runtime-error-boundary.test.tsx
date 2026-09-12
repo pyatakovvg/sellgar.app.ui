@@ -1,5 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { createRuntimeFailure } from '../../../../core/runtime/failure/runtime-failure';
+import { createRuntimeException } from '../../../../core/runtime/exception/runtime-exception';
 
 import { useException } from '../exception-context';
 import { RuntimeErrorBoundary } from './runtime-error-boundary.tsx';
@@ -8,19 +10,36 @@ describe('RuntimeErrorBoundary', () => {
   it('renders the owner exception and reports the render failure', async () => {
     const error = new Error('render failed');
     const onError = vi.fn();
+    const exception = createRuntimeException(
+      createRuntimeFailure(error, {
+        operation: 'render',
+        owner: { kind: 'application' },
+        participant: { kind: 'runtime' },
+      }),
+      {
+        disposition: 'application.failed',
+        owner: { kind: 'application' },
+        phase: 'failed',
+      },
+    );
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     const ExceptionView = (): React.ReactNode => {
       const captured = useException();
 
-      return <div>{captured === error ? 'captured render failure' : 'unexpected failure'}</div>;
+      return <div>{captured.error === error ? 'captured render failure' : 'unexpected failure'}</div>;
     };
     const BrokenView = (): React.ReactNode => {
       throw error;
     };
 
     render(
-      <RuntimeErrorBoundary exception={<ExceptionView />} onError={onError} resetKeys={[]}>
+      <RuntimeErrorBoundary
+        exception={<ExceptionView />}
+        onError={onError}
+        resolveException={() => exception}
+        resetKeys={[]}
+      >
         <BrokenView />
       </RuntimeErrorBoundary>,
     );

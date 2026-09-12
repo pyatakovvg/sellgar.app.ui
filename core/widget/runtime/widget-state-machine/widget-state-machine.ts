@@ -1,18 +1,20 @@
+import type { RuntimeException } from '../../../runtime/exception/runtime-exception';
+
 export type WidgetRuntimePhase = 'idle' | 'loading' | 'ready' | 'failed' | 'disposing' | 'disposed';
 
 export interface WidgetStateMachineSnapshot {
-  readonly error: unknown | null;
+  readonly exception: RuntimeException | null;
   readonly phase: WidgetRuntimePhase;
 }
 
 export class WidgetStateMachine {
-  private error: unknown | null = null;
+  private exception: RuntimeException | null = null;
   private phase: WidgetRuntimePhase = 'idle';
   private revision = 0;
 
   getSnapshot(): WidgetStateMachineSnapshot {
     return this.phase === 'failed'
-      ? { error: this.error, phase: this.phase }
+      ? { exception: this.exception, phase: this.phase }
       : WIDGET_STATE_MACHINE_SNAPSHOTS[this.phase];
   }
 
@@ -25,7 +27,7 @@ export class WidgetStateMachine {
       throw new Error('Runtime виджета уже освобождён.');
     }
 
-    this.error = null;
+    this.exception = null;
     this.phase = 'loading';
 
     return ++this.revision;
@@ -36,7 +38,7 @@ export class WidgetStateMachine {
       throw new Error('Runtime виджета должен перейти в disposing перед disposed.');
     }
 
-    this.error = null;
+    this.exception = null;
     this.phase = 'disposed';
   }
 
@@ -45,17 +47,17 @@ export class WidgetStateMachine {
       return;
     }
 
-    this.error = null;
+    this.exception = null;
     this.phase = 'disposing';
     this.revision++;
   }
 
-  toFailed(error: unknown): boolean {
+  toFailed(exception: RuntimeException): boolean {
     if (this.phase === 'failed' || this.phase === 'disposing' || this.phase === 'disposed') {
       return false;
     }
 
-    this.error = error;
+    this.exception = exception;
     this.phase = 'failed';
     this.revision++;
 
@@ -67,18 +69,18 @@ export class WidgetStateMachine {
       return false;
     }
 
-    this.error = null;
+    this.exception = null;
     this.phase = 'ready';
 
     return true;
   }
 
-  failLoading(revision: number, error: unknown): boolean {
+  failLoading(revision: number, exception: RuntimeException): boolean {
     if (!this.isLoading(revision)) {
       return false;
     }
 
-    this.error = error;
+    this.exception = exception;
     this.phase = 'failed';
 
     return true;
@@ -89,7 +91,7 @@ export class WidgetStateMachine {
       return false;
     }
 
-    this.error = null;
+    this.exception = null;
     this.phase = 'idle';
 
     return true;
@@ -97,9 +99,9 @@ export class WidgetStateMachine {
 }
 
 const WIDGET_STATE_MACHINE_SNAPSHOTS: Record<Exclude<WidgetRuntimePhase, 'failed'>, WidgetStateMachineSnapshot> = {
-  disposed: Object.freeze({ error: null, phase: 'disposed' }),
-  disposing: Object.freeze({ error: null, phase: 'disposing' }),
-  idle: Object.freeze({ error: null, phase: 'idle' }),
-  loading: Object.freeze({ error: null, phase: 'loading' }),
-  ready: Object.freeze({ error: null, phase: 'ready' }),
+  disposed: Object.freeze({ exception: null, phase: 'disposed' }),
+  disposing: Object.freeze({ exception: null, phase: 'disposing' }),
+  idle: Object.freeze({ exception: null, phase: 'idle' }),
+  loading: Object.freeze({ exception: null, phase: 'loading' }),
+  ready: Object.freeze({ exception: null, phase: 'ready' }),
 };

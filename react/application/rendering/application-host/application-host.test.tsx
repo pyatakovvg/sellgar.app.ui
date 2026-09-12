@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RouterRuntime } from '../../../../core/router/runtime/router-runtime';
 import { ApplicationScope } from '../../../../core/runtime/scope/kind/application-scope';
 import { ApplicationFeatureInterface } from '../../../../core/application/feature/application-feature';
+import { createRuntimeFailure } from '../../../../core/runtime/failure/runtime-failure';
+import { createRuntimeException } from '../../../../core/runtime/exception/runtime-exception';
 import { configureApplicationFeatureRenderer } from '../../feature/application-feature-renderer';
 import { Layout, type LayoutViewProps } from '../../../layout/declaration/layout';
 import type { ModuleMetadata } from '../../../module/declaration/module';
@@ -31,15 +33,16 @@ describe('ApplicationHost', () => {
         pendingLocalChange: null,
         routes: [],
       }),
-      getSnapshot: () => ({ error: null, phase: 'active' as const }),
+      getSnapshot: () => ({ exception: null, phase: 'active' as const }),
       router: { routes: [] },
       subscribe: () => () => undefined,
     } as unknown as RouterRuntime<ModuleMetadata>;
-    const lifecycle = { error: null, phase: 'ready' as const };
+    const lifecycle = { exception: null, phase: 'ready' as const };
     const navigation = { decision: null, navigation: undefined, pending: null };
     const source: ApplicationViewSource = {
       components: { failed: <div>application failed</div> },
       createHref: () => '/',
+      createRenderException: (cause) => createApplicationRenderException(cause),
       failRender,
       features: [],
       getLifecycle: () => lifecycle,
@@ -79,15 +82,16 @@ describe('ApplicationHost', () => {
         pendingLocalChange: null,
         routes: [],
       }),
-      getSnapshot: () => ({ error: null, phase: 'active' as const }),
+      getSnapshot: () => ({ exception: null, phase: 'active' as const }),
       router: { routes: [] },
       subscribe: () => () => undefined,
     } as unknown as RouterRuntime<ModuleMetadata>;
-    const lifecycle = { error: null, phase: 'ready' as const };
+    const lifecycle = { exception: null, phase: 'ready' as const };
     const navigation = { decision: null, navigation: undefined, pending: null };
     const source: ApplicationViewSource = {
       components: { failed: <div>application failed</div> },
       createHref: () => '/',
+      createRenderException: (cause) => createApplicationRenderException(cause),
       failRender,
       features: [feature],
       getLifecycle: () => lifecycle,
@@ -107,3 +111,18 @@ describe('ApplicationHost', () => {
     consoleError.mockRestore();
   });
 });
+
+const createApplicationRenderException = (cause: unknown) => {
+  return createRuntimeException(
+    createRuntimeFailure(cause, {
+      operation: 'render',
+      owner: { kind: 'application' },
+      participant: { kind: 'runtime' },
+    }),
+    {
+      disposition: 'application.failed',
+      owner: { kind: 'application' },
+      phase: 'failed',
+    },
+  );
+};

@@ -43,6 +43,11 @@ import {
   type RuntimeFailureSource,
 } from '../../../runtime/failure/runtime-failure';
 import { captureRuntimeFailure, throwRuntimeOperationError } from '../../../runtime/failure/runtime-failure-signal';
+import {
+  createRuntimeException,
+  requireRuntimeException,
+  type RuntimeException,
+} from '../../../runtime/exception/runtime-exception';
 import { ApplicationScope } from '../../../runtime/scope/kind/application-scope';
 import { ApplicationConfig } from '../../config/application-config';
 import type {
@@ -161,7 +166,7 @@ export abstract class Application<
   private pendingSessionBoundary: ApplicationSessionBoundary | null = null;
   private savedNavigationState: NavigationState | undefined;
   private lifecycleSnapshot: ApplicationLifecycleSnapshot = {
-    error: null,
+    exception: null,
     phase: 'created',
   };
   private state: ApplicationLifecyclePhase = 'created';
@@ -178,6 +183,13 @@ export abstract class Application<
     return this.lifecycleSnapshot;
   }
 
+  createRenderException(error: unknown): RuntimeException {
+    return createApplicationException(
+      captureRuntimeFailure(error, createApplicationRuntimeSource('render')),
+      'application.failed',
+    );
+  }
+
   async failRender(error: unknown): Promise<void> {
     if (this.state === 'disposed' || this.state === 'disposing' || this.state === 'failed') {
       return;
@@ -188,7 +200,7 @@ export abstract class Application<
     this.navigationAbortController?.abort(error);
     this.initializerAbortController?.abort(error);
     this.setPendingNavigation(null);
-    this.fail(error);
+    this.fail(createApplicationException(failure, 'application.failed'));
     await this.routerRuntime?.dispose();
     await reportRuntimeFailure(
       this.scope.get(RuntimeFailureReporterInterface),
@@ -234,6 +246,13 @@ export abstract class Application<
         app: this,
         applyActionRedirect: (decision) => this.executeActionPolicyRedirect(decision),
         confirmNavigation: (leavingBoundaries, signal) => this.confirmNavigation(leavingBoundaries, signal),
+        recovery: {
+          back: async () => {
+            await this.routerBridge.back();
+          },
+          retry: () => this.retryNavigationException(),
+          root: () => this.requireNavigateService().root(),
+        },
         session: this.session,
       });
       this.detachRuntimeRefresh = this.scope
@@ -252,7 +271,7 @@ export abstract class Application<
       const failure = captureRuntimeFailure(error, createApplicationRuntimeSource('compose'));
 
       this.reportFailure(failure, 'application.activation-failed', 'failed');
-      this.fail(failure.cause);
+      this.fail(createApplicationException(failure, 'application.activation-failed'));
       throw failure.cause;
     }
   }
@@ -271,7 +290,7 @@ export abstract class Application<
     }
 
     if (this.state === 'failed') {
-      throw this.lifecycleSnapshot.error;
+      throw requireRuntimeException(this.lifecycleSnapshot.exception).cause;
     }
 
     if (this.state === 'disposed' || this.state === 'disposing') {
@@ -442,8 +461,8 @@ export abstract class Application<
       }
 
       if (error instanceof ApplicationInitializerRejected) {
-        this.fail(error.cause);
-        throw error.cause;
+        this.fail(createApplicationException(error.failure, 'application.activation-failed'));
+        throw error.failure.cause;
       }
 
       const failure = captureRuntimeFailure(error, createApplicationRuntimeSource('initialize'));
@@ -455,7 +474,7 @@ export abstract class Application<
         'application.activation-failed',
         'failed',
       );
-      this.fail(failure.cause);
+      this.fail(createApplicationException(failure, 'application.activation-failed'));
       throw failure.cause;
     }
   }
@@ -508,7 +527,7 @@ export abstract class Application<
       case 'interrupted':
         return;
       case 'rejected':
-        throw new ApplicationInitializerRejected(result.error);
+        throw new ApplicationInitializerRejected(captureRuntimeFailure(result.error, result.source));
       case 'failed':
         return throwRuntimeOperationError(result.failure.cause, result.failure.source);
       case 'escalated':
@@ -691,6 +710,7 @@ export abstract class Application<
     historyTargetId: string | null = null,
     replaceCurrent = false,
     sessionBoundary: ApplicationSessionBoundary | null = null,
+    allowActivationReuse = true,
   ): Promise<boolean> {
     const request: ApplicationNavigationRequest = Object.freeze({
       blockersConfirmed,
@@ -737,6 +757,7 @@ export abstract class Application<
         historyTargetId,
         replaceCurrent,
         sessionBoundary,
+        allowActivationReuse,
       );
     })().finally(() => {
       if (this.scope.has(NavigationBlockerRuntimeInterface)) {
@@ -789,6 +810,7 @@ export abstract class Application<
     historyTargetId: string | null,
     replaceCurrent: boolean,
     sessionBoundary: ApplicationSessionBoundary | null,
+    allowActivationReuse: boolean,
   ): Promise<boolean> {
     if (redirectDepth > MAX_POLICY_REDIRECT_DEPTH) {
       throw new Error('Policy navigation превысила допустимую глубину redirect.');
@@ -807,9 +829,10 @@ export abstract class Application<
       session: this.session,
       signal,
     };
-    const result = sessionBoundary
-      ? await this.getRouterRuntime().restart(navigation, prepareContext)
-      : await this.getRouterRuntime().prepare(navigation, prepareContext);
+    const result =
+      sessionBoundary || !allowActivationReuse
+        ? await this.getRouterRuntime().restart(navigation, prepareContext)
+        : await this.getRouterRuntime().prepare(navigation, prepareContext);
 
     if (result.type === 'interrupted') {
       return false;
@@ -828,6 +851,7 @@ export abstract class Application<
         historyTargetId,
         replaceCurrent,
         sessionBoundary,
+        allowActivationReuse,
       );
     }
 
@@ -960,6 +984,7 @@ export abstract class Application<
     historyTargetId: string | null,
     replaceCurrent: boolean,
     sessionBoundary: ApplicationSessionBoundary | null,
+    allowActivationReuse: boolean,
   ): Promise<boolean> {
     switch (decision.type) {
       case 'continue':
@@ -991,6 +1016,7 @@ export abstract class Application<
           null,
           replaceCurrent,
           sessionBoundary,
+          allowActivationReuse,
         );
       }
       case 'redirect-to-saved-location': {
@@ -1016,6 +1042,7 @@ export abstract class Application<
           null,
           replaceCurrent,
           sessionBoundary,
+          allowActivationReuse,
         );
       }
       case 'forbidden':
@@ -1199,6 +1226,34 @@ export abstract class Application<
     }
   }
 
+  private async retryNavigationException(): Promise<void> {
+    if (this.state !== 'ready') {
+      throw new Error('Повтор navigation exception доступен только для готового приложения.');
+    }
+
+    await this.navigationPromise?.catch(() => undefined);
+
+    const navigation = this.navigationSnapshot.navigation;
+
+    if (!navigation) {
+      return;
+    }
+
+    await this.executeNavigation(
+      Object.freeze({
+        ...navigation,
+        replace: true,
+        revalidation: null,
+      }),
+      'internal',
+      false,
+      null,
+      true,
+      null,
+      false,
+    );
+  }
+
   private setNavigationSnapshot(navigation: NavigationState, decision: ApplicationNavigationDecision | null): void {
     this.scope.syncLocation(navigation);
     this.navigationSnapshot = Object.freeze({
@@ -1243,8 +1298,8 @@ export abstract class Application<
     return this.navigateService;
   }
 
-  private fail(error: unknown): void {
-    this.setLifecycle('failed', error);
+  private fail(exception: RuntimeException): void {
+    this.setLifecycle('failed', exception);
   }
 
   private reportFailure(
@@ -1272,10 +1327,10 @@ export abstract class Application<
     this.setLifecycle(state, null);
   }
 
-  private setLifecycle(state: ApplicationLifecyclePhase, error: unknown): void {
+  private setLifecycle(state: ApplicationLifecyclePhase, exception: RuntimeException | null): void {
     this.state = state;
     this.lifecycleSnapshot = {
-      error,
+      exception,
       phase: state,
     };
 
@@ -1302,10 +1357,21 @@ const createApplicationRuntimeSource = (operation: string): RuntimeFailureSource
 };
 
 class ApplicationInitializerRejected extends Exception {
-  constructor(readonly cause: unknown) {
-    super('Application initializer was rejected by an expected operation result.', { cause });
+  constructor(readonly failure: ReturnType<typeof captureRuntimeFailure>) {
+    super('Application initializer was rejected by an expected operation result.', { cause: failure.cause });
   }
 }
+
+const createApplicationException = (
+  failure: ReturnType<typeof captureRuntimeFailure>,
+  disposition: 'application.activation-failed' | 'application.failed',
+): RuntimeException => {
+  return createRuntimeException(failure, {
+    disposition,
+    owner: { kind: 'application' },
+    phase: 'failed',
+  });
+};
 
 const createLinkedAbortController = (signal: AbortSignal) => {
   const controller = new AbortController();

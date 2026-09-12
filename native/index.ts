@@ -84,6 +84,13 @@ export type {
 
 export { useDependency } from './runtime/scope/runtime-scope-context';
 export { useException } from './runtime/exception/exception-context';
+export type {
+  RuntimeException,
+  RuntimeExceptionBoundary,
+  RuntimeExceptionOrigin,
+  RuntimeExceptionRecovery,
+  RuntimeExceptionRecoveryAction,
+} from '../core/runtime/exception/runtime-exception';
 
 export { Reactive, type ReactiveProps } from './reactive/reactive-boundary';
 export { reactive } from './reactive/reactive';

@@ -20,6 +20,7 @@ import type { RuntimeScope } from '../../../runtime/scope/base/runtime-scope';
 import {
   reportRuntimeFailure,
   RuntimeFailureReporterInterface,
+  type RuntimeFailure,
   type RuntimeFailureSource,
   type RuntimeOwner,
 } from '../../../runtime/failure/runtime-failure';
@@ -33,7 +34,12 @@ import {
 } from '../../../runtime/operation/runtime-operation';
 import { ModuleScope } from '../../../runtime/scope/kind/module-scope';
 import { RuntimeOperationCoordinator } from '../../../runtime/operation/runtime-operation-coordinator';
-import { isRuntimeExceptionSignal } from '../../../runtime/exception/runtime-exception';
+import {
+  createRuntimeException,
+  isRuntimeExceptionSignal,
+  type RuntimeException,
+  type RuntimeExceptionRecoveryOperations,
+} from '../../../runtime/exception/runtime-exception';
 import { RevalidateServiceInterface } from '../../../revalidate/contract/revalidate-service';
 import { RuntimeRevalidateService } from '../../../revalidate/runtime/revalidate-service';
 import { resolveRuntimeRevalidateState } from '../../../revalidate/runtime/revalidate-state';
@@ -43,7 +49,7 @@ export type ModuleRuntimeLoader = () => Promise<ModuleExports>;
 export type ModuleRuntimePhase = 'active' | 'empty' | 'failed' | 'loading' | 'pending' | 'retained';
 
 export interface ModuleRuntimeSnapshot {
-  readonly error: unknown | null;
+  readonly exception: RuntimeException | null;
   readonly phase: ModuleRuntimePhase;
 }
 
@@ -139,6 +145,7 @@ export class ModuleRuntime<TPresentation = unknown> {
     private readonly loadModule: ModuleRuntimeLoader,
     private readonly exportResolver: ModuleExportResolverInterface<TPresentation>,
     private readonly routeOwner: RuntimeOwner,
+    private readonly recovery: RuntimeExceptionRecoveryOperations = {},
   ) {}
 
   async activate(signal: AbortSignal): Promise<ActiveModuleRuntime<TPresentation>> {
@@ -413,7 +420,7 @@ export class ModuleRuntime<TPresentation = unknown> {
           );
           return undefined;
         case 'escalated':
-          this.transitionToFailed(activeModule, result.failure.cause);
+          this.transitionToFailed(activeModule, result.failure);
           await reportRuntimeFailure(
             this.ownerScope.get(RuntimeFailureReporterInterface),
             result.failure,
@@ -528,18 +535,21 @@ export class ModuleRuntime<TPresentation = unknown> {
 
   async failRender(error: unknown): Promise<void> {
     const moduleRuntime = this.getActiveModuleOrNull();
+    const failure = moduleRuntime
+      ? captureRuntimeFailure(error, {
+          operation: 'render',
+          owner: moduleRuntime.owner,
+          participant: { kind: 'runtime' },
+        })
+      : null;
 
-    if (!moduleRuntime || !this.transitionToFailed(moduleRuntime, error)) {
+    if (!moduleRuntime || !failure || !this.transitionToFailed(moduleRuntime, failure)) {
       return;
     }
 
     await reportRuntimeFailure(
       this.ownerScope.get(RuntimeFailureReporterInterface),
-      captureRuntimeFailure(error, {
-        operation: 'render',
-        owner: moduleRuntime.owner,
-        participant: { kind: 'runtime' },
-      }),
+      failure,
       moduleRuntime.owner,
       'module.failed',
       'failed',
@@ -803,7 +813,7 @@ export class ModuleRuntime<TPresentation = unknown> {
         );
         throw result.failure.cause;
       case 'escalated':
-        this.transitionToFailed(moduleRuntime, result.failure.cause);
+        this.transitionToFailed(moduleRuntime, result.failure);
         await reportRuntimeFailure(
           this.ownerScope.get(RuntimeFailureReporterInterface),
           result.failure,
@@ -859,7 +869,7 @@ export class ModuleRuntime<TPresentation = unknown> {
 
     const failure = captureRuntimeFailure(error, source);
 
-    if (this.transitionToFailed(moduleRuntime, failure.cause)) {
+    if (this.transitionToFailed(moduleRuntime, failure)) {
       void reportRuntimeFailure(
         this.ownerScope.get(RuntimeFailureReporterInterface),
         failure,
@@ -872,7 +882,21 @@ export class ModuleRuntime<TPresentation = unknown> {
     throw failure.cause;
   }
 
-  private transitionToFailed(moduleRuntime: ActiveModuleRuntime<TPresentation>, error: unknown): boolean {
+  createRenderException(error: unknown): RuntimeException {
+    const moduleRuntime = this.getActiveModuleOrNull();
+    const owner = moduleRuntime?.owner ?? this.routeOwner;
+
+    return this.createException(
+      captureRuntimeFailure(error, {
+        operation: 'render',
+        owner,
+        participant: { kind: 'runtime' },
+      }),
+      owner,
+    );
+  }
+
+  private transitionToFailed(moduleRuntime: ActiveModuleRuntime<TPresentation>, failure: RuntimeFailure): boolean {
     if (!this.isActiveModule(moduleRuntime)) {
       return false;
     }
@@ -885,13 +909,22 @@ export class ModuleRuntime<TPresentation = unknown> {
       active: moduleRuntime,
       phase: 'failed',
       snapshot: {
-        error,
+        exception: this.createException(failure, moduleRuntime.owner),
         phase: 'failed',
       },
     };
     this.emit();
 
     return true;
+  }
+
+  private createException(failure: RuntimeFailure, owner: RuntimeOwner): RuntimeException {
+    return createRuntimeException(failure, {
+      disposition: 'module.failed',
+      owner,
+      phase: 'failed',
+      recovery: this.recovery,
+    });
   }
 
   private interruptRevalidation(): void {
@@ -1029,11 +1062,11 @@ const DEFAULT_REVALIDATE_STATE: ModuleRuntimeRevalidateState = {
 };
 
 const MODULE_RUNTIME_SNAPSHOTS: Record<Exclude<ModuleRuntimePhase, 'failed'>, ModuleRuntimeSnapshot> = {
-  active: { error: null, phase: 'active' },
-  empty: { error: null, phase: 'empty' },
-  loading: { error: null, phase: 'loading' },
-  pending: { error: null, phase: 'pending' },
-  retained: { error: null, phase: 'retained' },
+  active: { exception: null, phase: 'active' },
+  empty: { exception: null, phase: 'empty' },
+  loading: { exception: null, phase: 'loading' },
+  pending: { exception: null, phase: 'pending' },
+  retained: { exception: null, phase: 'retained' },
 };
 
 const createModuleOwner = (definition: ModuleRuntimeDefinition): RuntimeOwner => {

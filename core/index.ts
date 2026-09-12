@@ -137,6 +137,13 @@ export { PolicyDescriptorBuilder } from './policy/declaration/policy-descriptor-
 export type { PolicyDescriptor } from './policy/declaration/policy-descriptor';
 
 export { RuntimeExceptionServiceInterface } from './runtime/exception/runtime-exception';
+export type {
+  RuntimeException,
+  RuntimeExceptionBoundary,
+  RuntimeExceptionOrigin,
+  RuntimeExceptionRecovery,
+  RuntimeExceptionRecoveryAction,
+} from './runtime/exception/runtime-exception';
 export { RuntimeFailureSinkInterface } from './runtime/failure/runtime-failure';
 export type {
   RuntimeFailure,

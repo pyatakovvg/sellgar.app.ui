@@ -1,6 +1,7 @@
 import React from 'react';
 
 import type { ApplicationNavigationDecision } from '../../../../core/application/lifecycle/application';
+import { requireRuntimeException } from '../../../../core/runtime/exception/runtime-exception';
 import type { RouterRuntime, RouterRuntimeSnapshot } from '../../../../core/router/runtime/router-runtime';
 import type { ApplicationComponents } from '../../../application/config/application-configurator';
 import { renderLayouts } from '../../../layout/rendering/layout-renderer';
@@ -40,6 +41,7 @@ export const RouterPresentationHost: React.FC<RouterPresentationHostProps> = (pr
     <RuntimeErrorBoundary
       exception={components.exception}
       onError={(error) => void props.runtime.failRender(error)}
+      resolveException={(error) => props.runtime.createRenderException(error)}
       resetKeys={[props.runtime]}
     >
       {renderLayouts(definition.layouts, resolveContent(props, components, snapshot))}
@@ -58,7 +60,11 @@ const resolveContent = (
   if (decision === 'not-found' || snapshot.phase === 'not-found') return components.notFound ?? null;
 
   if (snapshot.phase === 'failed') {
-    return <ExceptionProvider error={snapshot.error}>{components.exception ?? null}</ExceptionProvider>;
+    return (
+      <ExceptionProvider exception={requireRuntimeException(snapshot.exception)}>
+        {components.exception ?? null}
+      </ExceptionProvider>
+    );
   }
 
   return props.children({ components });

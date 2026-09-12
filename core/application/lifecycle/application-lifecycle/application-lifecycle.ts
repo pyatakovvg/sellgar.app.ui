@@ -1,8 +1,10 @@
+import type { RuntimeException } from '../../../runtime/exception/runtime-exception';
+
 export type ApplicationLifecyclePhase =
   'created' | 'composing' | 'composed' | 'initializing' | 'ready' | 'failed' | 'disposing' | 'disposed';
 
 export interface ApplicationLifecycleSnapshot {
-  readonly error: unknown;
+  readonly exception: RuntimeException | null;
   readonly phase: ApplicationLifecyclePhase;
 }
 

@@ -10,6 +10,7 @@ import type {
 import type { ApplicationFeatureInterface } from '../../../../core/application/feature/application-feature';
 import type { RouterRuntime } from '../../../../core/router/runtime/router-runtime';
 import type { RuntimeScope } from '../../../../core/runtime/scope/base/runtime-scope';
+import { requireRuntimeException, type RuntimeException } from '../../../../core/runtime/exception/runtime-exception';
 import { renderApplicationFeatures } from '../../feature/application-feature-renderer';
 import type { ApplicationComponents } from '../../config/application-configurator';
 import { renderLayouts } from '../../../layout/rendering/layout-renderer';
@@ -30,6 +31,7 @@ import { PresentationLayer } from '../presentation-layer';
 
 export interface ApplicationViewSource {
   readonly components: ApplicationComponents;
+  readonly createRenderException: (error: unknown) => RuntimeException;
   readonly failRender: (error: unknown) => void | Promise<void>;
   readonly features: readonly ApplicationFeatureInterface[];
   readonly getLifecycle: () => ApplicationLifecycleSnapshot;
@@ -63,7 +65,7 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
 
   if (lifecycle.phase === 'failed') {
     content = (
-      <ExceptionProvider error={lifecycle.error}>
+      <ExceptionProvider exception={requireRuntimeException(lifecycle.exception)}>
         {props.source.components.failed ?? props.source.components.exception ?? null}
       </ExceptionProvider>
     );
@@ -97,6 +99,7 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
               <RuntimeErrorBoundary
                 exception={props.source.components.failed ?? props.source.components.exception}
                 onError={(error) => void props.source.failRender(error)}
+                resolveException={props.source.createRenderException}
                 resetKeys={[props.source]}
               >
                 <OverlayHost frame={framePresentation} modal={modalFeatures} notification={notificationFeatures}>

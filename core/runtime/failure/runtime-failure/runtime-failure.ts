@@ -31,6 +31,8 @@ export interface RuntimeFailureSource {
 export type RuntimeFailureDisposition =
   | 'application.activation-failed'
   | 'application.failed'
+  | 'router.activation-failed'
+  | 'router.failed'
   | 'route.activation-failed'
   | 'module.activation-failed'
   | 'module.failed'

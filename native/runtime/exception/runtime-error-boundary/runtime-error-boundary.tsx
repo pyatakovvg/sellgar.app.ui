@@ -1,4 +1,5 @@
 import React from 'react';
+import type { RuntimeException } from '../../../../core/runtime/exception/runtime-exception';
 
 import { ExceptionProvider } from '../exception-context';
 
@@ -6,6 +7,7 @@ interface IProps {
   readonly children: React.ReactNode;
   readonly exception: React.ReactNode;
   readonly onError: (error: unknown) => void;
+  readonly resolveException: (error: unknown) => RuntimeException;
   readonly resetKeys: readonly unknown[];
 }
 
@@ -31,7 +33,11 @@ export class RuntimeErrorBoundary extends React.Component<IProps, IState> {
 
   render(): React.ReactNode {
     if (this.state.error !== null) {
-      return <ExceptionProvider error={this.state.error}>{this.props.exception}</ExceptionProvider>;
+      return (
+        <ExceptionProvider exception={this.props.resolveException(this.state.error)}>
+          {this.props.exception}
+        </ExceptionProvider>
+      );
     }
 
     return this.props.children;

@@ -25,7 +25,7 @@ describe('ModuleHost', () => {
       definition: { presentation: getModuleMetadata(BrokenModule) },
       scope: new ApplicationScope(),
     };
-    const snapshot = { error: null, phase: 'active' as const };
+    const snapshot = { exception: null, phase: 'active' as const };
     const moduleRuntime = {
       failRender,
       getSnapshot: () => snapshot,

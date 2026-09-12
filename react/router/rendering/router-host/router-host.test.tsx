@@ -37,7 +37,7 @@ describe('RouterHost', () => {
       pendingLocalChange: null,
       routes: [],
     };
-    const snapshot = { error: null, phase: 'active' as const };
+    const snapshot = { exception: null, phase: 'active' as const };
     const runtime = {
       failRender,
       getBranchSnapshot: () => branch,
@@ -105,7 +105,7 @@ describe('RouterHost', () => {
 
 const createRouteRuntime = (route: Route): RouteActivationRuntime<ModuleMetadata> => {
   const scope = new ApplicationScope();
-  const snapshot = Object.freeze({ error: null, phase: 'active' as const });
+  const snapshot = Object.freeze({ exception: null, phase: 'active' as const });
 
   return {
     failRender: async () => undefined,
@@ -128,7 +128,7 @@ const createRouterRuntime = (
     pendingLocalChange: Object.freeze({ commonRouteCount }),
     routes,
   });
-  const snapshot = Object.freeze({ error: null, phase: 'pending' as const });
+  const snapshot = Object.freeze({ exception: null, phase: 'pending' as const });
 
   return {
     failRender: async () => undefined,

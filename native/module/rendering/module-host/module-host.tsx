@@ -1,6 +1,7 @@
 import React from 'react';
 
 import type { ModuleRuntime } from '../../../../core/module/runtime/module-runtime';
+import { requireRuntimeException } from '../../../../core/runtime/exception/runtime-exception';
 import type { RouteActivationRuntime } from '../../../../core/router/runtime/route-runtime';
 import { ControllerRuntimeProvider } from '../../../controller/runtime/controller-runtime-context';
 import { renderLayouts } from '../../../layout/rendering/layout-renderer';
@@ -28,7 +29,7 @@ export const ModuleHost: React.FC<IProps> = (props) => {
 
   if (moduleSnapshot.phase === 'failed') {
     return (
-      <ExceptionProvider error={moduleSnapshot.error}>
+      <ExceptionProvider exception={requireRuntimeException(moduleSnapshot.exception)}>
         {boundaryModule?.definition.presentation.exception ?? props.exception}
       </ExceptionProvider>
     );
@@ -45,6 +46,7 @@ export const ModuleHost: React.FC<IProps> = (props) => {
     <RuntimeErrorBoundary
       exception={metadata.exception ?? props.exception}
       onError={(error) => void props.moduleRuntime.failRender(error)}
+      resolveException={(error) => props.moduleRuntime.createRenderException(error)}
       resetKeys={[props.moduleRuntime]}
     >
       <RuntimeScopeProvider scope={presentationModule.scope}>

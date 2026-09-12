@@ -29,6 +29,7 @@ import {
   type RuntimeOwner,
 } from '../../../runtime/failure/runtime-failure';
 import { captureRuntimeFailure } from '../../../runtime/failure/runtime-failure-signal';
+import { createRuntimeException, type RuntimeException } from '../../../runtime/exception/runtime-exception';
 import {
   createRuntimeCompletionRevisionGuard,
   createRuntimeRevisionGuard,
@@ -78,7 +79,7 @@ export interface WidgetRuntimeRevalidateState {
 }
 
 export interface WidgetRuntimeSnapshot {
-  readonly error: unknown | null;
+  readonly exception: RuntimeException | null;
   readonly phase: WidgetRuntimePhase;
 }
 
@@ -348,16 +349,13 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
 
   async failRender(error: unknown): Promise<void> {
     const runtime = this.activeRuntime;
+    const failure = captureRuntimeFailure(error, this.createRuntimeSource('render'));
 
-    if (!runtime || !this.transitionToFailed(runtime, error)) {
+    if (!runtime || !this.transitionToFailed(runtime, failure)) {
       return;
     }
 
-    await this.reportFailure(
-      captureRuntimeFailure(error, this.createRuntimeSource('render')),
-      'widget.failed',
-      'failed',
-    );
+    await this.reportFailure(failure, 'widget.failed', 'failed');
     await this.disposeActiveRuntime(runtime);
   }
 
@@ -593,7 +591,12 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
         await this.disposeActiveRuntime(runtime);
         return;
       case 'rejected':
-        if (this.stateMachine.failLoading(revision, result.error)) {
+        if (
+          this.stateMachine.failLoading(
+            revision,
+            this.createException(captureRuntimeFailure(result.error, result.source)),
+          )
+        ) {
           this.activeRuntime = null;
           this.emit();
         }
@@ -601,7 +604,7 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
         throw result.error;
       case 'failed':
       case 'escalated':
-        if (this.stateMachine.failLoading(revision, result.failure.cause)) {
+        if (this.stateMachine.failLoading(revision, this.createException(result.failure))) {
           this.activeRuntime = null;
           this.emit();
           await this.reportFailure(result.failure, 'widget.failed', 'failed');
@@ -680,7 +683,7 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
 
     const failure = captureRuntimeFailure(error, source);
 
-    if (this.transitionToFailed(runtime, failure.cause)) {
+    if (this.transitionToFailed(runtime, failure)) {
       void this.reportFailure(failure, 'widget.failed', 'failed');
       void this.disposeActiveRuntime(runtime);
     }
@@ -819,7 +822,7 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
         return undefined;
       case 'escalated':
         this.setActionState(controllerToken, DEFAULT_ACTION_STATE);
-        if (this.transitionToFailed(runtime, result.failure.cause)) {
+        if (this.transitionToFailed(runtime, result.failure)) {
           await this.reportFailure(result.failure, 'widget.failed', 'failed');
           await this.disposeActiveRuntime(runtime);
         }
@@ -846,7 +849,7 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
         await this.reportFailure(result.failure, 'revalidate.failed', 'active');
         throw result.failure.cause;
       case 'escalated':
-        if (this.transitionToFailed(runtime, result.failure.cause)) {
+        if (this.transitionToFailed(runtime, result.failure)) {
           await this.reportFailure(result.failure, 'widget.failed', 'failed');
           await this.disposeActiveRuntime(runtime, false);
         }
@@ -879,8 +882,23 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
     this.emit();
   }
 
-  private transitionToFailed(runtime: ActiveWidgetRuntime<TProps>, error: unknown): boolean {
-    if (this.activeRuntime !== runtime || !this.stateMachine.toFailed(error)) {
+  createRenderException(error: unknown): RuntimeException {
+    return this.createException(captureRuntimeFailure(error, this.createRuntimeSource('render')));
+  }
+
+  private createException(failure: RuntimeFailure): RuntimeException {
+    return createRuntimeException(failure, {
+      disposition: 'widget.failed',
+      owner: this.owner,
+      phase: 'failed',
+      recovery: {
+        retry: () => this.load(),
+      },
+    });
+  }
+
+  private transitionToFailed(runtime: ActiveWidgetRuntime<TProps>, failure: RuntimeFailure): boolean {
+    if (this.activeRuntime !== runtime || !this.stateMachine.toFailed(this.createException(failure))) {
       return false;
     }
 

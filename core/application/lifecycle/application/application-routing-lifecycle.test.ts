@@ -204,6 +204,10 @@ class TestApplication extends Application<null> {
     return this.getRouterRuntime().getSnapshot().phase;
   }
 
+  get routerSnapshot() {
+    return this.getRouterRuntime().getSnapshot();
+  }
+
   get runtimeEntries() {
     return this.getRouterRuntimeEntries();
   }
@@ -802,6 +806,34 @@ describe('Application routing lifecycle', () => {
     await app.dispose();
   });
 
+  it('exposes a failed Router boundary without disguising it as a Route failure', async () => {
+    const error = new Error('Router policy failed.');
+    vi.spyOn(globalThis.console, 'error').mockImplementation(() => undefined);
+    const router = new Router({
+      canActivate: [DenyPolicy.configure().onFail(Router.error(error))],
+      routes: [createModuleRoute(BoundaryRoute, 'boundary')],
+    });
+    const app = await createApplication(router, (navigate) => navigate.to(BoundaryRoute));
+
+    expect(app.routerSnapshot).toMatchObject({
+      exception: {
+        boundary: { disposition: 'router.activation-failed', owner: { kind: 'router' }, phase: 'failed' },
+        cause: error,
+        error,
+        origin: { owner: { kind: 'router' }, participant: { kind: 'runtime' }, phase: 'policy' },
+        recovery: {
+          back: expect.any(Function),
+          retry: expect.any(Function),
+          root: expect.any(Function),
+        },
+      },
+      phase: 'failed',
+    });
+    expect(app.routerSnapshot.exception?.recovery.close).toBeUndefined();
+
+    await app.dispose();
+  });
+
   it('owns a Route policy boundary on the denied Route runtime', async () => {
     const router = new Router({
       routes: [
@@ -838,7 +870,46 @@ describe('Application routing lifecycle', () => {
 
     expect(app.routerPhase).toBe('active');
     expect(app.activeRoutes).toHaveLength(1);
-    expect(app.activeRoutes[0]!.getSnapshot()).toEqual({ error, phase: 'failed' });
+    expect(app.activeRoutes[0]!.getSnapshot()).toMatchObject({
+      exception: {
+        boundary: { disposition: 'route.activation-failed', phase: 'failed' },
+        cause: error,
+        error,
+        origin: { phase: 'load-module' },
+      },
+      phase: 'failed',
+    });
+
+    await app.dispose();
+  });
+
+  it('retries a failed navigation boundary through its core recovery capability', async () => {
+    const error = new Error('Module load failed once.');
+    let attempts = 0;
+    const router = new Router({
+      routes: [
+        new Route({
+          address: segments('boundary'),
+          load: async () => {
+            attempts += 1;
+
+            if (attempts === 1) throw error;
+
+            return loadTestModule();
+          },
+          token: BoundaryRoute,
+        }),
+      ],
+    });
+    const app = await createApplication(router, (navigate) => navigate.to(BoundaryRoute));
+    const exception = app.activeRoutes[0]!.getSnapshot().exception;
+
+    expect(exception?.recovery.retry).toEqual(expect.any(Function));
+
+    await exception?.recovery.retry?.();
+
+    expect(attempts).toBe(2);
+    expect(app.activeRoutes[0]!.getSnapshot()).toEqual({ exception: null, phase: 'active' });
 
     await app.dispose();
   });
@@ -876,8 +947,16 @@ describe('Application routing lifecycle', () => {
 
     await moduleRuntime.failRender(error);
 
-    expect(moduleRuntime.getSnapshot()).toEqual({ error, phase: 'failed' });
-    expect(routeRuntime.getSnapshot()).toEqual({ error: null, phase: 'active' });
+    expect(moduleRuntime.getSnapshot()).toMatchObject({
+      exception: {
+        boundary: { disposition: 'module.failed', phase: 'failed' },
+        cause: error,
+        error,
+        origin: { phase: 'render' },
+      },
+      phase: 'failed',
+    });
+    expect(routeRuntime.getSnapshot()).toEqual({ exception: null, phase: 'active' });
     expect(app.routerPhase).toBe('active');
 
     await app.dispose();
@@ -890,7 +969,15 @@ describe('Application routing lifecycle', () => {
 
     await app.failRender(error);
 
-    expect(app.lifecycle).toEqual({ error, phase: 'failed' });
+    expect(app.lifecycle).toMatchObject({
+      exception: {
+        boundary: { disposition: 'application.failed', phase: 'failed' },
+        cause: error,
+        error,
+        origin: { phase: 'render' },
+      },
+      phase: 'failed',
+    });
     expect(app.routerPhase).toBe('disposed');
     expect(routeRuntime.getSnapshot().phase).toBe('disposed');
 

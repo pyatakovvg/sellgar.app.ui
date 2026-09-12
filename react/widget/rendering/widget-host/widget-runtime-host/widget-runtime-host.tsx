@@ -2,6 +2,7 @@ import React from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
 
 import type { WidgetRuntime } from '../../../../../core/widget/runtime/widget-runtime';
+import { requireRuntimeException } from '../../../../../core/runtime/exception/runtime-exception';
 import { useApplicationComponents } from '../../../../application/rendering/application-components-context';
 import { ControllerRuntimeProvider } from '../../../../controller/runtime/controller-runtime-context';
 import { ExceptionProvider } from '../../../../runtime/exception/exception-context';
@@ -38,7 +39,7 @@ export const WidgetRuntimeHost = <TProps extends object>(props: IProps<TProps>):
 
   if (snapshot.phase === 'failed') {
     return (
-      <ExceptionProvider error={snapshot.error}>
+      <ExceptionProvider exception={requireRuntimeException(snapshot.exception)}>
         {metadata.exception ?? applicationComponents.exception ?? null}
       </ExceptionProvider>
     );
@@ -51,7 +52,7 @@ export const WidgetRuntimeHost = <TProps extends object>(props: IProps<TProps>):
   return (
     <ErrorBoundary
       fallbackRender={({ error }) => (
-        <ExceptionProvider error={error}>
+        <ExceptionProvider exception={props.runtime.createRenderException(error)}>
           {metadata.exception ?? applicationComponents.exception ?? null}
         </ExceptionProvider>
       )}

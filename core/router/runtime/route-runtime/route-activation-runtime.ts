@@ -31,6 +31,12 @@ import {
 } from '../../../runtime/failure/runtime-failure';
 import { captureRuntimeFailure } from '../../../runtime/failure/runtime-failure-signal';
 import {
+  createRuntimeException,
+  requireRuntimeException,
+  type RuntimeException,
+  type RuntimeExceptionRecoveryOperations,
+} from '../../../runtime/exception/runtime-exception';
+import {
   createRuntimeRevisionGuard,
   executeRuntimeOperation,
   type RuntimeOperationResult,
@@ -48,7 +54,7 @@ export type RouteRuntimePhase =
 export type RouteRuntimeBoundaryPhase = Extract<RouteRuntimePhase, 'failed' | 'forbidden' | 'not-found'>;
 
 export interface RouteRuntimeSnapshot {
-  readonly error: unknown | null;
+  readonly exception: RuntimeException | null;
   readonly phase: RouteRuntimePhase;
 }
 
@@ -70,6 +76,7 @@ export interface RouteRuntimeActionExecution<TPresentation = unknown> {
 export interface RouteRuntimeCallbacks<TPresentation = unknown> {
   readonly executeAction?: (execution: RouteRuntimeActionExecution<TPresentation>) => Promise<unknown>;
   readonly onRenderFailure?: (runtime: RouteActivationRuntime<TPresentation>, error: unknown) => Promise<void>;
+  readonly recovery?: RuntimeExceptionRecoveryOperations;
 }
 
 export interface RouteRuntimeRevalidateOptions {
@@ -78,7 +85,7 @@ export interface RouteRuntimeRevalidateOptions {
 }
 
 export interface RouteRuntimePendingFailure {
-  readonly error: unknown;
+  readonly exception: RuntimeException;
 }
 
 type RouteRuntimeListener = () => void;
@@ -103,7 +110,7 @@ type RouteRuntimeState =
       readonly phase: 'retained';
     }
   | {
-      readonly error: unknown;
+      readonly exception: RuntimeException;
       readonly params: Readonly<Record<string, unknown>>;
       readonly phase: 'failed';
     }
@@ -196,7 +203,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
 
       this.policyRunner = new PolicyRunner(this.routeScope, this.owner);
       this.moduleRuntime = this.definition.load
-        ? new ModuleRuntime(this.routeScope, this.definition.load, exportResolver, this.owner)
+        ? new ModuleRuntime(this.routeScope, this.definition.load, exportResolver, this.owner, callbacks.recovery)
         : null;
     } catch (error) {
       this.routeScope.dispose();
@@ -219,14 +226,14 @@ export class RouteActivationRuntime<TPresentation = unknown> {
 
     switch (this.state.phase) {
       case 'failed':
-        this.snapshot = { error: this.state.error, phase: 'failed' };
+        this.snapshot = { exception: this.state.exception, phase: 'failed' };
         break;
       case 'forbidden':
       case 'not-found':
-        this.snapshot = { error: null, phase: this.state.phase };
+        this.snapshot = { exception: null, phase: this.state.phase };
         break;
       case 'pending':
-        this.snapshot = { error: this.state.failure?.error ?? null, phase: 'pending' };
+        this.snapshot = { exception: this.state.failure?.exception ?? null, phase: 'pending' };
         break;
       default:
         this.snapshot = ROUTE_RUNTIME_SNAPSHOTS[this.state.phase];
@@ -329,7 +336,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
     }
 
     if (this.state.phase === 'pending') {
-      return this.state.failure === null ? Promise.resolve() : Promise.reject(this.state.failure.error);
+      return this.state.failure === null ? Promise.resolve() : Promise.reject(this.state.failure.exception.cause);
     }
 
     if (this.state.phase !== 'empty') {
@@ -377,13 +384,14 @@ export class RouteActivationRuntime<TPresentation = unknown> {
 
     if (failure === null) this.providerPipeline?.commit();
     this.moduleRuntime?.commit();
-    this.state = failure === null ? { params, phase: 'active' } : { error: failure.error, params, phase: 'failed' };
+    this.state =
+      failure === null ? { params, phase: 'active' } : { exception: failure.exception, params, phase: 'failed' };
     this.emit();
   }
 
   commitBoundary(
     phase: RouteRuntimeBoundaryPhase,
-    error: unknown | null,
+    exception: RuntimeException | null,
     params: Readonly<Record<string, unknown>>,
   ): void {
     if (this.state.phase !== 'empty') {
@@ -393,7 +401,9 @@ export class RouteActivationRuntime<TPresentation = unknown> {
     const committedParams = Object.freeze({ ...params });
 
     this.state =
-      phase === 'failed' ? { error, params: committedParams, phase: 'failed' } : { params: committedParams, phase };
+      phase === 'failed'
+        ? { exception: requireRuntimeException(exception), params: committedParams, phase: 'failed' }
+        : { params: committedParams, phase };
     this.emit();
   }
 
@@ -415,9 +425,10 @@ export class RouteActivationRuntime<TPresentation = unknown> {
     );
   }
 
-  setRefreshBoundary(phase: RouteRuntimeBoundaryPhase, error: unknown | null): void {
+  setRefreshBoundary(phase: RouteRuntimeBoundaryPhase, exception: RuntimeException | null): void {
     this.assertActive();
-    this.refreshBoundary = phase === 'failed' ? { error, phase } : { error: null, phase };
+    this.refreshBoundary =
+      phase === 'failed' ? { exception: requireRuntimeException(exception), phase } : { exception: null, phase };
     this.emit();
   }
 
@@ -523,7 +534,13 @@ export class RouteActivationRuntime<TPresentation = unknown> {
           await pipeline.revalidate(createProviderContext(this.routeScope, params, signal));
         } catch (error) {
           if (!signal.aborted) {
-            this.setRefreshBoundary('failed', error);
+            this.setRefreshBoundary(
+              'failed',
+              this.createException(
+                captureRuntimeFailure(error, this.createRuntimeSource('revalidate')),
+                'revalidate.failed',
+              ),
+            );
             await this.reportRevalidateFailure(error);
           }
 
@@ -564,14 +581,22 @@ export class RouteActivationRuntime<TPresentation = unknown> {
     }
 
     const params = this.state.params;
+    const failure = captureRuntimeFailure(error, this.createRuntimeSource('render'));
+    const exception = this.createException(failure, 'route.activation-failed');
 
     this.operationCounter += 1;
     this.prepareAbortController?.abort(error);
-    this.state = { error, params, phase: 'failed' };
+    this.state = { exception, params, phase: 'failed' };
     this.emit();
     await this.moduleRuntime?.dispose();
     await this.callbacks.onRenderFailure?.(this, error);
-    await this.reportRouteFailure(error, 'render');
+    await reportRuntimeFailure(
+      this.routeScope.get(RuntimeFailureReporterInterface),
+      failure,
+      this.owner,
+      'route.activation-failed',
+      'failed',
+    );
   }
 
   subscribe(listener: RouteRuntimeListener): () => void {
@@ -662,14 +687,32 @@ export class RouteActivationRuntime<TPresentation = unknown> {
       case 'rejected':
         this.moduleRuntime?.discardPending();
         await this.disposeProviderPipeline();
-        this.state = { failure: { error: result.error }, params, phase: 'pending' };
+        this.state = {
+          failure: {
+            exception: this.createException(
+              captureRuntimeFailure(result.error, result.source),
+              result.source.owner.kind === 'module' ? 'module.activation-failed' : 'route.activation-failed',
+            ),
+          },
+          params,
+          phase: 'pending',
+        };
         this.emit();
         return;
       case 'failed':
       case 'escalated':
         this.moduleRuntime?.discardPending();
         await this.disposeProviderPipeline();
-        this.state = { failure: { error: result.failure.cause }, params, phase: 'pending' };
+        this.state = {
+          failure: {
+            exception: this.createException(
+              result.failure,
+              result.failure.source.owner.kind === 'module' ? 'module.activation-failed' : 'route.activation-failed',
+            ),
+          },
+          params,
+          phase: 'pending',
+        };
         this.emit();
         await this.reportActivationFailure(result.failure);
         return;
@@ -710,6 +753,29 @@ export class RouteActivationRuntime<TPresentation = unknown> {
       owner: this.owner,
       participant: { kind: 'runtime' },
     };
+  }
+
+  createRenderException(error: unknown): RuntimeException {
+    return this.createException(
+      captureRuntimeFailure(error, this.createRuntimeSource('render')),
+      'route.activation-failed',
+    );
+  }
+
+  createBoundaryException(error: unknown, operation: string): RuntimeException {
+    return this.createException(
+      captureRuntimeFailure(error, this.createRuntimeSource(operation)),
+      'route.activation-failed',
+    );
+  }
+
+  private createException(failure: RuntimeFailure, disposition: RuntimeFailureDisposition): RuntimeException {
+    return createRuntimeException(failure, {
+      disposition,
+      owner: this.owner,
+      phase: 'failed',
+      recovery: this.callbacks.recovery,
+    });
   }
 
   private getOrCreateProviderPipeline(): ProviderPipeline {
@@ -790,11 +856,11 @@ const ROUTE_RUNTIME_SNAPSHOTS: Record<
   Exclude<RouteRuntimePhase, 'failed' | 'forbidden' | 'not-found' | 'pending'>,
   RouteRuntimeSnapshot
 > = {
-  active: { error: null, phase: 'active' },
-  disposed: { error: null, phase: 'disposed' },
-  empty: { error: null, phase: 'empty' },
-  preparing: { error: null, phase: 'preparing' },
-  retained: { error: null, phase: 'retained' },
+  active: { exception: null, phase: 'active' },
+  disposed: { exception: null, phase: 'disposed' },
+  empty: { exception: null, phase: 'empty' },
+  preparing: { exception: null, phase: 'preparing' },
+  retained: { exception: null, phase: 'retained' },
 };
 
 const createProviderContext = (

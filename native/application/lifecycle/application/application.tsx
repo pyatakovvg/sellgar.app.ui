@@ -68,6 +68,7 @@ export abstract class Application extends CoreApplication<ModuleMetadata, Applic
 
     const source: ApplicationViewSource = Object.freeze({
       components: this.nativeConfig.componentsValue,
+      createRenderException: (error: unknown) => this.createRenderException(error),
       failRender: (error: unknown) => this.failRender(error),
       features: this.nativeConfig.featuresValue,
       getLifecycle: () => this.lifecycle,

@@ -76,6 +76,7 @@ export const NestedRouterLayer: React.FC<IProps> = (props) => {
       depth={props.depth}
       dismissPending={props.dismissPending}
       onPresentationComplete={props.onPresentationComplete}
+      ownerRuntime={props.runtime}
       pending={pendingChild}
       retainedTarget={retainedTarget}
       target={target}
@@ -98,6 +99,7 @@ interface FramePresentationProps {
   readonly depth: number;
   readonly dismissPending: () => void | Promise<void>;
   readonly onPresentationComplete: () => void;
+  readonly ownerRuntime: RouterRuntime<ModuleMetadata>;
   readonly pending: NavigationRouterState | null;
   readonly retainedTarget: NestedRouterTarget | null;
   readonly target: NestedRouterTarget | null;
@@ -186,6 +188,7 @@ const FramePresentation: React.FC<FramePresentationProps> = (props) => {
         dismissPending={props.dismissPending}
         exception={target.components.exception}
         onPresentationComplete={handlePresentationComplete}
+        ownerRuntime={target.runtime ?? props.ownerRuntime}
         phase={state.phase}
         router={target.router}
         routing={target.routing}
@@ -224,6 +227,7 @@ const FramePresentation: React.FC<FramePresentationProps> = (props) => {
     props.depth,
     props.dismissPending,
     props.onPresentationComplete,
+    props.ownerRuntime,
     props.pending,
     props.retainedTarget?.tree,
     props.transition,

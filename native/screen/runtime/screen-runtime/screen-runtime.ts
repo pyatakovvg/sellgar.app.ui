@@ -62,6 +62,11 @@ export interface ScreenRuntimeSnapshot {
   readonly scenes: readonly ScreenSceneRuntime[];
 }
 
+export interface ScreenProjectionResult {
+  readonly awaitsCompletion: boolean;
+  readonly changed: boolean;
+}
+
 export class ScreenRuntime {
   private readonly listeners = new Set<ScreenRuntimeListener>();
   private readonly scenes = new Map<string, ScreenSceneRuntime>();
@@ -83,12 +88,12 @@ export class ScreenRuntime {
   project(
     presentation: ScreenPresentation | null,
     retainedPresentations: readonly ScreenPresentation[] = EMPTY_PRESENTATIONS,
-  ): boolean {
+  ): ScreenProjectionResult {
     if (presentation === null) {
-      if (this.snapshot.machine.phase === 'empty') return false;
+      if (this.snapshot.machine.phase === 'empty') return UNCHANGED_PROJECTION;
 
       this.publish(createScreenMachine());
-      return true;
+      return CHANGED_PROJECTION;
     }
 
     const currentTargetKey = resolveCurrentTargetKey(this.snapshot.machine);
@@ -103,10 +108,15 @@ export class ScreenRuntime {
       return result.scene.getDescriptor();
     });
 
-    if (hasProjection(this.snapshot.machine, target.key, retained)) return contentChanged;
+    const awaitsCompletion =
+      currentTargetKey !== target.key || targetResult.changed || this.snapshot.machine.phase === 'transitioning';
+
+    if (hasProjection(this.snapshot.machine, target.key, retained)) {
+      return createProjectionResult(contentChanged, awaitsCompletion);
+    }
 
     this.publish(presentScreen(this.snapshot.machine, target, retained));
-    return true;
+    return createProjectionResult(true, awaitsCompletion || this.snapshot.machine.phase === 'transitioning');
   }
 
   completeTransition(transitionId: number): void {
@@ -140,8 +150,7 @@ export class ScreenRuntime {
 
     const transitionStarted =
       machine.phase === 'transitioning' &&
-      (this.snapshot.machine.phase !== 'transitioning' ||
-        this.snapshot.machine.transitionId !== machine.transitionId);
+      (this.snapshot.machine.phase !== 'transitioning' || this.snapshot.machine.transitionId !== machine.transitionId);
 
     if (transitionStarted) {
       for (const listener of this.transitionStartListeners) listener(machine.transitionId);
@@ -198,3 +207,8 @@ const createRuntimeSnapshot = (
 ): ScreenRuntimeSnapshot => Object.freeze({ machine, scenes });
 
 const EMPTY_PRESENTATIONS: readonly ScreenPresentation[] = Object.freeze([]);
+const CHANGED_PROJECTION: ScreenProjectionResult = Object.freeze({ awaitsCompletion: false, changed: true });
+const UNCHANGED_PROJECTION: ScreenProjectionResult = Object.freeze({ awaitsCompletion: false, changed: false });
+
+const createProjectionResult = (changed: boolean, awaitsCompletion: boolean): ScreenProjectionResult =>
+  Object.freeze({ awaitsCompletion, changed });

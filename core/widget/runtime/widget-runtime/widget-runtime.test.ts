@@ -175,7 +175,7 @@ describe('WidgetRuntime', () => {
     await runtime.dispose();
     await runtime.dispose();
 
-    expect(runtime.getSnapshot()).toEqual({ error: null, phase: 'disposed' });
+    expect(runtime.getSnapshot()).toEqual({ exception: null, phase: 'disposed' });
     expect(TestController.disposeCount).toBe(1);
     expect(TestProvider.events).toEqual([
       'initialize',

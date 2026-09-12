@@ -632,6 +632,11 @@ app.routing({
   не управляет runtime lifecycle: это лишь подтверждение, что renderer больше
   не показывает вытесненную presentation. Web bridge завершает presentation
   синхронно; native bridge ждёт перехода screen-автомата в stable state.
+  Изменение только служебной retained projection при уже неизменном stable
+  target не создаёт нового ожидания presentation completion: текущий screen уже
+  физически отображён и не отправит повторное подтверждение mount/transition.
+  Блок B поэтому различает факт изменения registry и необходимость подтверждения
+  отображения target screen.
 - Native host выбирает текущую presentation по последней core history entry, а
   не выводит её из transient phase общей activation. Поэтому повторная ссылка
   history на уже focused activation не создаёт неоднозначность между двумя
@@ -1941,6 +1946,50 @@ await navigate.query({ tab: 'history' }, { revalidate: false });
 
 - Controllers, loaders, actions, providers, render errors, fallbacks и
   exceptions проходят общую framework-механику.
+- `useException()` не возвращает raw thrown value. Его результатом является
+  единый core `RuntimeException`, одинаковый для всех renderer adapters. Он
+  содержит нормализованный `Error` с `name`, `message` и optional JavaScript
+  `stack`, исходный `cause`, origin phase/owner/participant, boundary owner/
+  phase/disposition, runtime propagation trace и доступные recovery
+  capabilities.
+- JavaScript позволяет выбросить значение любого типа, поэтому только
+  `RuntimeException.cause` остаётся `unknown`. `RuntimeException.error` всегда
+  является `Error`: core сохраняет исходный экземпляр и его prototype, а для
+  не-`Error` причины создаёт диагностический `Exception`, не теряя исходный
+  `cause`. Сам `RuntimeException` и все его метаданные полностью типизированы.
+- Origin и boundary не объединяются. Origin показывает, где и на какой
+  operation возник сбой; boundary показывает, какой runtime перешёл в
+  `failed` и отображает exception. Текущее boundary phase `failed` не заменяет
+  origin phase `initialize`, `prepare`, `load-module`, `loader`, `render`,
+  `action` либо `revalidate`.
+- Recovery принадлежит core runtime и публикуется как optional capability:
+  `retry`, `back`, `close`, `root`. Renderer только отображает доступные
+  действия и вызывает их. Недоступная или семантически небезопасная операция
+  отсутствует; renderer не синтезирует её из вида экрана или платформы.
+- Каждая recovery capability является core-командой с собственным readonly
+  состоянием `inProcess`. Это состояние относится к вызванной команде данного
+  `RuntimeException`, а не к источнику сбоя, loader, action, navigation либо
+  renderer. Поэтому одинаковый UI-контракт применяется к retry widget,
+  повторной navigation operation, back, close и root независимо от их
+  внутренней реализации.
+- `inProcess` синхронно становится `true` при вызове команды и остаётся таким
+  до settlement всей возвращённой операцией `Promise`. Оно гарантированно
+  возвращается в `false` как после resolve, так и после reject. Повторные
+  вызовы одной команды во время выполнения не запускают параллельные recovery
+  operations, а получают уже выполняющуюся `Promise`.
+- Изменения recovery state публикуются core. React, React Native и будущие
+  renderer adapters только подписываются на это состояние. Например, кнопка
+  «Повторить» отображает `exception.recovery.retry.inProcess`, но не создаёт
+  локальный processing state и не делает выводов о происхождении recovery.
+- Navigation-boundary может предоставить `retry` текущей navigation operation,
+  `back`, `root`, а вложенный Router также `close`. Widget failure предоставляет
+  локальный `retry`, который повторяет только его загрузку. Application
+  initialization failure не объявляет `retry`, пока lifecycle не гарантирует
+  безопасный rollback частично выполненных initializers.
+- Recoverable action/revalidation error остаётся в observable state своей
+  операции и не становится `RuntimeException` presentation. Explicit escalation
+  переводит owner runtime в `failed` и только тогда разрешается через exception
+  boundary.
 - Renderer adapter типизирует render values, но не создаёт отдельный lifecycle.
 - Boundary path вложенной Route имеет порядок
   `Application -> owner Router/Route path -> nested Router -> nested Route -> Module`.

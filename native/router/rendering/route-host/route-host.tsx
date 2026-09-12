@@ -1,6 +1,7 @@
 import React from 'react';
 
 import type { RouteActivationRuntime } from '../../../../core/router/runtime/route-runtime';
+import { requireRuntimeException } from '../../../../core/runtime/exception/runtime-exception';
 import type { ApplicationComponents } from '../../../application/config/application-configurator';
 import { renderLayouts } from '../../../layout/rendering/layout-renderer';
 import type { LayoutConstructor } from '../../../layout/declaration/layout';
@@ -29,6 +30,7 @@ export const RouteHost: React.FC<IProps> = (props) => {
     <RuntimeErrorBoundary
       exception={props.components.exception}
       onError={(error) => void props.runtime.failRender(error)}
+      resolveException={(error) => props.runtime.createRenderException(error)}
       resetKeys={[props.runtime]}
     >
       <RuntimeScopeProvider scope={props.runtime.getRouteScope()}>
@@ -46,7 +48,11 @@ const resolveRouteContent = (
   if (snapshot.phase === 'not-found') return props.components.notFound ?? null;
 
   if (snapshot.phase === 'failed') {
-    return <ExceptionProvider error={snapshot.error}>{props.components.exception ?? null}</ExceptionProvider>;
+    return (
+      <ExceptionProvider exception={requireRuntimeException(snapshot.exception)}>
+        {props.components.exception ?? null}
+      </ExceptionProvider>
+    );
   }
 
   if (snapshot.phase !== 'active' && snapshot.phase !== 'retained') return props.components.fallback ?? null;

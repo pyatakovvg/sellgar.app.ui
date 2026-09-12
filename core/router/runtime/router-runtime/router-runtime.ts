@@ -8,9 +8,16 @@ import { PolicyRunner } from '../../../policy/runtime/policy-runner';
 import {
   reportRuntimeFailure,
   RuntimeFailureReporterInterface,
+  type RuntimeFailure,
+  type RuntimeFailureDisposition,
   type RuntimeOwner,
 } from '../../../runtime/failure/runtime-failure';
 import { captureRuntimeFailure } from '../../../runtime/failure/runtime-failure-signal';
+import {
+  createRuntimeException,
+  type RuntimeException,
+  type RuntimeExceptionRecoveryOperations,
+} from '../../../runtime/exception/runtime-exception';
 import { RuntimeOperationCoordinator } from '../../../runtime/operation/runtime-operation-coordinator';
 import { ProviderPipeline } from '../../../runtime/provider/provider-pipeline';
 import type { RuntimeScope } from '../../../runtime/scope/base/runtime-scope';
@@ -52,7 +59,7 @@ export type RouterRuntimePhase =
 type RouterRuntimeBoundaryPhase = Extract<RouterRuntimePhase, 'failed' | 'forbidden' | 'not-found'>;
 
 export interface RouterRuntimeSnapshot {
-  readonly error: unknown | null;
+  readonly exception: RuntimeException | null;
   readonly phase: RouterRuntimePhase;
 }
 
@@ -83,6 +90,7 @@ export interface RouterRuntimeExecutionContext {
     leavingBoundaries: readonly NavigationBlockerBoundary[],
     signal: AbortSignal,
   ) => Promise<boolean>;
+  readonly recovery: RuntimeExceptionRecoveryOperations;
   readonly session: SessionRuntimeStateInterface;
 }
 
@@ -126,7 +134,7 @@ interface RouterRuntimeEnvironment<TPresentation> {
 }
 
 interface RouterRuntimeActivationNode<TPresentation> {
-  readonly boundary: Pick<RouterRuntimeSnapshot, 'error' | 'phase'> | null;
+  readonly boundary: Pick<RouterRuntimeSnapshot, 'exception' | 'phase'> | null;
   readonly branch: RouterRuntimeBranch<TPresentation> | null;
   readonly child: RouterRuntimeActivationNode<TPresentation> | null;
   readonly navigation: NavigationState | undefined;
@@ -251,7 +259,7 @@ interface RouterTransitionPlan<TPresentation> {
 }
 
 interface RouterBoundaryTransition<TPresentation> {
-  readonly error: unknown | null;
+  readonly exception: RuntimeException | null;
   readonly kind: 'router';
   readonly phase: RouterRuntimeBoundaryPhase;
   readonly plan: RouterTransitionPlan<TPresentation>;
@@ -259,7 +267,7 @@ interface RouterBoundaryTransition<TPresentation> {
 
 interface RouteBoundaryTransition<TPresentation> {
   readonly entry: RuntimeRouteEntry<TPresentation>;
-  readonly error: unknown | null;
+  readonly exception: RuntimeException | null;
   readonly kind: 'route';
   readonly origin: 'policy' | 'runtime';
   readonly phase: RouteRuntimeBoundaryPhase;
@@ -315,7 +323,7 @@ export class RouterRuntime<TPresentation = unknown> {
   private readonly routerScope: RouterScope;
   private readonly queryService: ScopedRouteQueryService | null;
 
-  private committedBoundary: Pick<RouterRuntimeSnapshot, 'error' | 'phase'> | null = null;
+  private committedBoundary: Pick<RouterRuntimeSnapshot, 'exception' | 'phase'> | null = null;
   private committedBranch: RouterRuntimeBranch<TPresentation> | null = null;
   private committedNavigation: NavigationState | undefined;
   private disposePromise: Promise<void> | null = null;
@@ -328,9 +336,9 @@ export class RouterRuntime<TPresentation = unknown> {
   private prepareRevision = 0;
   private providerPipeline: ProviderPipeline | null = null;
   private refreshAbortController: AbortController | null = null;
-  private refreshBoundary: Pick<RouterRuntimeSnapshot, 'error' | 'phase'> | null = null;
+  private refreshBoundary: Pick<RouterRuntimeSnapshot, 'exception' | 'phase'> | null = null;
   private refreshPromise: Promise<RouterRuntimeRefreshResult> | null = null;
-  private snapshot: RouterRuntimeSnapshot = { error: null, phase: 'idle' };
+  private snapshot: RouterRuntimeSnapshot = { exception: null, phase: 'idle' };
 
   constructor(
     readonly router: RouterDeclaration,
@@ -525,7 +533,7 @@ export class RouterRuntime<TPresentation = unknown> {
   ): Promise<RouterRuntimeActivation<TPresentation>> {
     this.assertActive();
     this.committedBranch = null;
-    this.committedBoundary = { error: null, phase };
+    this.committedBoundary = { exception: null, phase };
     this.committedNavigation = navigation;
     this.setSnapshot(this.committedBoundary);
 
@@ -547,11 +555,16 @@ export class RouterRuntime<TPresentation = unknown> {
 
     const branch = this.committedBranch;
 
+    const failure = captureRuntimeFailure(error, this.createRuntimeSource('render'));
+
     this.committedBranch = null;
-    this.committedBoundary = { error, phase: 'failed' };
+    this.committedBoundary = {
+      exception: this.createException(failure, 'router.failed'),
+      phase: 'failed',
+    };
     this.setSnapshot(this.committedBoundary);
     await this.disposeBranch(branch);
-    await this.reportRenderFailure(error);
+    await this.reportFailure(failure, 'router.failed');
   }
 
   private async trimCommittedRouteBranch(
@@ -866,12 +879,24 @@ export class RouterRuntime<TPresentation = unknown> {
     const error = decision.type === 'error' ? decision.error : null;
 
     if (boundary.kind === 'router') {
-      boundary.runtime.refreshBoundary = { error, phase };
+      boundary.runtime.refreshBoundary = {
+        exception:
+          error === null
+            ? null
+            : boundary.runtime.createException(
+                captureRuntimeFailure(error, boundary.runtime.createRuntimeSource('policy')),
+                'router.activation-failed',
+              ),
+        phase,
+      };
       boundary.runtime.emit();
       return;
     }
 
-    boundary.entry.runtime.setRefreshBoundary(phase, error);
+    boundary.entry.runtime.setRefreshBoundary(
+      phase,
+      error === null ? null : boundary.entry.runtime.createBoundaryException(error, 'policy'),
+    );
   }
 
   private clearRefreshBoundaries(): void {
@@ -924,9 +949,14 @@ export class RouterRuntime<TPresentation = unknown> {
       await pipeline.revalidate(context);
     } catch (error) {
       if (!signal.aborted) {
-        this.refreshBoundary = { error, phase: 'failed' };
+        const failure = captureRuntimeFailure(error, this.createRuntimeSource('revalidate'));
+
+        this.refreshBoundary = {
+          exception: this.createException(failure, 'revalidate.failed'),
+          phase: 'failed',
+        };
         this.emit();
-        await this.reportRefreshFailure(error);
+        await this.reportFailure(failure, 'revalidate.failed');
       }
 
       throw error;
@@ -1077,7 +1107,7 @@ export class RouterRuntime<TPresentation = unknown> {
         if (retained !== null) return retained;
       }
 
-      this.setSnapshot({ error: null, phase: 'preparing' });
+      this.setSnapshot({ exception: null, phase: 'preparing' });
 
       for (const candidate of candidates) {
         const result = await this.prepareCandidate(
@@ -1113,7 +1143,7 @@ export class RouterRuntime<TPresentation = unknown> {
       }
 
       this.clearPendingNavigation(revision);
-      this.setSnapshot({ error, phase: this.committedBranch ? 'active' : 'idle' });
+      this.setSnapshot({ exception: null, phase: this.committedBranch ? 'active' : 'idle' });
       await this.reportActivationFailure(error);
       throw error;
     } finally {
@@ -1419,14 +1449,21 @@ export class RouterRuntime<TPresentation = unknown> {
       terminalResult.owner.kind === 'route'
         ? {
             entry: terminalResult.owner.entry,
-            error,
+            exception:
+              error === null ? null : terminalResult.owner.entry.runtime.createBoundaryException(error, 'policy'),
             kind: 'route',
             origin: 'policy',
             phase,
             plan: terminalResult.plan,
           }
         : {
-            error,
+            exception:
+              error === null
+                ? null
+                : terminalResult.plan.runtime.createException(
+                    captureRuntimeFailure(error, terminalResult.plan.runtime.createRuntimeSource('policy')),
+                    'router.activation-failed',
+                  ),
             kind: 'router',
             phase,
             plan: terminalResult.plan,
@@ -1446,11 +1483,11 @@ export class RouterRuntime<TPresentation = unknown> {
       return createInterruptedResult(abortController.signal.reason);
     }
 
-    if (boundary.error !== null) {
+    if (error !== null) {
       if (boundary.kind === 'route') {
-        await boundary.entry.runtime.reportBoundaryFailure(boundary.error);
+        await boundary.entry.runtime.reportBoundaryFailure(error);
       } else {
-        await terminalResult.plan.runtime.reportActivationFailure(boundary.error);
+        await terminalResult.plan.runtime.reportActivationFailure(error);
       }
     }
 
@@ -1546,7 +1583,15 @@ export class RouterRuntime<TPresentation = unknown> {
       await plan.runtime.reportActivationFailure(error);
       await plan.runtime.disposeProviderPipeline();
 
-      return { error, kind: 'router', phase: 'failed', plan };
+      return {
+        exception: plan.runtime.createException(
+          captureRuntimeFailure(error, plan.runtime.createRuntimeSource('prepare')),
+          'router.activation-failed',
+        ),
+        kind: 'router',
+        phase: 'failed',
+        plan,
+      };
     }
   }
 
@@ -1568,7 +1613,15 @@ export class RouterRuntime<TPresentation = unknown> {
 
         await plan.runtime.reportActivationFailure(error);
         await plan.runtime.disposeProviderPipeline();
-        failure = { error, kind: 'router', phase: 'failed', plan };
+        failure = {
+          exception: plan.runtime.createException(
+            captureRuntimeFailure(error, plan.runtime.createRuntimeSource('prepare')),
+            'router.activation-failed',
+          ),
+          kind: 'router',
+          phase: 'failed',
+          plan,
+        };
       }
     }
 
@@ -1632,7 +1685,7 @@ export class RouterRuntime<TPresentation = unknown> {
       },
       { once: true },
     );
-    this.setSnapshot({ error: null, phase: 'pending' });
+    this.setSnapshot({ exception: null, phase: 'pending' });
 
     return { transition, type: 'ready' };
   }
@@ -1680,7 +1733,7 @@ export class RouterRuntime<TPresentation = unknown> {
         await this.discardPlan(pending.boundary.plan);
       }
     } else {
-      this.setSnapshot({ error: null, phase: 'active' });
+      this.setSnapshot({ exception: null, phase: 'active' });
     }
 
     return activation;
@@ -1755,7 +1808,7 @@ export class RouterRuntime<TPresentation = unknown> {
     runtime.committedBranch = node.branch;
     runtime.committedNavigation = navigation;
     runtime.refreshBoundary = null;
-    runtime.snapshot = node.boundary ?? { error: null, phase: node.branch === null ? 'idle' : 'active' };
+    runtime.snapshot = node.boundary ?? { exception: null, phase: node.branch === null ? 'idle' : 'active' };
     runtime.emit();
 
     if (node.child) runtime.restoreActivationNode(node.child, navigation);
@@ -2061,7 +2114,7 @@ export class RouterRuntime<TPresentation = unknown> {
         for (const entry of plan.createdRoutes) {
           if (entry === boundary.entry) {
             if (boundary.origin === 'policy') {
-              entry.runtime.commitBoundary(boundary.phase, boundary.error, entry.resolved.params);
+              entry.runtime.commitBoundary(boundary.phase, boundary.exception, entry.resolved.params);
             } else {
               entry.runtime.commit();
             }
@@ -2096,7 +2149,7 @@ export class RouterRuntime<TPresentation = unknown> {
       routes: plan.nextRoutes,
     };
     plan.runtime.committedBoundary = null;
-    plan.runtime.snapshot = { error: null, phase: 'active' };
+    plan.runtime.snapshot = { exception: null, phase: 'active' };
 
     if (plan.childPlan) {
       this.applyPlan(plan.childPlan);
@@ -2124,10 +2177,10 @@ export class RouterRuntime<TPresentation = unknown> {
           routes: Object.freeze(plan.nextRoutes.slice(0, boundaryIndex + 1)),
         };
         plan.runtime.committedBoundary = null;
-        plan.runtime.snapshot = { error: null, phase: 'active' };
+        plan.runtime.snapshot = { exception: null, phase: 'active' };
       } else {
         plan.runtime.committedBranch = null;
-        plan.runtime.committedBoundary = { error: boundary.error, phase: boundary.phase };
+        plan.runtime.committedBoundary = { exception: boundary.exception, phase: boundary.phase };
         plan.runtime.snapshot = plan.runtime.committedBoundary;
       }
 
@@ -2148,7 +2201,7 @@ export class RouterRuntime<TPresentation = unknown> {
       routes: plan.nextRoutes,
     };
     plan.runtime.committedBoundary = null;
-    plan.runtime.snapshot = { error: null, phase: 'active' };
+    plan.runtime.snapshot = { exception: null, phase: 'active' };
 
     if (!plan.childPlan) {
       throw new Error('Boundary Router отсутствует в дочернем transition plan.');
@@ -2266,7 +2319,7 @@ export class RouterRuntime<TPresentation = unknown> {
     this.prepareRevision += 1;
     const pendingTransition = this.pendingTransition;
 
-    this.snapshot = { error: null, phase: 'disposing' };
+    this.snapshot = { exception: null, phase: 'disposing' };
     this.emit();
     this.lifecycleAbortController.abort(new Error('RouterRuntime освобождён.'));
     this.refreshAbortController?.abort(new Error('RouterRuntime освобождён.'));
@@ -2285,7 +2338,7 @@ export class RouterRuntime<TPresentation = unknown> {
     this.pendingNavigation = null;
     this.pendingNavigationRevision = 0;
     this.refreshBoundary = null;
-    this.snapshot = { error: null, phase: 'disposed' };
+    this.snapshot = { exception: null, phase: 'disposed' };
     this.emit();
 
     if (activations.length > 0) {
@@ -2327,66 +2380,64 @@ export class RouterRuntime<TPresentation = unknown> {
   }
 
   private async reportActivationFailure(error: unknown): Promise<void> {
-    const failure = captureRuntimeFailure(error, {
-      operation: 'prepare',
-      owner: this.owner,
-      participant: { kind: 'runtime' },
-    });
+    const failure = captureRuntimeFailure(error, this.createRuntimeSource('prepare'));
 
-    await reportRuntimeFailure(
-      this.routerScope.get(RuntimeFailureReporterInterface),
-      failure,
-      this.owner,
-      'route.activation-failed',
-      this.committedBranch ? 'active' : 'idle',
-    );
-  }
-
-  private async reportRenderFailure(error: unknown): Promise<void> {
-    const failure = captureRuntimeFailure(error, {
-      operation: 'render',
-      owner: this.owner,
-      participant: { kind: 'runtime' },
-    });
-
-    await reportRuntimeFailure(
-      this.routerScope.get(RuntimeFailureReporterInterface),
-      failure,
-      this.owner,
-      'route.activation-failed',
-      'failed',
-    );
+    await this.reportFailure(failure, 'router.activation-failed', this.committedBranch ? 'active' : 'idle');
   }
 
   private async reportActionFailure(error: unknown): Promise<void> {
-    const failure = captureRuntimeFailure(error, {
-      operation: 'action',
-      owner: this.owner,
-      participant: { kind: 'runtime' },
-    });
+    const failure = captureRuntimeFailure(error, this.createRuntimeSource('action'));
 
-    await reportRuntimeFailure(
-      this.routerScope.get(RuntimeFailureReporterInterface),
-      failure,
-      this.owner,
-      'action.failed',
-      'active',
-    );
+    await this.reportFailure(failure, 'action.failed', 'active');
   }
 
   private async reportRefreshFailure(error: unknown): Promise<void> {
-    const failure = captureRuntimeFailure(error, {
-      operation: 'revalidate',
-      owner: this.owner,
-      participant: { kind: 'runtime' },
-    });
+    const failure = captureRuntimeFailure(error, this.createRuntimeSource('revalidate'));
 
+    await this.reportFailure(failure, 'revalidate.failed');
+  }
+
+  createRenderException(error: unknown): RuntimeException {
+    return this.createException(captureRuntimeFailure(error, this.createRuntimeSource('render')), 'router.failed');
+  }
+
+  private createRuntimeSource(operation: string) {
+    return {
+      operation,
+      owner: this.owner,
+      participant: { kind: 'runtime' } as const,
+    };
+  }
+
+  private createException(failure: RuntimeFailure, disposition: RuntimeFailureDisposition): RuntimeException {
+    return createRuntimeException(failure, {
+      disposition,
+      owner: this.owner,
+      phase: 'failed',
+      recovery: this.getExceptionRecovery(),
+    });
+  }
+
+  private getExceptionRecovery(): RuntimeExceptionRecoveryOperations {
+    const navigate = this.routerScope.get(NavigateServiceInterface);
+
+    return {
+      ...this.environment.execution.recovery,
+      close: this.router === this.environment.rootRouter ? undefined : () => navigate.close(),
+    };
+  }
+
+  private async reportFailure(
+    failure: RuntimeFailure,
+    disposition: RuntimeFailureDisposition,
+    ownerState = 'failed',
+  ): Promise<void> {
     await reportRuntimeFailure(
       this.routerScope.get(RuntimeFailureReporterInterface),
       failure,
       this.owner,
-      'revalidate.failed',
-      'failed',
+      disposition,
+      ownerState,
     );
   }
 
@@ -2436,6 +2487,7 @@ export class RouterRuntime<TPresentation = unknown> {
       {
         executeAction: (execution) => this.executeRouteAction(execution),
         onRenderFailure: (failedRuntime, error) => this.trimCommittedRouteBranch(failedRuntime, error),
+        recovery: this.getExceptionRecovery(),
       },
     );
 
@@ -2481,7 +2533,7 @@ export class RouterRuntime<TPresentation = unknown> {
       return;
     }
 
-    this.setSnapshot(this.committedBoundary ?? { error: null, phase: this.committedBranch ? 'active' : 'idle' });
+    this.setSnapshot(this.committedBoundary ?? { exception: null, phase: this.committedBranch ? 'active' : 'idle' });
   }
 
   private clearPendingNavigation(revision: number, navigation?: NavigationState): void {
@@ -2722,7 +2774,7 @@ const createActivationTreeSnapshot = <TPresentation>(
     snapshot:
       node.boundary ??
       Object.freeze({
-        error: null,
+        exception: null,
         phase: node.branch === null ? 'idle' : 'active',
       }),
   });
@@ -2789,7 +2841,7 @@ const findPreparedRouteFailure = <TPresentation>(
       if (failure) {
         return {
           entry,
-          error: failure.error,
+          exception: failure.exception,
           kind: 'route',
           origin: 'runtime',
           phase: 'failed',
