@@ -47,6 +47,7 @@ import { RouteScope } from '../../../runtime/scope/kind/route-scope';
 import { createRouteScopedNavigate, NavigateServiceInterface } from '../../service/navigate-service';
 import { LocationServiceInterface, ScopedLocationService } from '../../service/location-service';
 import type { RoutePolicyBoundary, RouteRuntimeContextInterface } from '../route-runtime-context';
+import { WidgetRuntimeRegistry } from '../../../widget/runtime/widget-runtime-registry';
 
 export type RouteRuntimePhase =
   'active' | 'disposed' | 'empty' | 'failed' | 'forbidden' | 'not-found' | 'pending' | 'preparing' | 'retained';
@@ -460,8 +461,17 @@ export class RouteActivationRuntime<TPresentation = unknown> {
     }
 
     const params = this.state.params;
+    const widgetRegistry = this.routeScope.get(WidgetRuntimeRegistry);
 
-    await Promise.all([this.providerPipeline?.deactivate(), this.moduleRuntime?.retain()]);
+    widgetRegistry.retainOwner(this.routeScope);
+
+    try {
+      await Promise.all([this.providerPipeline?.deactivate(), this.moduleRuntime?.retain()]);
+    } catch (error) {
+      widgetRegistry.focusOwner(this.routeScope);
+      throw error;
+    }
+
     this.state = { params, phase: 'retained' };
     this.emit();
   }
@@ -479,6 +489,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
       this.providerPipeline?.focus({ scope: this.routeScope, signal }),
       this.moduleRuntime?.focus(signal),
     ]);
+    this.routeScope.get(WidgetRuntimeRegistry).focusOwner(this.routeScope);
     this.state = { params, phase: 'active' };
     this.emit();
   }

@@ -14,6 +14,7 @@ import { ScreenAnimation } from '../../declaration/screen-animation';
 import type { ScreenTransitionOperation } from '../../declaration/screen-transition';
 import { resolveScreenSceneRole, type ScreenMachineState, type ScreenSceneRole } from '../../runtime/screen-machine';
 import { ScreenActivityProvider, useScreenActive } from '../../runtime/screen-activity-context';
+import { ScreenPresentationProvider, useScreenPresentationCommit } from '../../runtime/screen-presentation-context';
 import { ScreenRuntime, type ScreenSceneRuntime } from '../../runtime/screen-runtime';
 
 export interface ScreenRendererProps {
@@ -103,6 +104,7 @@ interface ScreenSceneViewProps {
 const ScreenSceneView: React.FC<ScreenSceneViewProps> = React.memo(
   ({ machine, onPresentationComplete, owner, progress, runtime }) => {
     const scene = React.useSyncExternalStore(runtime.subscribe, runtime.getSnapshot, runtime.getSnapshot);
+    const onScenePresented = useScreenPresentationCommit();
     const presentationActive = useScreenActive();
     const dimensions = useWindowDimensions();
     const role = resolveScreenSceneRole(machine, runtime.key);
@@ -116,8 +118,10 @@ const ScreenSceneView: React.FC<ScreenSceneViewProps> = React.memo(
     const active = presentationActive && interactive;
 
     React.useLayoutEffect(() => {
-      if (interactive) onPresentationComplete?.(owner);
-    }, [interactive, onPresentationComplete, owner, scene.content]);
+      if (!interactive) return;
+      onScenePresented(runtime);
+      onPresentationComplete?.(owner);
+    }, [interactive, onPresentationComplete, onScenePresented, owner, runtime, scene.content]);
 
     return (
       <Animated.View
@@ -127,9 +131,11 @@ const ScreenSceneView: React.FC<ScreenSceneViewProps> = React.memo(
         pointerEvents={interactive ? 'auto' : 'none'}
         style={[styles.scene, animatedStyle]}
       >
-        <React.Activity mode={visible ? 'visible' : 'hidden'}>
-          <ScreenActivityProvider active={active}>{scene.content}</ScreenActivityProvider>
-        </React.Activity>
+        <ScreenPresentationProvider value={runtime}>
+          <React.Activity mode={visible ? 'visible' : 'hidden'}>
+            <ScreenActivityProvider active={active}>{scene.content}</ScreenActivityProvider>
+          </React.Activity>
+        </ScreenPresentationProvider>
       </Animated.View>
     );
   },

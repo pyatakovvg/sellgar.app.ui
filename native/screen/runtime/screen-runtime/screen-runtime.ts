@@ -5,7 +5,9 @@ import {
   completeScreenTransition,
   createScreenMachine,
   presentScreen,
+  resolveScreenSceneRole,
   type ScreenMachineState,
+  type ScreenSceneRole,
 } from '../screen-machine';
 
 export interface ScreenSceneSnapshot {
@@ -17,10 +19,15 @@ export type ScreenTransitionStartListener = (transitionId: number) => void;
 
 export class ScreenSceneRuntime {
   private descriptor: ScreenPresentation;
+  private readonly disposeListeners = new Set<() => void>();
+  private disposed = false;
   private readonly listeners = new Set<ScreenRuntimeListener>();
   private snapshot: ScreenSceneSnapshot;
 
-  constructor(presentation: ScreenPresentation) {
+  constructor(
+    presentation: ScreenPresentation,
+    private readonly getRole: () => ScreenSceneRole,
+  ) {
     this.descriptor = createDescriptor(presentation);
     this.snapshot = Object.freeze({ content: presentation.content });
   }
@@ -31,6 +38,27 @@ export class ScreenSceneRuntime {
 
   getDescriptor(): ScreenPresentation {
     return this.descriptor;
+  }
+
+  isRetained(): boolean {
+    return !this.disposed && this.getRole() === 'retained';
+  }
+
+  onDispose(listener: () => void): () => void {
+    if (this.disposed) {
+      listener();
+      return () => undefined;
+    }
+    this.disposeListeners.add(listener);
+    return () => this.disposeListeners.delete(listener);
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const listener of this.disposeListeners) listener();
+    this.disposeListeners.clear();
+    this.listeners.clear();
   }
 
   getSnapshot = (): ScreenSceneSnapshot => this.snapshot;
@@ -139,7 +167,9 @@ export class ScreenRuntime {
       return { changed: current.update(presentation, entering), scene: current };
     }
 
-    const scene = new ScreenSceneRuntime(presentation);
+    const scene = new ScreenSceneRuntime(presentation, () =>
+      resolveScreenSceneRole(this.snapshot.machine, presentation.key),
+    );
 
     this.scenes.set(scene.key, scene);
     return { changed: true, scene };
@@ -158,8 +188,11 @@ export class ScreenRuntime {
 
     const activeKeys = new Set(machine.presentations.map((presentation) => presentation.key));
 
-    for (const key of this.scenes.keys()) {
-      if (!activeKeys.has(key)) this.scenes.delete(key);
+    for (const [key, scene] of this.scenes) {
+      if (!activeKeys.has(key)) {
+        this.scenes.delete(key);
+        scene.dispose();
+      }
     }
 
     const scenes = Object.freeze(

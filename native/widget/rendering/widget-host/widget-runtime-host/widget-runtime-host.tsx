@@ -31,12 +31,6 @@ export const WidgetRuntimeHost = <TProps extends object>(props: IProps<TProps>):
     React.useCallback(() => props.runtime.getPropsRevision(), [props.runtime]),
   );
 
-  React.useEffect(() => {
-    if (snapshot.phase === 'idle') {
-      void props.runtime.load().catch(() => undefined);
-    }
-  }, [props.runtime, snapshot.phase]);
-
   if (snapshot.phase === 'failed') {
     return (
       <ExceptionProvider exception={requireRuntimeException(snapshot.exception)}>

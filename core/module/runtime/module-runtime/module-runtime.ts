@@ -43,6 +43,7 @@ import {
 import { RevalidateServiceInterface } from '../../../revalidate/contract/revalidate-service';
 import { RuntimeRevalidateService } from '../../../revalidate/runtime/revalidate-service';
 import { resolveRuntimeRevalidateState } from '../../../revalidate/runtime/revalidate-state';
+import { WidgetRuntimeRegistry } from '../../../widget/runtime/widget-runtime-registry';
 
 export type ModuleRuntimeLoader = () => Promise<ModuleExports>;
 
@@ -488,9 +489,18 @@ export class ModuleRuntime<TPresentation = unknown> {
     }
 
     const active = this.state.active;
+    const widgetRegistry = active.scope.get(WidgetRuntimeRegistry);
 
     this.interruptRevalidation();
-    await active.providerPipeline.deactivate();
+    widgetRegistry.retainOwner(active.scope);
+
+    try {
+      await active.providerPipeline.deactivate();
+    } catch (error) {
+      widgetRegistry.focusOwner(active.scope);
+      throw error;
+    }
+
     this.state = { active, phase: 'retained' };
     this.emit();
   }
@@ -505,6 +515,7 @@ export class ModuleRuntime<TPresentation = unknown> {
     const active = this.state.active;
 
     await active.providerPipeline.focus({ scope: active.scope, signal });
+    active.scope.get(WidgetRuntimeRegistry).focusOwner(active.scope);
     this.state = { active, phase: 'active' };
     this.emit();
   }

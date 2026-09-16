@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SessionRuntimeState } from '../../../application/session/session-runtime-state';
 import { ApplicationScope } from '../../../runtime/scope/kind/application-scope';
 import { WidgetDefinition, configureWidgetRuntimeDefinition } from '../../declaration/widget';
 import { WidgetRuntimeRegistry } from './widget-runtime-registry.ts';
+import type { WidgetRuntimePresentation } from './widget-runtime-registry.ts';
 
 describe('WidgetRuntimeRegistry', () => {
   let registry: WidgetRuntimeRegistry;
@@ -77,6 +78,26 @@ describe('WidgetRuntimeRegistry', () => {
     replay.release();
   });
 
+  it('preserves the widget runtime while its owner is retained and reuses it on focus', async () => {
+    const owner = createOwnerScope();
+    const first = acquire(registry, owner, 'first');
+
+    await first.runtime.load();
+    registry.retainOwner(owner);
+    first.release();
+    await flushMicrotasks();
+
+    expect(first.runtime.getSnapshot().phase).toBe('ready');
+    expect(registry.get({ ownerScope: owner, token: RegistryWidget })).toBe(first.runtime);
+
+    registry.focusOwner(owner);
+    const returned = acquire(registry, owner, 'returned');
+
+    expect(returned.runtime).toBe(first.runtime);
+    returned.release();
+    await waitFor(() => first.runtime.getSnapshot().phase === 'disposed');
+  });
+
   it('disposes child runtimes when their owner scope is disposed', async () => {
     const owner = createOwnerScope();
     const lease = acquire(registry, owner, 'owned');
@@ -88,7 +109,169 @@ describe('WidgetRuntimeRegistry', () => {
     expect(registry.get({ ownerScope: owner, token: RegistryWidget })).toBeNull();
     lease.release();
   });
+
+  it('starts a host attachment in core and publishes only its own identity', async () => {
+    const owner = createOwnerScope();
+    const otherOwner = createOwnerScope();
+    const listener = vi.fn();
+    const unrelated = vi.fn();
+    const unsubscribe = registry.subscribe({ ownerScope: owner, token: RegistryWidget }, listener);
+    const unsubscribeOther = registry.subscribe({ ownerScope: otherOwner, token: RegistryWidget }, unrelated);
+
+    const lease = registry.attach({ ownerScope: owner, props: { value: 'attached' }, token: RegistryWidget });
+
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(unrelated).not.toHaveBeenCalled();
+    await waitFor(() => lease.runtime.getSnapshot().phase === 'ready');
+
+    lease.release();
+    await waitFor(() => registry.get({ ownerScope: owner, token: RegistryWidget }) === null);
+
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(unrelated).not.toHaveBeenCalled();
+    unsubscribe();
+    unsubscribeOther();
+  });
+
+  it('retains a hidden scene widget, reuses it on return, and removes an unclaimed widget after presentation', async () => {
+    const owner = createOwnerScope();
+    const presentation = createPresentation();
+    const first = registry.attach({
+      ownerScope: owner,
+      presentation,
+      props: { value: 'first' },
+      token: RegistryWidget,
+    });
+    await waitFor(() => first.runtime.getSnapshot().phase === 'ready');
+
+    presentation.retain();
+    first.release();
+    await flushMicrotasks();
+    expect(registry.get({ ownerScope: owner, token: RegistryWidget })).toBe(first.runtime);
+
+    presentation.focus();
+    const returned = registry.attach({
+      ownerScope: owner,
+      presentation,
+      props: { value: 'returned' },
+      token: RegistryWidget,
+    });
+    registry.reconcilePresentation(presentation);
+    expect(returned.runtime).toBe(first.runtime);
+    returned.release();
+    await waitFor(() => first.runtime.getSnapshot().phase === 'disposed');
+  });
+
+  it('releases a retained scene widget when the scene is removed', async () => {
+    const owner = createOwnerScope();
+    const presentation = createPresentation();
+    const lease = registry.attach({
+      ownerScope: owner,
+      presentation,
+      props: { value: 'owned' },
+      token: RegistryWidget,
+    });
+    await waitFor(() => lease.runtime.getSnapshot().phase === 'ready');
+
+    presentation.retain();
+    lease.release();
+    await flushMicrotasks();
+    presentation.dispose();
+    await waitFor(() => lease.runtime.getSnapshot().phase === 'disposed');
+  });
+
+  it('releases a lease whose scene was removed before React cleaned up the host', async () => {
+    const owner = createOwnerScope();
+    const presentation = createPresentation();
+    const lease = registry.attach({
+      ownerScope: owner,
+      presentation,
+      props: { value: 'removed' },
+      token: RegistryWidget,
+    });
+    await waitFor(() => lease.runtime.getSnapshot().phase === 'ready');
+
+    presentation.retain();
+    presentation.dispose();
+    lease.release();
+    await waitFor(() => lease.runtime.getSnapshot().phase === 'disposed');
+  });
+
+  it('removes a hidden widget omitted from the visible presentation', async () => {
+    const owner = createOwnerScope();
+    const presentation = createPresentation();
+    const lease = registry.attach({
+      ownerScope: owner,
+      presentation,
+      props: { value: 'omitted' },
+      token: RegistryWidget,
+    });
+    await waitFor(() => lease.runtime.getSnapshot().phase === 'ready');
+
+    presentation.retain();
+    lease.release();
+    await flushMicrotasks();
+    presentation.focus();
+    registry.reconcilePresentation(presentation);
+    await waitFor(() => lease.runtime.getSnapshot().phase === 'disposed');
+  });
+
+  it('keeps a retained surface lease when another surface releases the last active lease', async () => {
+    const owner = createOwnerScope();
+    const retained = createPresentation();
+    const active = createPresentation();
+    const first = registry.attach({
+      ownerScope: owner,
+      presentation: retained,
+      props: { value: 'first' },
+      token: RegistryWidget,
+    });
+    const second = registry.attach({
+      ownerScope: owner,
+      presentation: active,
+      props: { value: 'second' },
+      token: RegistryWidget,
+    });
+    await waitFor(() => first.runtime.getSnapshot().phase === 'ready');
+
+    retained.retain();
+    first.release();
+    second.release();
+    await flushMicrotasks();
+    expect(first.runtime.getSnapshot().phase).toBe('ready');
+
+    retained.dispose();
+    await waitFor(() => first.runtime.getSnapshot().phase === 'disposed');
+  });
 });
+
+const createPresentation = (): WidgetRuntimePresentation & {
+  retain(): void;
+  focus(): void;
+  dispose(): void;
+} => {
+  let retained = false;
+  let disposed = false;
+  const listeners = new Set<() => void>();
+
+  return {
+    isRetained: () => retained && !disposed,
+    onDispose: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    retain: () => {
+      retained = true;
+    },
+    focus: () => {
+      retained = false;
+    },
+    dispose: () => {
+      disposed = true;
+      for (const listener of listeners) listener();
+    },
+  };
+};
 
 interface RegistryWidgetProps {
   readonly value: string;
