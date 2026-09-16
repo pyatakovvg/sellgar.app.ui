@@ -13,6 +13,7 @@ export interface WidgetRuntimeLeaseOptions<TWidget extends WidgetConstructor> ex
 }
 
 export interface WidgetRuntimeLease<TProps extends object = object> {
+  readonly active: boolean;
   readonly runtime: WidgetRuntime<TProps>;
 
   release(): void;
@@ -70,6 +71,9 @@ export class WidgetRuntimeRegistry {
     retainedEntry.leases.add(leaseId);
 
     return {
+      get active() {
+        return !released;
+      },
       release: () => {
         if (released) {
           return;
@@ -130,14 +134,14 @@ export class WidgetRuntimeRegistry {
 
     for (const entry of bucket.entries) {
       this.entries.delete(entry);
-      void entry.runtime.dispose();
+      entry.runtime.dispose().catch(() => undefined);
     }
 
     bucket.entries.clear();
   }
 
   private getOwnerBucket(ownerScope: RuntimeScope): WidgetRuntimeOwnerBucket {
-    let bucket = this.owners.get(ownerScope);
+    const bucket = this.owners.get(ownerScope);
 
     if (bucket) {
       return bucket;
@@ -173,7 +177,7 @@ export class WidgetRuntimeRegistry {
     key: string,
     entry: WidgetRuntimeEntry,
   ): void {
-    queueMicrotask(() => {
+    Promise.resolve().then(() => {
       if (entry.leases.size > 0) {
         return;
       }
@@ -188,7 +192,7 @@ export class WidgetRuntimeRegistry {
       runtimes.delete(key);
       bucket?.entries.delete(entry);
       this.entries.delete(entry);
-      void entry.runtime.dispose();
+      entry.runtime.dispose().catch(() => undefined);
     });
   }
 }

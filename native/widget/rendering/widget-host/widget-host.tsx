@@ -17,17 +17,22 @@ export const WidgetHost = <TWidget extends WidgetConstructor>(props: WidgetHostP
   const registry = useDependency(WidgetRuntimeRegistry);
   const applicationComponents = useApplicationComponents();
   const metadata = getWidgetMetadata(props.token);
-  const widgetProps = createWidgetHostProps('props' in props ? props.props : undefined);
+  const providedProps = 'props' in props ? props.props : undefined;
+  const widgetProps = React.useMemo(() => createWidgetHostProps(providedProps), [providedProps]);
+  const leaseRef = React.useRef<WidgetRuntimeLease<WidgetProps<TWidget>> | null>(null);
   const [binding, setBinding] = React.useState<WidgetRuntimeBinding<WidgetProps<TWidget>> | null>(null);
   const bindingMatches =
-    binding?.ownerScope === ownerScope && binding.token === props.token && binding.runtimeKey === props.runtimeKey;
+    binding?.lease.active === true &&
+    binding.ownerScope === ownerScope &&
+    binding.token === props.token &&
+    binding.runtimeKey === props.runtimeKey;
   const runtime = bindingMatches
     ? binding.lease.runtime
     : registry.get({
-        ownerScope,
-        runtimeKey: props.runtimeKey,
-        token: props.token,
-      });
+      ownerScope,
+      runtimeKey: props.runtimeKey,
+      token: props.token,
+    });
 
   React.useEffect(() => {
     const lease = registry.acquire({
@@ -43,16 +48,25 @@ export const WidgetHost = <TWidget extends WidgetConstructor>(props: WidgetHostP
       token: props.token,
     };
 
+    leaseRef.current = lease;
     setBinding(nextBinding);
 
-    return () => lease.release();
-  }, [ownerScope, props.runtimeKey, props.token, registry]);
+    return () => {
+      if (leaseRef.current === lease) {
+        leaseRef.current = null;
+      }
+
+      lease.release();
+    };
+  }, [ownerScope, props.runtimeKey, props.token, registry, widgetProps]);
 
   React.useEffect(() => {
-    if (bindingMatches) {
-      binding.lease.updateProps(widgetProps);
+    const lease = leaseRef.current;
+
+    if (lease?.active) {
+      lease.updateProps(widgetProps);
     }
-  }, [binding, bindingMatches, widgetProps]);
+  }, [widgetProps]);
 
   if (!runtime) {
     return <>{metadata.fallback ?? applicationComponents.fallback ?? null}</>;
