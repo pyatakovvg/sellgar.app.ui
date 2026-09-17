@@ -21,6 +21,7 @@ import { ShellScrollView } from '../../../router/rendering/shell-scroll-view';
 import { useOptionalShellRuntime } from '../../../router/runtime/shell-runtime-context';
 import { useScreenActive } from '../../../screen/runtime/screen-activity-context';
 import { ViewportContext, type ViewportController } from '../../runtime/viewport-context';
+import { RefreshGesture, isRefreshStart } from '../../runtime/refresh-gesture';
 import {
   Collection,
   Refreshable,
@@ -56,6 +57,7 @@ interface ViewportScrollHandle {
 }
 
 interface ViewportContentProps {
+  readonly onTouchStart?: ScrollViewProps['onTouchStart'];
   readonly onMomentumScrollEnd?: NonNullable<ScrollViewProps['onMomentumScrollEnd']>;
   readonly onScrollBeginDrag?: NonNullable<ScrollViewProps['onScrollBeginDrag']>;
   readonly onScrollEndDrag?: NonNullable<ScrollViewProps['onScrollEndDrag']>;
@@ -76,20 +78,22 @@ const ViewportImplementation: React.FC<ViewportProps> = (props) => {
 const RefreshableViewport: React.FC<{ readonly structure: ViewportStructure }> = (props) => {
   const keyboard = useKeyboardRuntime();
   const revalidate = useRevalidate();
+  const [gesture] = React.useState(() => new RefreshGesture());
   const keyboardDragActive = React.useRef(false);
   const [refreshAtTop, setRefreshAtTop] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
   const updateRefreshAtTop = React.useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    setRefreshAtTop(event.nativeEvent.contentOffset.y <= REFRESH_START_TOLERANCE);
+    setRefreshAtTop(isRefreshStart(event.nativeEvent.contentOffset.y, event.nativeEvent.contentInset.top));
   }, []);
   const handleScrollBeginDrag = React.useCallback<NonNullable<ScrollViewProps['onScrollBeginDrag']>>(
     (event) => {
-      const startedAtTop = event.nativeEvent.contentOffset.y <= REFRESH_START_TOLERANCE;
+      const startedAtTop = isRefreshStart(event.nativeEvent.contentOffset.y, event.nativeEvent.contentInset.top);
 
       keyboardDragActive.current = keyboard.visible;
+      gesture.begin(startedAtTop, keyboard.visible);
       setRefreshAtTop(startedAtTop);
     },
-    [keyboard.visible],
+    [gesture, keyboard.visible],
   );
   const handleScrollEnd = React.useCallback<NonNullable<ScrollViewProps['onScrollEndDrag']>>(
     (event) => {
@@ -99,7 +103,7 @@ const RefreshableViewport: React.FC<{ readonly structure: ViewportStructure }> =
     [updateRefreshAtTop],
   );
   const handleRefresh = React.useCallback(async () => {
-    if (refreshing || keyboard.visible || keyboardDragActive.current) {
+    if (!gesture.accept(keyboard.visible || keyboardDragActive.current)) {
       if (keyboard.visible || keyboardDragActive.current) keyboard.dismiss();
       return;
     }
@@ -109,14 +113,16 @@ const RefreshableViewport: React.FC<{ readonly structure: ViewportStructure }> =
     try {
       await revalidate();
     } finally {
+      gesture.complete();
       setRefreshing(false);
     }
-  }, [keyboard, refreshing, revalidate]);
+  }, [gesture, keyboard, revalidate]);
   const refreshEnabled = refreshAtTop && !keyboard.visible;
   const color = props.structure.refreshable?.color;
 
   return (
     <ViewportContent
+      onTouchStart={() => gesture.begin(refreshAtTop, keyboard.visible)}
       onMomentumScrollEnd={handleScrollEnd}
       onScrollBeginDrag={handleScrollBeginDrag}
       onScrollEndDrag={handleScrollEnd}
@@ -199,6 +205,7 @@ const ViewportContent: React.FC<ViewportContentProps> = (props) => {
         {props.structure.upperFixed}
         {props.structure.collection ? (
           <VirtualizedList
+            onTouchStart={props.onTouchStart}
             contentContainerStyle={styles.content}
             data={props.structure.flow}
             getItem={getFlowItem}
@@ -221,6 +228,7 @@ const ViewportContent: React.FC<ViewportContentProps> = (props) => {
           />
         ) : shell ? (
           <ShellScrollView
+            onTouchStart={props.onTouchStart}
             bottomOffset={keyboardBottomOffset}
             contentContainerStyle={styles.content}
             ref={scrollRef}
@@ -236,6 +244,7 @@ const ViewportContent: React.FC<ViewportContentProps> = (props) => {
           </ShellScrollView>
         ) : (
           <KeyboardScrollView
+            onTouchStart={props.onTouchStart}
             bottomOffset={keyboardBottomOffset}
             contentContainerStyle={styles.content}
             ref={scrollRef}
@@ -294,7 +303,6 @@ const ViewportFloating: React.FC<{
 
 const LOAD_MORE_THRESHOLD = 0.1;
 const LOAD_MORE_TRANSITION_DURATION = 180;
-const REFRESH_START_TOLERANCE = 0.5;
 const DEFAULT_KEYBOARD_BOTTOM_OFFSET = 40;
 
 const CollectionLoadMoreAccessory: React.FC<{

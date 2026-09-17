@@ -5,7 +5,7 @@ import { ScreenRenderer } from '../../../screen/rendering/screen-renderer';
 import { ScreenPresentationCommitProvider } from '../../../screen/runtime/screen-presentation-context';
 import type { ScreenSceneRuntime } from '../../../screen/runtime/screen-runtime';
 import { useDependency } from '../../../runtime/scope/runtime-scope-context';
-import type { NativeRouteProjectionRuntime } from './native-route-projection-runtime.tsx';
+import type { NativeRouteProjectionRuntime } from '../../runtime/native-route-projection';
 
 interface NativeRouteProjectionHostProps {
   readonly runtime: NativeRouteProjectionRuntime;

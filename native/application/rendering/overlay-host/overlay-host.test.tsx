@@ -1,5 +1,21 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import React from 'react';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('react-native', () => ({
+  View: ({ children }: React.PropsWithChildren) => <div>{children}</div>,
+  StyleSheet: { create: (styles: object) => styles },
+}));
+vi.mock('../../../keyboard/rendering/keyboard-surface', () => ({
+  KeyboardSurface: ({ children }: React.PropsWithChildren) => <>{children}</>,
+}));
+vi.mock('../../../keyboard/runtime/keyboard-runtime-context', () => ({
+  KeyboardRuntimeProvider: ({ children }: React.PropsWithChildren) => <>{children}</>,
+}));
+vi.mock('../../../screen/rendering/screen-compositor', () => ({
+  ScreenCompositor: ({ children }: React.PropsWithChildren) => <>{children}</>,
+  ScreenLayerHost: ({ children }: React.PropsWithChildren) => <>{children}</>,
+}));
 
 import { OverlayHost } from './overlay-host.tsx';
 
@@ -18,7 +34,7 @@ describe('OverlayHost', () => {
     const frame = screen.getByText('frame');
 
     expect(application.contains(frame)).toBe(false);
-    expect([...application.parentElement!.children].map((element) => element.textContent)).toEqual([
+    expect([...application.parentElement!.parentElement!.children].map((element) => element.textContent)).toEqual([
       'applicationroute layout',
       'frame',
       'modal',

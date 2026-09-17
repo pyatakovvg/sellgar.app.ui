@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { RouteToken } from '../../../router/declaration/route-token';
 
 import { createModuleRuntimeDefinition } from '../../../module/contract/module-runtime-definition';
 import type { ModuleExportResolverInterface } from '../../../module/resolution/module-export-resolver';
@@ -98,7 +99,9 @@ describe('Application pending navigation', () => {
     const unsubscribe = app.onNavigation(listener);
 
     secondRouteDeferred = createDeferred<void>();
+    const accepted = waitForPending(app, SecondRoute);
     const transition = app.navigate.to(SecondRoute);
+    await accepted;
 
     expect(matchesNavigationRoute(app.navigation.navigation, FirstRoute)).toBe(true);
     expect(matchesNavigationRoute(app.navigation.pending, SecondRoute)).toBe(true);
@@ -121,7 +124,9 @@ describe('Application pending navigation', () => {
 
     try {
       secondRouteDeferred = createDeferred<void>();
+      const accepted = waitForPending(app, SecondRoute);
       const transition = app.navigate.to(SecondRoute);
+      await accepted;
 
       expect(matchesNavigationRoute(app.navigation.pending, SecondRoute)).toBe(true);
 
@@ -135,19 +140,20 @@ describe('Application pending navigation', () => {
     }
   });
 
-  it('replaces the pending target immediately when navigation is superseded', async () => {
+  it('publishes the accepted replacement when navigation is superseded', async () => {
     const app = await createApplication();
 
     secondRouteDeferred = createDeferred<void>();
+    const secondAccepted = waitForPending(app, SecondRoute);
     const secondTransition = app.navigate.to(SecondRoute);
+    await secondAccepted;
 
     expect(matchesNavigationRoute(app.navigation.pending, SecondRoute)).toBe(true);
 
+    const firstAccepted = waitForPending(app, FirstRoute);
     const firstTransition = app.navigate.to(FirstRoute);
-
-    expect(matchesNavigationRoute(app.navigation.pending, FirstRoute)).toBe(true);
-
     secondRouteDeferred.resolve();
+    await firstAccepted;
     await Promise.all([secondTransition, firstTransition]);
 
     expect(matchesNavigationRoute(app.navigation.navigation, FirstRoute)).toBe(true);
@@ -156,6 +162,15 @@ describe('Application pending navigation', () => {
     await app.dispose();
   });
 });
+
+const waitForPending = (app: TestApplication, token: RouteToken): Promise<void> =>
+  new Promise((resolve) => {
+    const unsubscribe = app.onNavigation(() => {
+      if (!matchesNavigationRoute(app.navigation.pending, token)) return;
+      unsubscribe();
+      resolve();
+    });
+  });
 
 const createApplication = async (): Promise<TestApplication> => {
   const app = new TestApplication();

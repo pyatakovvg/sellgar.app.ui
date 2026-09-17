@@ -29,7 +29,7 @@ interface IProps {
   readonly decision?: ApplicationNavigationDecision | null;
   readonly depth: number;
   readonly dismissPending: () => void | Promise<void>;
-  readonly onPresentationComplete: () => void;
+  readonly onPresentationComplete: (revision: number) => void;
   readonly pending?: NavigationRouterState | null;
   readonly retainedTree?: RouterRuntimeActivationTree<ModuleMetadata>;
   readonly routing: ResolvedApplicationRouting | null;
@@ -98,7 +98,7 @@ interface NestedRouterTarget {
 interface FramePresentationProps {
   readonly depth: number;
   readonly dismissPending: () => void | Promise<void>;
-  readonly onPresentationComplete: () => void;
+  readonly onPresentationComplete: (revision: number) => void;
   readonly ownerRuntime: RouterRuntime<ModuleMetadata>;
   readonly pending: NavigationRouterState | null;
   readonly retainedTarget: NestedRouterTarget | null;
@@ -115,9 +115,14 @@ interface FramePresentationState {
   readonly target: NestedRouterTarget | null;
 }
 
+interface AnimatedFramePresentationState extends FramePresentationState {
+  readonly animationId: number;
+}
+
 const FramePresentation: React.FC<FramePresentationProps> = (props) => {
   const localTransition = props.transition?.depth === props.depth ? props.transition : null;
-  const [state, setState] = React.useState<FramePresentationState>(() => ({
+  const [state, setState] = React.useState<AnimatedFramePresentationState>(() => ({
+    animationId: 0,
     completedRevision: null,
     next: null,
     operation: localTransition?.operation ?? null,
@@ -136,7 +141,16 @@ const FramePresentation: React.FC<FramePresentationProps> = (props) => {
         : props.target,
   }));
   React.useLayoutEffect(() => {
-    setState((current) => reconcileFramePresentation(current, props.target, props.retainedTarget, localTransition));
+    setState((current) => {
+      const next = reconcileFramePresentation(current, props.target, props.retainedTarget, localTransition);
+      if (next === current) return current;
+      const sameAnimation =
+        current.phase === next.phase &&
+        sameFrameTarget(current.target, next.target) &&
+        current.operation === next.operation &&
+        (current.revision === next.revision || (current.revision === null && next.revision !== null));
+      return { ...next, animationId: sameAnimation ? current.animationId : current.animationId + 1 };
+    });
   }, [localTransition, props.retainedTarget, props.target]);
   const reportedRevision = React.useRef<number | null>(null);
 
@@ -144,13 +158,19 @@ const FramePresentation: React.FC<FramePresentationProps> = (props) => {
     if (state.completedRevision === null || reportedRevision.current === state.completedRevision) return;
 
     reportedRevision.current = state.completedRevision;
-    props.onPresentationComplete();
+    props.onPresentationComplete(state.completedRevision);
   }, [props.onPresentationComplete, state.completedRevision]);
 
   const handlePresentationComplete = React.useCallback(() => {
     setState((current) => {
+      if (
+        current.animationId !== state.animationId ||
+        (current.phase !== 'presenting' && current.phase !== 'dismissing')
+      )
+        return current;
       if (current.phase === 'dismissing' && current.next) {
         return {
+          animationId: current.animationId + 1,
           completedRevision: null,
           next: null,
           operation: current.operation,
@@ -177,7 +197,7 @@ const FramePresentation: React.FC<FramePresentationProps> = (props) => {
         phase: 'visible',
       };
     });
-  }, []);
+  }, [state.animationId]);
   const content = React.useMemo<React.ReactNode>(() => {
     const target = state.target;
 

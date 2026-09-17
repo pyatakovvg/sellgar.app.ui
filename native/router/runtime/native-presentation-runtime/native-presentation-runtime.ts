@@ -10,10 +10,7 @@ import type { ApplicationComponents } from '../../../application/config/applicat
 import type { ModuleMetadata } from '../../../module/declaration/module';
 import type { NativeRouterBridge } from '../../bridge/native-router-bridge';
 import { getRouterPresentationDefinition } from '../../declaration/router';
-import {
-  NativeRouteProjectionRuntime,
-  type NativeRouteProjectionInput,
-} from '../../rendering/native-navigation-host/native-route-projection-runtime.tsx';
+import { NativeRouteProjectionRuntime, type NativeRouteProjectionInput } from '../native-route-projection';
 import { resolveNativeFrameTransition, type NativeFrameTransition } from '../../rendering/presentation-cycle';
 
 type NativePresentationParticipant = 'frame' | 'screen';
@@ -62,7 +59,9 @@ export class NativePresentationRuntime {
     this.synchronize();
   }
 
-  completeFrame = (): void => this.complete('frame');
+  completeFrame = (revision: number): void => {
+    if (this.cycle?.revision === revision) this.complete('frame');
+  };
 
   getFrameSnapshot = (): NativeFramePresentationSnapshot | null => this.frameSnapshot;
 
@@ -140,8 +139,8 @@ export class NativePresentationRuntime {
 
     if (!cycle.completed.has('screen') || (cycle.requiresFrame && !cycle.completed.has('frame'))) return;
 
-    this.source.routerBridge.completePresentation(cycle.revision);
     this.cycle = null;
+    this.source.routerBridge.completePresentation(cycle.revision);
   }
 
   private publishFrame(transition: NativeFrameTransition | null): void {

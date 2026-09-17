@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// The feature composition contract does not render native UI.
+vi.mock('../presentation/user-request-layer', () => ({ UserRequestLayer: () => null }));
 
 import { ApplicationFeatureInterface } from '../../../../core/application/feature/application-feature';
 import { getUseBindingsMetadata } from '../../../../core/di/composition/use-bindings';
