@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
+// These tests inject their transport; loading the OS Linking module is outside this contract.
+vi.mock('../../transport/native-linking-transport', () => ({
+  createNativeLinkingTransport: () => {
+    throw new Error('Test must supply a transport');
+  },
+}));
+
 import type { ApplicationConfiguratorInterface } from '../../../../core/application/config/application-configurator';
 import { ApplicationConfig } from '../../../../core/application/config/application-config';
 import { Application } from '../../../../core/application/lifecycle/application';
@@ -59,11 +66,11 @@ class TestApplication extends Application<null> {
     return this.getApplicationScope().get(RequestExecutorInterface);
   }
 
-  get session(): SessionRuntimeStateInterface {
+  get sessionState(): SessionRuntimeStateInterface {
     return this.getApplicationScope().get(SessionRuntimeStateInterface);
   }
 
-  isActive(token: abstract new (...args: never[]) => unknown): boolean {
+  isActive(token: abstract new (...args: never[]) => object): boolean {
     return matchesNavigationRoute(this.getNavigationSnapshot().navigation, token);
   }
 
@@ -87,7 +94,7 @@ describe('NativeRouterBridge authentication transport', () => {
     expect(bridge.getSnapshot().entries).toHaveLength(1);
     const anonymousEntry = bridge.getSnapshot().entries[0]!.id;
 
-    app.session.setAuthenticated();
+    app.sessionState.setAuthenticated();
 
     await vi.waitFor(() => expect(app.isActive(ProtectedRoute)).toBe(true));
     expect(bridge.getSnapshot().entries).toHaveLength(1);
@@ -100,7 +107,7 @@ describe('NativeRouterBridge authentication transport', () => {
     expect(bridge.getSnapshot().entries).toHaveLength(1);
     expect(bridge.getSnapshot().entries[0]!.id).not.toBe(authenticatedEntry);
 
-    app.session.setAuthenticated();
+    app.sessionState.setAuthenticated();
 
     await vi.waitFor(() => expect(app.isActive(ProtectedRoute)).toBe(true));
     expect(bridge.getSnapshot().entries).toHaveLength(1);

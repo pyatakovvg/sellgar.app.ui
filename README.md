@@ -3,6 +3,23 @@
 - Статус пакета: development
 - Статус реализации: in-progress
 
+## Проверка пакета
+
+После установки workspace dependencies:
+
+```sh
+yarn workspace @sellgar/app typecheck:core
+yarn workspace @sellgar/app typecheck
+yarn workspace @sellgar/app test
+```
+
+`test:core` запускает core в Node; `test:react` — Web и общие React bindings
+в jsdom; `test:native` — JS-контракты Native с локальными подменами нативного UI.
+Tests расположены рядом с владельцами. Общая настройка окружения находится
+в `contracts/test-environment`; она не подменяет framework runtime.
+Native JS-тесты не доказывают корректность жестов, клавиатуры, анимаций или
+индикаторов на Android/iOS: эти проверки выполняются отдельно на устройствах.
+
 `@sellgar/app` — renderer-agnostic реализация application runtime и единый
 источник framework-контракта для приложений Sellgar.
 
@@ -10,8 +27,11 @@
 
 - `core/` → `@sellgar/app`;
 - `react/` → `@sellgar/app/react`;
-- `native/` → `@sellgar/app/native`;
-- `fsm/` → `@sellgar/app/fsm`.
+- `native/` → `@sellgar/app/native`.
+
+`shared/` содержит внутренние общие React bindings двух renderers, но не является
+публичным entrypoint. Контексты renderer-ов остаются раздельными; core не зависит
+ни от React, ни от этого shared-слоя.
 
 Native entrypoint повторяет публичные framework-понятия React facade:
 `Application`, configurator, `Module`, `Layout`, `Widget`, renderer features,
@@ -21,10 +41,11 @@ controller/revalidation hooks. Оба adapter-а используют один c
 router bridge. Android consumer находится в отдельном repository
 `sellgar.mobile.shop`, package `clients/mobile`. Native stack
 projection использует хронологические core history entries и общие activation
-runtimes, а физические переходы выполняет закрытый адаптер React Navigation
-Native Stack. Новый screen сразу показывает локальный
-fallback, возврат к retained screen сразу показывает сохранённые данные и затем
-запускает scoped revalidation тех же controller instances. Back во время
+runtimes, а физические переходы выполняет `ScreenRenderer` через
+`ScreenRuntime/ScreenMachine` и Reanimated. Новый screen показывает локальный
+fallback после принятия навигации. Возврат к подготовленному retained screen
+с теми же параметрами показывает сохранённые данные без обязательного запуска
+loader. Явное обновление и изменение query остаются отдельной ревалидацией. Back во время
 `preparing` отменяет transition и мгновенно возвращает committed presentation.
 Query не меняет identity screen; Route path и params меняют её.
 
@@ -133,6 +154,12 @@ React guard adapter экспортирует `useGuard` и прозрачный 
 `GuardRunner` в текущем runtime scope. Массив declarations сохраняет семантику
 `AND/all`, отказ возвращает `false` либо показывает `fallback`, а ошибка guard
 передаётся ближайшей React exception boundary.
+Результат guard принадлежит конкретным scope, declarations и context.
+При изменении входов до завершения новой проверки `useGuard` возвращает `false`;
+запоздавший результат предыдущей проверки не разрешает новый контекст.
+Callable handles `useSubmit` и `useRevalidate` являются снимками состояния:
+изменение наблюдаемых данных создаёт новую ссылку, не изменяя ранее выданный
+handle. Это позволяет передавать handle целиком memoized-компоненту.
 Controller actions выполняются на активном runtime через guards и общий
 operation/failure flow; исходный payload передаётся без сериализации, а submit
 state изолирован по controller token. Recoverable ошибка остаётся в submit
@@ -185,13 +212,18 @@ Core `RouterRuntime` собирает эти boundaries в иерархичес�
 включая Router на ancestor Route. Переход готовится транзакционно: resolve и
 policies выполняются до parallel module preparation, предыдущая ветка остаётся
 committed до явного commit, а discard/supersede освобождает только кандидата.
-Presentation snapshot не подменяет committed Route-цепочку candidate runtime до
-commit. Пока новая ветка готовится, renderer показывает один fallback ближайшей
-изменяемой boundary текущей committed-ветки; shell целевой вложенной ветки при
-этом не монтируется. Если committed-ветки ещё нет, всю initial preparation
-закрывает application splash. Переход, меняющий только дочерний Router,
-сохраняет owner Module и показывает один fallback внутри его shell, не раскрывая
-pending Route-цепочку.
+Committed Route-цепочка не подменяется candidate runtime до commit.
+Application публикует `pending` после принятия перехода navigation pipeline,
+а не синхронно при любом вызове `navigate.to()`: отклонённая blocker-ом попытка
+не должна создавать target screen.
+Web показывает fallback ближайшей изменяемой boundary committed-ветки.
+Native может создать pending presentation screen/frame до commit и показать
+fallback внутри целевого screen или shell; смена fallback на content не создаёт
+новый screen и не перезапускает его анимацию. Frame располагается над layout.
+Начальную подготовку приложения закрывает splash. Переход, меняющий только
+дочерний Router, сохраняет owner Module. Завершение frame-анимации относится
+к конкретной физической анимации, а подтверждение presentation — к её revision;
+запоздавший callback не завершает другую операцию.
 Index/default/structural branches и `Router.firstAvailable()` разрешаются до
 prepare; rejected probing candidate не запускает свой result handler.
 Router declaration принимает core `providers`, а React facade добавляет к ним

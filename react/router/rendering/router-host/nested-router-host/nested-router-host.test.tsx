@@ -1,6 +1,8 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { createRuntimeException } from '../../../../../core/runtime/exception/runtime-exception';
+import { createRuntimeFailure } from '../../../../../core/runtime/failure/runtime-failure';
 
 import type { RouterRuntime } from '../../../../../core/router/runtime/router-runtime';
 import type { NavigateServiceInterface } from '../../../../../core/router/service/navigate-service';
@@ -35,6 +37,15 @@ describe('NestedRouterHost', () => {
     });
     const runtime = {
       failRender,
+      createRenderException: (cause: unknown) =>
+        createRuntimeException(
+          createRuntimeFailure(cause, {
+            operation: 'render',
+            owner: { kind: 'router', id: 'test-nested-router' },
+            participant: { kind: 'runtime' },
+          }),
+          { disposition: 'router.failed', owner: { kind: 'router', id: 'test-nested-router' }, phase: 'failed' },
+        ),
       getRouterScope: () => scope,
       router,
     } as unknown as RouterRuntime<ModuleMetadata>;

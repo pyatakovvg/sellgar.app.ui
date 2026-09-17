@@ -1,5 +1,6 @@
 import { Expose, plainToInstance, Type } from 'class-transformer';
 import { autorun, isObservableProp } from 'mobx';
+import { describe, expect, it } from 'vitest';
 
 import { updateEntity } from '../../operation/update-entity';
 import { Entity, getEntityIdentity, getEntityMetadata, isEntityConstructor } from './entity.ts';

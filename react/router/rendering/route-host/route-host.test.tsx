@@ -1,8 +1,10 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { createRuntimeException } from '../../../../core/runtime/exception/runtime-exception';
+import { createRuntimeFailure } from '../../../../core/runtime/failure/runtime-failure';
 
-import type { RouteRuntime } from '../../../../core/router/runtime/route-runtime';
+import type { RouteActivationRuntime } from '../../../../core/router/runtime/route-runtime';
 import { ApplicationScope } from '../../../../core/runtime/scope/kind/application-scope';
 import type { ModuleMetadata } from '../../../module/declaration/module';
 import { RouteHost } from './route-host.tsx';
@@ -18,7 +20,7 @@ describe('RouteHost', () => {
       getRouteScope: () => scope,
       getSnapshot: () => snapshot,
       subscribe: () => () => undefined,
-    } as unknown as RouteRuntime<ModuleMetadata>;
+    } as unknown as RouteActivationRuntime<ModuleMetadata>;
 
     render(
       <RouteHost components={{}} layouts={[]} runtime={runtime}>
@@ -30,7 +32,7 @@ describe('RouteHost', () => {
     expect(getModuleRuntimeOrNull).not.toHaveBeenCalled();
   });
 
-  it('attributes a Route presentation error to RouteRuntime', async () => {
+  it('attributes a Route presentation error to RouteActivationRuntime', async () => {
     const error = new Error('route view failed');
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const failRender = vi.fn(async () => undefined);
@@ -38,11 +40,20 @@ describe('RouteHost', () => {
     const snapshot = { exception: null, phase: 'active' as const };
     const runtime = {
       failRender,
+      createRenderException: (cause: unknown) =>
+        createRuntimeException(
+          createRuntimeFailure(cause, {
+            operation: 'render',
+            owner: { kind: 'route', id: 'test-route' },
+            participant: { kind: 'runtime' },
+          }),
+          { disposition: 'route.activation-failed', owner: { kind: 'route', id: 'test-route' }, phase: 'failed' },
+        ),
       getModuleRuntimeOrNull: () => null,
       getRouteScope: () => scope,
       getSnapshot: () => snapshot,
       subscribe: () => () => undefined,
-    } as unknown as RouteRuntime<ModuleMetadata>;
+    } as unknown as RouteActivationRuntime<ModuleMetadata>;
     const BrokenChild: React.FC = () => {
       throw error;
     };

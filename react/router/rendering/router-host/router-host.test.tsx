@@ -1,6 +1,8 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { createRuntimeException } from '../../../../core/runtime/exception/runtime-exception';
+import { createRuntimeFailure } from '../../../../core/runtime/failure/runtime-failure';
 
 import type { RouteActivationRuntime } from '../../../../core/router/runtime/route-runtime';
 import type { RouterRuntime } from '../../../../core/router/runtime/router-runtime';
@@ -40,6 +42,15 @@ describe('RouterHost', () => {
     const snapshot = { exception: null, phase: 'active' as const };
     const runtime = {
       failRender,
+      createRenderException: (cause: unknown) =>
+        createRuntimeException(
+          createRuntimeFailure(cause, {
+            operation: 'render',
+            owner: { kind: 'router', id: 'test-router' },
+            participant: { kind: 'runtime' },
+          }),
+          { disposition: 'router.failed', owner: { kind: 'router', id: 'test-router' }, phase: 'failed' },
+        ),
       getBranchSnapshot: () => branch,
       getSnapshot: () => snapshot,
       router,

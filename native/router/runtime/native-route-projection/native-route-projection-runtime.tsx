@@ -16,7 +16,7 @@ import type { ScreenTransitionOperation } from '../../../screen/declaration/scre
 import { ScreenRenderer } from '../../../screen/rendering/screen-renderer';
 import { ScreenRuntime } from '../../../screen/runtime/screen-runtime';
 import { getRoutePresentationDefinition } from '../../declaration/route';
-import { RouteHost, RouteModuleHost } from '../route-host';
+import { RouteHost, RouteModuleHost } from '../../rendering/route-host';
 import {
   type NativePendingRouteProjection,
   resolveNativePendingRouteProjection,

@@ -3,7 +3,9 @@
 ## Структура
 
 - Общего каталога `src` нет.
-- `core`, `react`, `native` и `fsm` — entrypoint-части одного package.
+- `core`, `react` и `native` — entrypoint-части одного package.
+- `shared` — внутренние общие renderer bindings с явными owner facades;
+  не public entrypoint и не зависимость core.
 - Public imports определяются только `package.json#exports`; deep imports
   запрещены.
 - Внутри entrypoint код сначала группируется по framework-домену (`router`,

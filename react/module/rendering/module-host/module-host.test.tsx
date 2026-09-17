@@ -1,9 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
+import { createRuntimeException } from '../../../../core/runtime/exception/runtime-exception';
+import { createRuntimeFailure } from '../../../../core/runtime/failure/runtime-failure';
 
 import type { ModuleRuntime } from '../../../../core/module/runtime/module-runtime';
-import type { RouteRuntime } from '../../../../core/router/runtime/route-runtime';
+import type { RouteActivationRuntime } from '../../../../core/router/runtime/route-runtime';
 import { ApplicationScope } from '../../../../core/runtime/scope/kind/application-scope';
 import { getModuleMetadata, Module, type ModuleMetadata } from '../../declaration/module';
 import { ModuleHost } from './module-host.tsx';
@@ -28,13 +30,22 @@ describe('ModuleHost', () => {
     const snapshot = { exception: null, phase: 'active' as const };
     const moduleRuntime = {
       failRender,
+      createRenderException: (cause: unknown) =>
+        createRuntimeException(
+          createRuntimeFailure(cause, {
+            operation: 'render',
+            owner: { kind: 'module', token: BrokenModule },
+            participant: { kind: 'runtime' },
+          }),
+          { disposition: 'module.failed', owner: { kind: 'module', token: BrokenModule }, phase: 'failed' },
+        ),
       getSnapshot: () => snapshot,
       subscribe: () => () => undefined,
     } as unknown as ModuleRuntime<ModuleMetadata>;
     const routeRuntime = {
       getBoundaryModuleOrNull: () => presentationModule,
       getPresentationModuleOrNull: () => presentationModule,
-    } as unknown as RouteRuntime<ModuleMetadata>;
+    } as unknown as RouteActivationRuntime<ModuleMetadata>;
 
     render(
       <ModuleHost

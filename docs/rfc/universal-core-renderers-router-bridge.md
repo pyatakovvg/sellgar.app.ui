@@ -5,6 +5,28 @@
 - Статус реализации: in-progress
 - Последнее согласование: 2026-09-02
 
+### Уточнения контрактов по аудиту 2026-09-17
+
+- React и Native используют общее внутреннее владение controller/guard bindings;
+  их renderer contexts остаются независимыми. Shared React-код не входит в core.
+- Callable snapshot `useSubmit/useRevalidate` не изменяется после выдачи:
+  новое наблюдаемое состояние создаёт новый handle. Метод вызова и runtime-owner
+  сохраняются, processing по-прежнему принадлежит core.
+- Guard не переносит разрешение на новые scope/declarations/context: до результата
+  новой проверки возвращается false. Запоздавшая проверка не меняет актуальный результат.
+- Cleanup освобождает свою регистрацию. Внешняя отмена widget revalidation
+  завершает processing только принадлежащей ей операции; sync throw и async reject
+  refresh coordinator одинаково завершают ожидания с ошибкой.
+- `pending` публикуется после принятия перехода, а не до blocker decision.
+  Native pending screen/frame может содержать fallback до runtime commit;
+  сам commit не означает новую физическую анимацию.
+- Frame completion подтверждает свою animation identity и presentation revision.
+  Pending → committed одной анимации не меняет её identity.
+- Разрешение pull-to-refresh относится к началу жеста, а не к достижению верха
+  в ходе scroll. Android-only `RefreshControl.enabled` не является общим
+  межплатформенным контролем допуска; refresh handler проверяет это правило.
+  Визуальное поведение системного индикатора проверяется отдельно на каждой OS.
+
 ## Назначение
 
 RFC фиксирует согласованную архитектуру `@sellgar/app`. Реализация и публичный
@@ -92,13 +114,14 @@ alias в промежуточной реализации не делает ег�
 @sellgar/app
 @sellgar/app/react
 @sellgar/app/native
-@sellgar/app/fsm       # optional future adapter
 ```
 
 `@sellgar/app/native` является конкретным React Native adapter, а не обобщённым
 контрактом для произвольных native renderers. Другие native-технологии в
 package topology не предполагаются. Потенциальная FSM integration получает
-отдельный adapter `@sellgar/app/fsm` и не расширяет ответственность `native`.
+отдельный adapter и не расширяет ответственность `native`. Пустой
+`@sellgar/app/fsm` не экспортируется: публичный entrypoint появляется вместе
+с реальным контрактом и реализацией, а не резервирует будущее API.
 
 Ядро владеет application lifecycle, DI, controllers, loaders, actions,
 providers, runtime operations, router state, navigation pipeline, policies,

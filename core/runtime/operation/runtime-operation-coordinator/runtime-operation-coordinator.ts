@@ -94,7 +94,10 @@ export class RuntimeOperationCoordinator {
     const refresh = this.refresh;
     const revision = this.invalidationRevision;
 
-    this.refreshPromise = Promise.resolve(refresh())
+    this.refreshPromise = Promise.resolve()
+      .then(() => {
+        if (this.refresh === refresh) return refresh();
+      })
       .then(() => {
         this.completedRevision = revision;
         this.resolveWaiters(revision);

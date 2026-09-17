@@ -84,12 +84,16 @@ export class ApplicationEventBus extends ApplicationEventBusInterface {
     }
 
     subscriptions.add(subscriptionHandler);
+    let active = true;
 
     return {
       dispose: () => {
+        if (!active) return;
+
+        active = false;
         subscriptions.delete(subscriptionHandler);
 
-        if (subscriptions.size === 0) {
+        if (subscriptions.size === 0 && this.subscriptions.get(subscriptionToken) === subscriptions) {
           this.subscriptions.delete(subscriptionToken);
         }
       },

@@ -4,6 +4,35 @@ import { SessionRuntimeState } from '../../../application/session/session-runtim
 import { RuntimeOperationCoordinator } from './runtime-operation-coordinator.ts';
 
 describe('RuntimeOperationCoordinator', () => {
+  it.each(['synchronous', 'asynchronous'])('settles a %s refresh failure and accepts another wave', async (kind) => {
+    const coordinator = new RuntimeOperationCoordinator(new SessionRuntimeState());
+    const error = new Error('Refresh failed');
+    const refresh = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        if (kind === 'synchronous') throw error;
+        return Promise.reject(error);
+      })
+      .mockResolvedValue(undefined);
+    coordinator.attachRefresh(refresh);
+
+    await expect(coordinator.invalidateAndWait()).rejects.toBe(error);
+    await expect(coordinator.invalidateAndWait()).resolves.toBeUndefined();
+    expect(refresh).toHaveBeenCalledTimes(2);
+    coordinator.dispose();
+  });
+
+  it('does not start a refresh after disposal and settles queued waiters', async () => {
+    const coordinator = new RuntimeOperationCoordinator(new SessionRuntimeState());
+    const refresh = vi.fn();
+    coordinator.attachRefresh(refresh);
+    const pending = coordinator.invalidateAndWait();
+    await Promise.resolve();
+    coordinator.dispose();
+
+    await pending;
+    expect(refresh).not.toHaveBeenCalled();
+  });
   it('collapses every invalidation of one operation into one refresh wave', async () => {
     const session = new SessionRuntimeState();
     const coordinator = new RuntimeOperationCoordinator(session);

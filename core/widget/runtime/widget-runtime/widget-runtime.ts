@@ -642,6 +642,9 @@ export class WidgetRuntime<TProps extends object = Record<string, never>> {
       });
 
       if (!this.isCurrentRevalidate(operationId, runtime, abortController)) {
+        if (this.ownsRevalidate(operationId, runtime, abortController)) {
+          this.setRevalidateState(controllerToken, DEFAULT_REVALIDATE_STATE);
+        }
         return;
       }
 

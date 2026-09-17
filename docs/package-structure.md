@@ -254,8 +254,10 @@ sellgar.app.ui/
     runtime/
     view/
     widget/
-  fsm/
-    index.ts
+  shared/
+    controller/
+    guard/
+    revalidate/
 ```
 
 Это части одного package, а не отдельные workspaces. Общего `src` нет. Корень
@@ -561,20 +563,22 @@ hooks, navigation controls и hosts. Renderer-specific различия оста
 presentation и native bridge; второй lifecycle или logical navigation state не
 создаются. Android consumer в `sellgar.mobile.shop/clients/mobile` повторяет web composition
 structure и проверяет loader, action, revalidation, Route params и bridge
-history. Native Stack/Tabs projection использует renderer-neutral registry
+history. Native screen projection использует renderer-neutral registry
 runtime entries из core: новый target имеет фазу `preparing`, текущий committed
 runtime остаётся `focused` до успешного commit, а посещённые history entries
 переходят в `retained`. Native host связывает physical stack entry с точным
 runtime key, показывает fallback только для нового target и сохранённую
 presentation для retained target. Query не входит в screen identity, Route
-params входят. `fsm` пока остаётся пустой целью export map.
+params входят. Физической анимацией управляет `ScreenRuntime/ScreenMachine`
+через Reanimated, а не React Navigation. Внутренний `shared/` владеет общими
+React controller/guard bindings; экземпляры renderer contexts раздельны.
+Пустой `fsm` entrypoint удалён до появления реального публичного API.
 
-| Import                   | Файл              |
-| ------------------------ | ----------------- |
+| Import                | Файл              |
+| --------------------- | ----------------- |
 | `@sellgar/app`        | `core/index.ts`   |
 | `@sellgar/app/react`  | `react/index.ts`  |
 | `@sellgar/app/native` | `native/index.ts` |
-| `@sellgar/app/fsm`    | `fsm/index.ts`    |
 
 Доступность определяется только `package.json#exports`. Deep imports запрещены.
 Core не зависит от renderer entrypoints; renderer entrypoint использует core и

@@ -168,6 +168,26 @@ describe('WidgetRuntime', () => {
     await targeted;
   });
 
+  it('settles externally cancelled revalidation without discarding the ready widget', async () => {
+    const runtime = createRuntime({ value: 'ready' });
+    await runtime.load();
+    const deferred = createDeferred<void>();
+    TestController.loaderDeferred = deferred;
+    const cancellation = new AbortController();
+    const revalidation = runtime.revalidate({ controllerToken: TestController, signal: cancellation.signal });
+    await waitFor(() => TestController.loadCount === 2);
+    expect(runtime.getRevalidateState(TestController).inProcess).toBe(true);
+
+    cancellation.abort();
+    deferred.resolve();
+    await revalidation;
+
+    expect(runtime.getSnapshot().phase).toBe('ready');
+    expect(runtime.getRevalidateState(TestController).inProcess).toBe(false);
+    expect(runtime.getRevalidateState().inProcess).toBe(false);
+    await runtime.dispose();
+  });
+
   it('cleans controllers and providers exactly once', async () => {
     const runtime = createRuntime({ value: 'ready' });
 

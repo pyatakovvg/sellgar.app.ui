@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
+// These tests inject their transport; loading the OS Linking module is outside this contract.
+vi.mock('../../transport/native-linking-transport', () => ({
+  createNativeLinkingTransport: () => {
+    throw new Error('Test must supply a transport');
+  },
+}));
+
 import type {
   RouterBridgeHistoryAction,
   RouterBridgeInitializeContextInterface,

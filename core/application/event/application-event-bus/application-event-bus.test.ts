@@ -17,7 +17,7 @@ import { ApplicationEventBus } from './application-event-bus.ts';
 describe('ApplicationEventBus', () => {
   it('publishes abstract class events to function and class handlers', async () => {
     const { bus, reporter } = createBus();
-    const functionHandler = vi.fn();
+    const functionHandler = vi.fn<() => void>();
     const classHandler = new TestApplicationEventHandler();
 
     bus.subscribe(ProfileResolvedEvent, functionHandler);
@@ -48,7 +48,7 @@ describe('ApplicationEventBus', () => {
 
   it('disposes individual subscriptions', async () => {
     const { bus } = createBus();
-    const handler = vi.fn();
+    const handler = vi.fn<() => void>();
     const subscription = bus.subscribe(ProfileResolvedEvent, handler);
 
     subscription.dispose();
@@ -65,12 +65,42 @@ describe('ApplicationEventBus', () => {
 
     vi.spyOn(bus, 'subscribe').mockReturnValueOnce(firstSubscription).mockReturnValueOnce(secondSubscription);
 
-    const scope = bus.createScope().subscribe(ProfileResolvedEvent, vi.fn()).subscribe(ProfileResolvedEvent, vi.fn());
+    const scope = bus
+      .createScope()
+      .subscribe(ProfileResolvedEvent, vi.fn<() => void>())
+      .subscribe(ProfileResolvedEvent, vi.fn<() => void>());
 
     scope.dispose();
     scope.dispose();
 
     expect(disposeOrder).toEqual(['second', 'first']);
+  });
+
+  it('does not remove a new registration when a subscription from before clear is disposed', async () => {
+    const { bus } = createBus();
+    const stale = bus.subscribe(ProfileResolvedEvent, vi.fn<() => void>());
+    bus.clear();
+    const handler = vi.fn<() => void>();
+    bus.subscribe(ProfileResolvedEvent, handler);
+
+    stale.dispose();
+    await bus.publish(ProfileResolvedEvent, createProfileResolvedEvent('profile:1'));
+
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it('does not remove a re-subscribed handler when its old disposer is called twice', async () => {
+    const { bus } = createBus();
+    const handler = vi.fn<() => void>();
+    bus.subscribe(ProfileResolvedEvent, vi.fn<() => void>());
+    const stale = bus.subscribe(ProfileResolvedEvent, handler);
+    stale.dispose();
+    bus.subscribe(ProfileResolvedEvent, handler);
+
+    stale.dispose();
+    await bus.publish(ProfileResolvedEvent, createProfileResolvedEvent('profile:1'));
+
+    expect(handler).toHaveBeenCalledOnce();
   });
 
   it('rejects new subscriptions in disposed scopes', () => {
@@ -79,13 +109,15 @@ describe('ApplicationEventBus', () => {
 
     scope.dispose();
 
-    expect(() => scope.subscribe(ProfileResolvedEvent, vi.fn())).toThrow('Event scope приложения уже освобожден.');
+    expect(() => scope.subscribe(ProfileResolvedEvent, vi.fn<() => void>())).toThrow(
+      'Event scope приложения уже освобожден.',
+    );
   });
 
   it('reports handler errors and keeps broadcast best-effort', async () => {
     const error = new Error('Handler завершился с ошибкой.');
     const { bus, reporter } = createBus();
-    const workingHandler = vi.fn();
+    const workingHandler = vi.fn<() => void>();
 
     bus.subscribe(ProfileResolvedEvent, () => {
       throw error;
@@ -129,7 +161,7 @@ describe('ApplicationEventBus', () => {
   it('clears subscriptions through application disposables', async () => {
     const disposables = new DisposableRegistry();
     const bus = new ApplicationEventBus(new TestRuntimeFailureReporter(), disposables);
-    const handler = vi.fn();
+    const handler = vi.fn<() => void>();
 
     bus.subscribe(ProfileResolvedEvent, handler);
 
@@ -158,7 +190,7 @@ const createProfileResolvedEvent = (profileId: string): ProfileResolvedEvent => 
 };
 
 class TestApplicationEventHandler implements ApplicationEventHandlerInterface<ProfileResolvedEvent> {
-  readonly handleMock = vi.fn();
+  readonly handleMock = vi.fn<(event: ProfileResolvedEvent) => void>();
 
   handle(event: ProfileResolvedEvent): void {
     this.handleMock(event);
