@@ -8,10 +8,6 @@
   "homepage": "",
   "license": "ISC",
   "scripts": {
-    "test": "vitest run",
-    "test:core": "vitest run --project core",
-    "test:react": "vitest run --project react",
-    "test:native": "vitest run --project native",
     "typecheck": "tsc -p tsconfig.json",
     "typecheck:core": "tsc -p tsconfig.core.json"
   },
@@ -24,17 +20,11 @@
     "reflect-metadata": "0.2.2"
   },
   "devDependencies": {
-    "@babel/core": "7.29.7",
+    "@babel/core": "8.0.5",
     "@floating-ui/react": "0.27.20",
     "@react-native/metro-config": "0.87.1",
-    "@testing-library/dom": "10.4.1",
-    "@testing-library/jest-dom": "7.0.0",
-    "@testing-library/react": "16.3.2",
-    "@types/node": "26.1.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "@vitejs/plugin-react-swc": "4.3.3",
-    "jsdom": "30.0.1",
     "mobx-react": "9.2.2",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -46,10 +36,7 @@
     "react-native-safe-area-context": "5.10.0",
     "react-native-screens": "4.28.0",
     "react-native-worklets": "0.12.2",
-    "sass": "1.102.0",
-    "typescript": "7.0.2",
-    "vite": "8.2.1",
-    "vitest": "4.1.10"
+    "typescript": "7.0.2"
   },
   "peerDependencies": {
     "@floating-ui/react": "^0.27.0",
@@ -108,6 +95,7 @@
     "./package.json": "./package.json",
     ".": "./core/index.ts",
     "./react": "./react/index.ts",
-    "./native": "./native/index.ts"
+    "./native": "./native/index.ts",
+    "./fsm": "./fsm/index.ts"
   }
 }
