@@ -4,20 +4,34 @@ import type {
   RequestRejectedHandler,
   ResponseFulfilledHandler,
   ResponseRejectedHandler,
+  RequestInterceptorContext,
 } from './request-interceptor.types.ts';
 
-export interface RequestInterceptorRegistration {
-  use(onFulfilled?: RequestFulfilledHandler, onRejected?: RequestRejectedHandler): RequestExecutionChainInterface;
+export interface RequestInterceptorRegistration<
+  TContext extends RequestInterceptorContext = RequestInterceptorContext,
+> {
+  use<TNext extends TContext>(
+    onFulfilled: RequestFulfilledHandler<TContext, TNext>,
+    onRejected?: RequestRejectedHandler<TNext>,
+  ): RequestExecutionChainInterface<TNext>;
+  use(onFulfilled?: undefined, onRejected?: RequestRejectedHandler<TContext>): RequestExecutionChainInterface<TContext>;
 }
 
-export interface ResponseInterceptorRegistration {
-  use(onFulfilled?: ResponseFulfilledHandler, onRejected?: ResponseRejectedHandler): RequestExecutionChainInterface;
+export interface ResponseInterceptorRegistration<
+  TContext extends RequestInterceptorContext = RequestInterceptorContext,
+> {
+  use(
+    onFulfilled?: ResponseFulfilledHandler,
+    onRejected?: ResponseRejectedHandler,
+  ): RequestExecutionChainInterface<TContext>;
 }
 
-export interface RequestExecutionChainInterface {
-  readonly request: RequestInterceptorRegistration;
-  readonly response: ResponseInterceptorRegistration;
+export interface RequestExecutionChainInterface<
+  TContext extends RequestInterceptorContext = RequestInterceptorContext,
+> {
+  readonly request: RequestInterceptorRegistration<TContext>;
+  readonly response: ResponseInterceptorRegistration<TContext>;
 
-  run<T>(operation: RequestOperation<T>): Promise<T>;
-  run<T>(options: RequestExecutionOptions, operation: RequestOperation<T>): Promise<T>;
+  run<T>(operation: RequestOperation<T, TContext>): Promise<T>;
+  run<T>(options: RequestExecutionOptions, operation: RequestOperation<T, TContext>): Promise<T>;
 }

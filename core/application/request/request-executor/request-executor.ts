@@ -7,7 +7,8 @@ import { SessionExpirationNotifierInterface } from '../../session/session-expira
 import { SessionRuntimeStateInterface } from '../../session/session-runtime-state';
 import {
   RequestExecutionChain,
-  type RequestInterceptorPipeline,
+  RequestInterceptorPipeline,
+  type RequestInterceptorContext,
   type RequestInterceptorRegistration,
   type ResponseInterceptorRegistration,
 } from '../request-execution-chain';
@@ -26,7 +27,9 @@ export interface RequestExecutionOptions {
   readonly scope?: string;
 }
 
-export type RequestOperation<T> = (context: RequestExecutionContext) => Promise<T>;
+export type RequestOperation<T, TContext extends RequestExecutionContext = RequestExecutionContext> = (
+  context: TContext,
+) => Promise<T>;
 
 export abstract class RequestExecutorInterface {
   abstract readonly request: RequestInterceptorRegistration;
@@ -47,11 +50,10 @@ interface NormalizedRequestExecutionOptions {
 interface ExecutionTask<T = unknown> {
   readonly controller: AbortController;
   readonly id: number;
-  readonly operation: RequestOperation<T>;
+  readonly operation: RequestOperation<T, RequestInterceptorContext>;
   readonly options: NormalizedRequestExecutionOptions;
   readonly sessionBound: boolean;
   readonly signal: AbortSignal;
-  readonly interceptors?: RequestInterceptorPipeline;
   sessionTerminated: boolean;
   reject(error: unknown): void;
   resolve(value: T): void;
@@ -64,9 +66,7 @@ const DEFAULT_MODE: RequestMode = 'parallel';
 
 @Injectable()
 export class RequestExecutor implements RequestExecutorInterface {
-  private readonly chain = new RequestExecutionChain((options, operation, interceptors) =>
-    this.submit(options, operation, interceptors),
-  );
+  private readonly chain = new RequestExecutionChain(this.submit.bind(this), RequestInterceptorPipeline.initial());
   private readonly activeSequentialKeys = new Set<string>();
   private readonly activeTasks = new Set<ExecutionTask>();
   private readonly pendingTasks: ExecutionTask[] = [];
@@ -107,7 +107,7 @@ export class RequestExecutor implements RequestExecutorInterface {
       throw new Error('Операция запроса обязательна.');
     }
 
-    return this.submit(options, operation);
+    return this.submit(options, ({ signal }) => operation({ signal }));
   }
 
   cancelScope(scope: string): void {
@@ -132,8 +132,7 @@ export class RequestExecutor implements RequestExecutorInterface {
 
   private submit<T>(
     options: RequestExecutionOptions,
-    operation: RequestOperation<T>,
-    interceptors?: RequestInterceptorPipeline,
+    operation: RequestOperation<T, RequestInterceptorContext>,
   ): Promise<T> {
     const normalizedOptions = this.normalizeOptions(options);
 
@@ -141,7 +140,7 @@ export class RequestExecutor implements RequestExecutorInterface {
       this.cancelScope(normalizedOptions.scope);
     }
 
-    return this.enqueue(normalizedOptions, operation, interceptors);
+    return this.enqueue(normalizedOptions, operation);
   }
 
   private normalizeOptions(options: RequestExecutionOptions = {}): NormalizedRequestExecutionOptions {
@@ -164,15 +163,13 @@ export class RequestExecutor implements RequestExecutorInterface {
 
   private enqueue<T>(
     options: NormalizedRequestExecutionOptions,
-    operation: RequestOperation<T>,
-    interceptors?: RequestInterceptorPipeline,
+    operation: RequestOperation<T, RequestInterceptorContext>,
   ): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const controller = new AbortController();
       const task: ExecutionTask<T> = {
         controller,
         id: ++this.nextTaskId,
-        interceptors,
         operation,
         options,
         reject,
@@ -270,10 +267,6 @@ export class RequestExecutor implements RequestExecutorInterface {
   }
 
   private executeOperation<T>(task: ExecutionTask<T>): Promise<T> {
-    if (!task.interceptors) {
-      return task.operation({ signal: task.signal });
-    }
-
     const context = Object.freeze({
       signal: task.signal,
       options: Object.freeze({
@@ -283,7 +276,7 @@ export class RequestExecutor implements RequestExecutorInterface {
       }),
     });
 
-    return task.interceptors.execute(task.operation, context);
+    return task.operation(context);
   }
 
   private async resolveError(error: unknown, task: ExecutionTask): Promise<RequestErrorResolution> {

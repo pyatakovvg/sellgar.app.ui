@@ -8,66 +8,77 @@ import type {
   ResponseRejectedHandler,
 } from './request-interceptor.types.ts';
 
-interface RequestInterceptor {
-  readonly onFulfilled?: RequestFulfilledHandler;
-  readonly onRejected?: RequestRejectedHandler;
-}
-
 interface ResponseInterceptor {
   readonly onFulfilled?: ResponseFulfilledHandler;
   readonly onRejected?: ResponseRejectedHandler;
 }
 
-/** Immutable callbacks for a task; scheduling and session recovery belong to the executor. */
-export class RequestInterceptorPipeline {
-  constructor(
-    private readonly requests: readonly RequestInterceptor[] = [],
+interface RequestPipelineExecution {
+  readonly initial: RequestInterceptorContext;
+  current: RequestInterceptorContext;
+}
+
+/** Immutable transformation chain; every execution owns its current configuration. */
+export class RequestInterceptorPipeline<TContext extends RequestInterceptorContext> {
+  private constructor(
+    private readonly prepare: (execution: RequestPipelineExecution) => Promise<TContext>,
     private readonly responses: readonly ResponseInterceptor[] = [],
   ) {}
 
-  withRequest(onFulfilled?: RequestFulfilledHandler, onRejected?: RequestRejectedHandler): RequestInterceptorPipeline {
-    return new RequestInterceptorPipeline([...this.requests, { onFulfilled, onRejected }], this.responses);
+  static initial(): RequestInterceptorPipeline<RequestInterceptorContext> {
+    return new RequestInterceptorPipeline((execution) => Promise.resolve(execution.current));
+  }
+
+  withRequest<TNext extends TContext>(
+    onFulfilled: RequestFulfilledHandler<TContext, TNext>,
+    onRejected?: RequestRejectedHandler<TNext>,
+  ): RequestInterceptorPipeline<TNext> {
+    return new RequestInterceptorPipeline((execution) => {
+      const prepared = this.prepare(execution).then(
+        (context) => {
+          this.assertActive(execution);
+          return onFulfilled(context);
+        },
+        (error: unknown) => {
+          this.assertActive(execution);
+          if (!onRejected) throw error;
+          return onRejected(error, execution.current);
+        },
+      );
+
+      return prepared.then((context) => {
+        this.assertActive(execution);
+        this.assertConfiguration(context, execution.initial);
+        execution.current = context;
+        return context;
+      });
+    }, this.responses);
   }
 
   withResponse(
     onFulfilled?: ResponseFulfilledHandler,
     onRejected?: ResponseRejectedHandler,
-  ): RequestInterceptorPipeline {
-    return new RequestInterceptorPipeline(this.requests, [...this.responses, { onFulfilled, onRejected }]);
+  ): RequestInterceptorPipeline<TContext> {
+    return new RequestInterceptorPipeline(this.prepare, [...this.responses, { onFulfilled, onRejected }]);
   }
 
-  execute<T>(operation: RequestOperation<T>, context: RequestInterceptorContext): Promise<T> {
-    let preparation = Promise.resolve();
-
-    for (const { onFulfilled, onRejected } of this.requests) {
-      preparation = preparation.then(
-        () => {
-          this.assertActive(context);
-          return onFulfilled?.(context);
-        },
-        (error: unknown) => {
-          this.assertActive(context);
-          if (!onRejected) throw error;
-          return onRejected(error, context);
-        },
-      );
-    }
-
-    let result = preparation.then(() => {
-      this.assertActive(context);
+  execute<T>(operation: RequestOperation<T, TContext>, initial: RequestInterceptorContext): Promise<T> {
+    const execution: RequestPipelineExecution = { initial, current: initial };
+    let result = this.prepare(execution).then((context) => {
+      this.assertActive(execution);
       return operation(context);
     });
 
     for (const { onFulfilled, onRejected } of this.responses) {
       result = result.then(
         (value) => {
-          this.assertActive(context);
-          return onFulfilled ? onFulfilled(value, context) : value;
+          this.assertActive(execution);
+          return onFulfilled ? onFulfilled(value, execution.current) : value;
         },
         (error: unknown) => {
-          this.assertActive(context);
+          this.assertActive(execution);
           if (!onRejected) throw error;
-          return onRejected<T>(error, context);
+          return onRejected<T>(error, execution.current);
         },
       );
     }
@@ -75,8 +86,17 @@ export class RequestInterceptorPipeline {
     return result;
   }
 
-  private assertActive(context: RequestInterceptorContext): void {
-    if (context.signal.aborted) {
+  private assertConfiguration(context: RequestInterceptorContext, initial: RequestInterceptorContext): void {
+    if (!context || typeof context !== 'object') {
+      throw new TypeError('Request interceptor must return a configuration object.');
+    }
+    if (context.signal !== initial.signal || context.options !== initial.options) {
+      throw new TypeError('Request interceptor cannot replace the execution signal or queue options.');
+    }
+  }
+
+  private assertActive(execution: RequestPipelineExecution): void {
+    if (execution.initial.signal.aborted) {
       throw createRuntimeInterruption(undefined, 'request-cancelled');
     }
   }

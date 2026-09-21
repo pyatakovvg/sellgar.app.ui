@@ -8,9 +8,146 @@ import type { RequestInterceptorContext } from '../request-execution-chain';
 import { RequestExecutor } from './request-executor.ts';
 
 describe('RequestExecutor execution chains', () => {
+  it('preserves synchronous admission and the signal-only context of a plain run', async () => {
+    const executor = new RequestExecutor(new SessionRuntimeState());
+    const operation = vi.fn(async (context) => {
+      expect(Object.keys(context)).toEqual(['signal']);
+      expect(context.signal).toBeInstanceOf(AbortSignal);
+      return 'plain';
+    });
+
+    const result = executor.run(operation);
+    expect(operation).toHaveBeenCalledOnce();
+    await expect(result).resolves.toBe('plain');
+  });
+
+  it('passes returned configurations through async transformations into the operation and response stage', async () => {
+    const executor = new RequestExecutor(new SessionRuntimeState());
+    let prepared!: RequestInterceptorContext;
+    const response = vi.fn(<T>(value: T, config: RequestInterceptorContext) => {
+      expect(config).toBe(prepared);
+      expect(config).toMatchObject({ accessToken: 'test-token', authorization: 'Bearer test-token' });
+      return value;
+    });
+
+    const result = executor.request
+      .use((config) => ({ ...config, accessToken: 'test-token' }))
+      .request.use(async (config) => ({ ...config, authorization: `Bearer ${config.accessToken}` }))
+      .response.use(response)
+      .run({ scope: 'transformed' }, async (config) => {
+        prepared = config;
+        expectTypeOf(config.authorization).toEqualTypeOf<string>();
+        return config.authorization;
+      });
+
+    await expect(result).resolves.toBe('Bearer test-token');
+    expect(response).toHaveBeenCalledOnce();
+  });
+
+  it('supports returning the same extended configuration after changing its operation data', async () => {
+    const executor = new RequestExecutor(new SessionRuntimeState());
+    const result = executor.request
+      .use((config) => ({ ...config, page: 1 }))
+      .request.use((config) => {
+        config.page = 2;
+        return config;
+      })
+      .run(async ({ page }) => page);
+
+    await expect(result).resolves.toBe(2);
+  });
+
+  it('recovers with a returned configuration and retains the latest successful input on failure', async () => {
+    const executor = new RequestExecutor(new SessionRuntimeState());
+    const failure = new Error('Preparation failed');
+    const chain = executor.request
+      .use((config) => ({ ...config, page: 1 }))
+      .request.use((config): typeof config => {
+        throw failure;
+      })
+      .request.use(undefined, (error, config) => {
+        expect(error).toBe(failure);
+        expect(config).toMatchObject({ page: 1 });
+        return { ...config, page: 2 };
+      });
+
+    await expect(chain.run(async ({ page }) => page)).resolves.toBe(2);
+  });
+
+  it('rejects a missing configuration instead of silently running with the old input', async () => {
+    const executor = new RequestExecutor(new SessionRuntimeState());
+    const operation = vi.fn(async () => 'must not run');
+    // @ts-expect-error JavaScript consumers can omit the required return value.
+    const chain = executor.request.use(() => {});
+
+    await expect(chain.run(operation)).rejects.toThrow('must return a configuration object');
+    expect(operation).not.toHaveBeenCalled();
+  });
+
+  it('allows the next rejection handler to recover an invalid configuration return', async () => {
+    const executor = new RequestExecutor(new SessionRuntimeState());
+    // @ts-expect-error JavaScript consumers can return an invalid value.
+    const invalid = executor.request.use(() => null);
+    const operation = vi.fn(async () => 'recovered');
+
+    await expect(
+      invalid.request
+        .use(undefined, (error, config) => {
+          expect(error).toBeInstanceOf(TypeError);
+          return config;
+        })
+        .run(operation),
+    ).resolves.toBe('recovered');
+    expect(operation).toHaveBeenCalledOnce();
+  });
+
+  it.each(['signal', 'options'] as const)('rejects replacement of executor-owned %s', async (field) => {
+    const executor = new RequestExecutor(new SessionRuntimeState());
+    const operation = vi.fn(async () => 'must not run');
+    const chain = executor.request.use((config) => ({
+      ...config,
+      [field]: field === 'signal' ? new AbortController().signal : { ...config.options, scope: 'different' },
+    }));
+
+    await expect(chain.run({ scope: 'original' }, operation)).rejects.toThrow('cannot replace');
+    expect(operation).not.toHaveBeenCalled();
+  });
+
+  it('keeps extended configuration values separate between parallel uses and plain runs', async () => {
+    const executor = new RequestExecutor(new SessionRuntimeState());
+    const bothEntered = deferred<void>();
+    const releaseFirst = deferred<void>();
+    const configurations: RequestInterceptorContext[] = [];
+    const chain = executor.request.use(async (config) => {
+      const next = { ...config, requestId: config.options.scope, payload: { counter: 0 } };
+      configurations.push(next);
+      if (configurations.length === 2) bothEntered.resolve();
+      if (config.options.scope === 'first') await releaseFirst.promise;
+      return next;
+    });
+    const first = chain.run({ scope: 'first' }, async (config) => {
+      config.payload.counter++;
+      return config.requestId;
+    });
+    const second = chain.run({ scope: 'second' }, async (config) => {
+      expect(config.payload.counter).toBe(0);
+      return config.requestId;
+    });
+
+    await bothEntered.promise;
+    await expect(second).resolves.toBe('second');
+    await executor.run(async (config) => {
+      expect(config).not.toHaveProperty('requestId');
+      expect(config).not.toHaveProperty('payload');
+    });
+    releaseFirst.resolve();
+    await expect(first).resolves.toBe('first');
+    expect(configurations[0]).not.toBe(configurations[1]);
+  });
+
   it('does not run callbacks or configure the singleton when a chain is abandoned', async () => {
     const executor = new RequestExecutor(new SessionRuntimeState());
-    const before = vi.fn();
+    const before = vi.fn((context: RequestInterceptorContext) => context);
     const after = vi.fn(<T>(value: T) => value);
 
     executor.request.use(before).response.use(after);
@@ -23,9 +160,9 @@ describe('RequestExecutor execution chains', () => {
 
   it('keeps separate interceptor snapshots when a configuration is branched', async () => {
     const executor = new RequestExecutor(new SessionRuntimeState());
-    const common = vi.fn();
-    const left = vi.fn();
-    const right = vi.fn();
+    const common = vi.fn((context: RequestInterceptorContext) => context);
+    const left = vi.fn((context: RequestInterceptorContext) => context);
+    const right = vi.fn((context: RequestInterceptorContext) => context);
     const base = executor.request.use(common);
     const first = base.request.use(left);
     const second = base.request.use(right);
@@ -51,10 +188,11 @@ describe('RequestExecutor execution chains', () => {
     const events: string[] = [];
 
     const first = executor.request
-      .use(async () => {
+      .use(async (context) => {
         events.push('first:prepare');
         firstStarted.resolve();
         await firstPreparation.promise;
+        return context;
       })
       .response.use((value) => {
         events.push('first:result');
@@ -93,11 +231,13 @@ describe('RequestExecutor execution chains', () => {
     const events: string[] = [];
     const result = { id: 'profile' };
     const promise = executor.request
-      .use(() => {
+      .use((context) => {
         events.push('before:1');
+        return context;
       })
-      .request.use(async () => {
+      .request.use(async (context) => {
         events.push('before:2');
+        return context;
       })
       .response.use((value) => {
         events.push('after:1');
@@ -122,7 +262,7 @@ describe('RequestExecutor execution chains', () => {
     const error = new Error('Preparation failed');
     const paired = vi.fn();
     const skipped = vi.fn();
-    const recovered = vi.fn();
+    const recovered = vi.fn((_error: unknown, context: RequestInterceptorContext) => context);
     const operation = vi.fn(async () => 'result');
 
     const result = executor.request
@@ -290,6 +430,7 @@ describe('RequestExecutor execution chains', () => {
         expect(context.options.priority).toBe(1);
         expect(Object.isFrozen(context.options)).toBe(true);
         events.push('second:prepare');
+        return context;
       })
       .run(options, async () => {
         events.push('second:operation');
@@ -340,6 +481,7 @@ describe('RequestExecutor execution chains', () => {
         context = value;
         entered.resolve();
         await release.promise;
+        return value;
       })
       .response.use(undefined, recovery)
       .run({ scope: 'cancel' }, operation);
@@ -380,10 +522,11 @@ describe('RequestExecutor execution chains', () => {
     const release = deferred<void>();
     const signals: AbortSignal[] = [];
     const chained = executor.request
-      .use(async ({ signal }) => {
-        signals.push(signal);
+      .use(async (context) => {
+        signals.push(context.signal);
         entered.resolve();
         await release.promise;
+        return context;
       })
       .run(async () => 'chained');
     const plain = executor.run(async ({ signal }) => {
@@ -407,8 +550,9 @@ describe('RequestExecutor execution chains', () => {
   it('lets a nested plain operation execute without entering the outer interceptors', async () => {
     const executor = new RequestExecutor(new SessionRuntimeState());
     const inner = vi.fn(async () => 'inner');
-    const preparation = vi.fn(async () => {
+    const preparation = vi.fn(async (context: RequestInterceptorContext) => {
       await executor.run(inner);
+      return context;
     });
 
     await expect(executor.request.use(preparation).run(async () => 'outer')).resolves.toBe('outer');
@@ -425,6 +569,7 @@ describe('RequestExecutor execution chains', () => {
       contexts.push(context);
       if (contexts.length === 2) started.resolve();
       await release.promise;
+      return context;
     });
 
     const first = chain.run({ scope: 'first' }, async () => 'first');
@@ -459,6 +604,7 @@ describe('RequestExecutor execution chains', () => {
         entered.resolve();
         await release.promise;
         callbackFinished.resolve();
+        return context;
       })
       .run(operation);
     void task.then(settled, settled);
