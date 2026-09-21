@@ -1950,6 +1950,50 @@ await navigate.query({ tab: 'history' }, { revalidate: false });
   ранее authenticated session, затем `expire()` запускает ровно одну
   policy/navigation refresh wave. `401` anonymous-запроса (например, неверные
   credentials формы входа) остаётся обычной recoverable ошибкой action.
+- Executor допускает локальную fluent-конфигурацию выполнения:
+
+  ```ts
+  executor.request
+    .use(onRequest, onRequestError)
+    .response.use(onResponse, onResponseError)
+    .run({ scope: 'profile:get' }, operation);
+  ```
+
+  `request.use()` и `response.use()` возвращают новую конфигурацию, не меняя
+  исходный singleton или предыдущую цепочку. До `run()` нет постановки в очередь,
+  вызова callback или подписки. Незавершённая цепочка не влияет на прямой
+  `executor.run()`. Повторное обращение к корневому executor начинает отдельную
+  конфигурацию; результат `use()` нельзя игнорировать, если нужны его обработчики.
+  Singleton, DI-регистрация, очереди, приоритеты, `cancelPrevious`, общая отмена и
+  application-owned session recovery сохраняются.
+
+- Каждая задача хранит неизменяемую конфигурацию своих перехватчиков. Параллельные
+  задачи не имеют общего `currentRequest` или `currentInterceptors`. Сохранение
+  промежуточной цепочки само по себе ничего не запускает; каждый вызов её `run()`
+  создаёт отдельную задачу с собственным signal и состоянием выполнения.
+- Перехватчики выполняются после допуска задачи к исполнению, внутри её очереди:
+  request callbacks → operation → response callbacks → окончательный результат
+  или штатный `resolveError`. Обе группы идут в порядке регистрации. В каждой
+  паре `use(onFulfilled, onRejected)` действует Promise-семантика: исключение из
+  `onFulfilled` обрабатывает следующий `onRejected`, не обработчик той же пары.
+  `onRejected` получает исходное исключение; возврат успешного значения восстанавливает
+  цепочку, throw/rejection продолжает путь ошибки. Необработанная ошибка подготовки
+  пропускает operation и поступает в response rejection callbacks.
+- Request callbacks получают `RequestInterceptorContext` и возвращают
+  `void | Promise<void>`: они не заменяют операцию или scheduling options. Контекст
+  содержит signal задачи и read-only снимок нормализованных options. Response
+  callbacks получают результат/ошибку и тот же контекст, сохраняя тип `T`
+  исходной операции; произвольное преобразование `T` в другой тип не поддерживается.
+  Callback отвечает за соблюдение signal в собственных асинхронных действиях.
+  После отмены executor не запускает следующие callbacks/operation и не принимает
+  поздний результат; error callback не может восстановить отменённую задачу.
+- Восстановленная внутри цепочки ошибка не запускает стандартную session recovery.
+  Необработанный защищённый `401` сохраняет существующий application-контракт выше.
+  Этот механизм не содержит auth/refresh-правил, транспортных зависимостей,
+  глобальной регистрации, `create()`, `eject()` или автоматического retry.
+  Контракт повторного исполнения из error callback требует отдельного согласования.
+  Вложенный обычный `executor.run()` не наследует перехватчики внешней задачи;
+  ожидание вложенной задачи в той же удерживаемой sequential-очереди недопустимо.
 - Policy redirect с `saveCurrentLocation` сохраняет attempted logical target,
   а не только предыдущую committed location. Поэтому direct link/F5 на
   защищённый Route восстанавливается после входа; сохранённая location

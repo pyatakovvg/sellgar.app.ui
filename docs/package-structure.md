@@ -279,6 +279,13 @@ scopes получают один executor, session recovery и набор оче
 отменяет его активные и ожидающие задачи до cleanup остальных application
 resources.
 
+`request-execution-chain` — внутренний owner неизменяемого описания перехватчиков
+одного запуска. `executor.request.use(...)` и `executor.response.use(...)` создают
+цепочку, не меняя singleton. Только `chain.run(...)` передаёт операцию и её
+перехватчики общей очереди `RequestExecutor`. Цепочка не создаёт DI scope,
+планировщик или отдельный session recovery. Прямой `executor.run(...)` остаётся
+без перехватчиков из других цепочек.
+
 `ProviderScope` является отдельной application-owned DI-веткой. Каждый
 `ProviderPipeline` получает собственные runtime provider instances и удерживает их
 binding modules по refcount. Provider с `lifetime: 'application'` имеет один

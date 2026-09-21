@@ -15,6 +15,16 @@ export {
   type RequestMode,
   type RequestOperation,
 } from './application/request/request-executor';
+export type {
+  RequestExecutionChainInterface,
+  RequestInterceptorContext,
+  RequestInterceptorRegistration,
+  ResponseInterceptorRegistration,
+  RequestFulfilledHandler,
+  RequestRejectedHandler,
+  ResponseFulfilledHandler,
+  ResponseRejectedHandler,
+} from './application/request/request-execution-chain';
 export { ApplicationControllerInterface } from './application/lifecycle/application-lifecycle';
 export type {
   ApplicationLifecycleListener,

@@ -5,6 +5,12 @@ import { captureRuntimeFailure } from '../../../runtime/failure/runtime-failure-
 import { createRuntimeInterruption } from '../../../runtime/operation/runtime-interruption';
 import { SessionExpirationNotifierInterface } from '../../session/session-expiration-notifier';
 import { SessionRuntimeStateInterface } from '../../session/session-runtime-state';
+import {
+  RequestExecutionChain,
+  type RequestInterceptorPipeline,
+  type RequestInterceptorRegistration,
+  type ResponseInterceptorRegistration,
+} from '../request-execution-chain';
 
 export type RequestMode = 'parallel' | 'sequential';
 
@@ -23,6 +29,9 @@ export interface RequestExecutionOptions {
 export type RequestOperation<T> = (context: RequestExecutionContext) => Promise<T>;
 
 export abstract class RequestExecutorInterface {
+  abstract readonly request: RequestInterceptorRegistration;
+  abstract readonly response: ResponseInterceptorRegistration;
+
   abstract run<T>(operation: RequestOperation<T>): Promise<T>;
   abstract run<T>(options: RequestExecutionOptions, operation: RequestOperation<T>): Promise<T>;
 }
@@ -42,6 +51,7 @@ interface ExecutionTask<T = unknown> {
   readonly options: NormalizedRequestExecutionOptions;
   readonly sessionBound: boolean;
   readonly signal: AbortSignal;
+  readonly interceptors?: RequestInterceptorPipeline;
   sessionTerminated: boolean;
   reject(error: unknown): void;
   resolve(value: T): void;
@@ -54,6 +64,9 @@ const DEFAULT_MODE: RequestMode = 'parallel';
 
 @Injectable()
 export class RequestExecutor implements RequestExecutorInterface {
+  private readonly chain = new RequestExecutionChain((options, operation, interceptors) =>
+    this.submit(options, operation, interceptors),
+  );
   private readonly activeSequentialKeys = new Set<string>();
   private readonly activeTasks = new Set<ExecutionTask>();
   private readonly pendingTasks: ExecutionTask[] = [];
@@ -73,25 +86,28 @@ export class RequestExecutor implements RequestExecutorInterface {
     private readonly reporter?: RuntimeFailureReporterInterface,
   ) {}
 
+  get request(): RequestInterceptorRegistration {
+    return this.chain.request;
+  }
+
+  get response(): ResponseInterceptorRegistration {
+    return this.chain.response;
+  }
+
   run<T>(operation: RequestOperation<T>): Promise<T>;
   run<T>(options: RequestExecutionOptions, operation: RequestOperation<T>): Promise<T>;
   run<T>(
     optionsOrOperation: RequestExecutionOptions | RequestOperation<T>,
     maybeOperation?: RequestOperation<T>,
   ): Promise<T> {
-    const options =
-      typeof optionsOrOperation === 'function' ? this.normalizeOptions() : this.normalizeOptions(optionsOrOperation);
+    const options = typeof optionsOrOperation === 'function' ? {} : optionsOrOperation;
     const operation = typeof optionsOrOperation === 'function' ? optionsOrOperation : maybeOperation;
 
     if (!operation) {
       throw new Error('Операция запроса обязательна.');
     }
 
-    if (options.cancelPrevious && options.scope) {
-      this.cancelScope(options.scope);
-    }
-
-    return this.enqueue(options, operation);
+    return this.submit(options, operation);
   }
 
   cancelScope(scope: string): void {
@@ -114,6 +130,20 @@ export class RequestExecutor implements RequestExecutorInterface {
     this.recoveryAbortController?.abort();
   }
 
+  private submit<T>(
+    options: RequestExecutionOptions,
+    operation: RequestOperation<T>,
+    interceptors?: RequestInterceptorPipeline,
+  ): Promise<T> {
+    const normalizedOptions = this.normalizeOptions(options);
+
+    if (normalizedOptions.cancelPrevious && normalizedOptions.scope) {
+      this.cancelScope(normalizedOptions.scope);
+    }
+
+    return this.enqueue(normalizedOptions, operation, interceptors);
+  }
+
   private normalizeOptions(options: RequestExecutionOptions = {}): NormalizedRequestExecutionOptions {
     const mode = options.mode ?? DEFAULT_MODE;
     const scope = options.scope ?? null;
@@ -132,12 +162,17 @@ export class RequestExecutor implements RequestExecutorInterface {
     };
   }
 
-  private enqueue<T>(options: NormalizedRequestExecutionOptions, operation: RequestOperation<T>): Promise<T> {
+  private enqueue<T>(
+    options: NormalizedRequestExecutionOptions,
+    operation: RequestOperation<T>,
+    interceptors?: RequestInterceptorPipeline,
+  ): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const controller = new AbortController();
       const task: ExecutionTask<T> = {
         controller,
         id: ++this.nextTaskId,
+        interceptors,
         operation,
         options,
         reject,
@@ -199,7 +234,7 @@ export class RequestExecutor implements RequestExecutorInterface {
 
   private async execute<T>(task: ExecutionTask<T>): Promise<void> {
     try {
-      const value = await task.operation({ signal: task.signal });
+      const value = await this.executeOperation(task);
 
       if (task.sessionTerminated) {
         return;
@@ -232,6 +267,23 @@ export class RequestExecutor implements RequestExecutorInterface {
         this.drain();
       }
     }
+  }
+
+  private executeOperation<T>(task: ExecutionTask<T>): Promise<T> {
+    if (!task.interceptors) {
+      return task.operation({ signal: task.signal });
+    }
+
+    const context = Object.freeze({
+      signal: task.signal,
+      options: Object.freeze({
+        ...task.options,
+        queueKey: task.options.queueKey ?? undefined,
+        scope: task.options.scope ?? undefined,
+      }),
+    });
+
+    return task.interceptors.execute(task.operation, context);
   }
 
   private async resolveError(error: unknown, task: ExecutionTask): Promise<RequestErrorResolution> {
