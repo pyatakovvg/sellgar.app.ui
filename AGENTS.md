@@ -3,9 +3,11 @@
 ## Структура
 
 - Общего каталога `src` нет.
-- `core`, `react` и `native` — entrypoint-части одного package.
+- `core`, `react`, `native` и `fsm` — entrypoint-части одного package.
 - `shared` — внутренние общие renderer bindings с явными owner facades;
   не public entrypoint и не зависимость core.
+- Общая декларация и композиция application features описаны в
+  [shared/application/feature/README.md](shared/application/feature/README.md).
 - Public imports определяются только `package.json#exports`; deep imports
   запрещены.
 - Внутри entrypoint код сначала группируется по framework-домену (`router`,
@@ -27,6 +29,8 @@
 - Если RFC явно не фиксирует semantic delta, сохраняются согласованные публичный
   контракт, порядок lifecycle, ownership, error handling и cleanup.
 - Core не импортирует React, React DOM, React Router или React Native.
+- FSM Widget declarations и renderer используют общий core widget runtime;
+  lifecycle и preload описаны в [fsm/widget/README.md](fsm/widget/README.md).
 - Renderer adapter использует один core lifecycle и не создаёт второй runtime.
 - Router bridge реализует core navigation ports и не владеет logical navigation
   state.

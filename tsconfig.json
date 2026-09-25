@@ -1,18 +1,38 @@
 {
-  "extends": "../../tsconfig.json",
   "compilerOptions": {
+    "target": "ESNext",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "strictPropertyInitialization": false,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
     "noEmit": true,
     "rootDir": ".",
-    "isolatedModules": false,
-    "paths": {}
+    "types": ["reflect-metadata"]
   },
+  "include": [],
   "files": [
     "./env.d.ts",
     "./core/index.ts",
     "./react/index.ts",
     "./native/index.ts",
+    "./fsm/index.ts",
     "./contracts/navigation-contracts.fixture.tsx",
     "./contracts/request-executor.fixture.ts",
-    "./contracts/react-facade.fixture.tsx"
+    "./contracts/react-facade.fixture.tsx",
+    "./contracts/native-facade.fixture.tsx",
+    "./contracts/fsm-facade.fixture.tsx",
+    "./contracts/application-feature.fixture.tsx"
   ]
 }

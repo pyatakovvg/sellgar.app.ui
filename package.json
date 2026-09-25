@@ -4,8 +4,6 @@
   "name": "@sellgar/app",
   "version": "0.0.1",
   "description": "Renderer-agnostic application framework",
-  "author": "Viktor Pyatakov <pyatakov.viktor@gmail.com>",
-  "homepage": "",
   "license": "ISC",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

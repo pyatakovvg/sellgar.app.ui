@@ -7,18 +7,26 @@
 
 Инструменты разработки и тестирования предоставляет подключающая монорепа.
 У пакета нет `devDependencies`; TypeScript, типы React/React DOM и test runner
-должны быть установлены в окружении монорепы.
+должны быть установлены в окружении разработки.
+
+`tsconfig.json` самодостаточен: не наследует конфигурацию приложения и не задаёт
+путей к внешним `node_modules`. Зависимости разрешаются стандартным механизмом
+TypeScript. Для полной проверки нужны peers и типы всех renderer-ов.
+`tsconfig.core.json` наследует только локальную конфигурацию пакета.
+
+Проверка типов охватывает публичные entrypoint-ы, их зависимости и перечисленные
+compile-time fixtures. `include: []` исключает неявное включение всех тестовых
+файлов; их globals и окружение настраивает запускающий тесты проект.
 
 После установки workspace dependencies:
 
 ```sh
 yarn workspace @sellgar/app typecheck:core
 yarn workspace @sellgar/app typecheck
-yarn workspace @sellgar/app test
 ```
 
-`test:core` запускает core в Node; `test:react` — Web и общие React bindings
-в jsdom; `test:native` — JS-контракты Native с локальными подменами нативного UI.
+Тестовое окружение проекта запускает core в Node, Web и общие React bindings
+в jsdom, JS-контракты Native — с локальными подменами нативного UI.
 Tests расположены рядом с владельцами. Общая настройка окружения находится
 в `contracts/test-environment`; она не подменяет framework runtime.
 Native JS-тесты не доказывают корректность жестов, клавиатуры, анимаций или
