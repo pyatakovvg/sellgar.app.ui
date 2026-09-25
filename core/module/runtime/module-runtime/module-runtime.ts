@@ -24,9 +24,10 @@ import {
   type RuntimeFailureSource,
   type RuntimeOwner,
 } from '../../../runtime/failure/runtime-failure';
-import { captureRuntimeFailure } from '../../../runtime/failure/runtime-failure-signal';
+import { captureRuntimeFailure, throwRuntimeOperationError } from '../../../runtime/failure/runtime-failure-signal';
 import {
   createRuntimeCompletionRevisionGuard,
+  createRuntimeRevisionGuard,
   executeRuntimeOperation,
   executeRuntimeParticipant,
   type RuntimeOperationGuard,
@@ -36,6 +37,7 @@ import { ModuleScope } from '../../../runtime/scope/kind/module-scope';
 import { RuntimeOperationCoordinator } from '../../../runtime/operation/runtime-operation-coordinator';
 import {
   createRuntimeException,
+  createRuntimeExceptionSignal,
   isRuntimeExceptionSignal,
   type RuntimeException,
   type RuntimeExceptionRecoveryOperations,
@@ -670,19 +672,49 @@ export class ModuleRuntime<TPresentation = unknown> {
   }
 
   private async runLoad(args: LoadedModuleControllerContext): Promise<ControllerLoaderData> {
+    const guard = this.ownerScope.has(SessionRuntimeStateInterface)
+      ? createRuntimeRevisionGuard(this.ownerScope.get(SessionRuntimeStateInterface))
+      : null;
     const moduleRuntime = await this.activate(args.signal);
 
     try {
-      const loaderData = await loadLoadedModuleRuntime(moduleRuntime, args, {
-        abortMessage: 'Активация модуля была прервана.',
+      // Cleanup waits for this operation, not for a request suspended by session expiration.
+      const result = await executeRuntimeOperation({
+        guard,
+        operation: () => {
+          throwIfAborted(args.signal);
+          return loadLoadedModuleRuntime(moduleRuntime, args, {
+            abortMessage: 'Активация модуля была прервана.',
+          });
+        },
+        signal: args.signal,
+        source: {
+          operation: 'load',
+          owner: moduleRuntime.owner,
+          participant: { kind: 'runtime' },
+        },
       });
 
-      moduleRuntime.loaderData = loaderData;
-      moduleRuntime.loaderParams = args.params;
-      moduleRuntime.loaderProps = args.props;
-      this.emit();
-
-      return loaderData;
+      switch (result.type) {
+        case 'completed':
+          throwIfAborted(args.signal);
+          if (this.getBoundaryModuleOrNull() !== moduleRuntime) {
+            throw new Error('Runtime загрузки модуля больше не актуален.');
+          }
+          moduleRuntime.loaderData = result.value;
+          moduleRuntime.loaderParams = args.params;
+          moduleRuntime.loaderProps = args.props;
+          this.emit();
+          return result.value;
+        case 'interrupted':
+          throw new Error('Активация модуля была прервана.');
+        case 'rejected':
+          return throwRuntimeOperationError(result.error, result.source);
+        case 'failed':
+          return throwRuntimeOperationError(result.failure.cause, result.failure.source);
+        case 'escalated':
+          return throwRuntimeOperationError(createRuntimeExceptionSignal(result.failure.cause), result.failure.source);
+      }
     } catch (error) {
       if (args.signal.aborted && this.state.phase === 'pending' && this.state.pending === moduleRuntime) {
         this.disposePending();
