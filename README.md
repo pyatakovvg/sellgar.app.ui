@@ -5,6 +5,10 @@
 
 ## Проверка пакета
 
+Инструменты разработки и тестирования предоставляет подключающая монорепа.
+У пакета нет `devDependencies`; TypeScript, типы React/React DOM и test runner
+должны быть установлены в окружении монорепы.
+
 После установки workspace dependencies:
 
 ```sh
@@ -50,8 +54,8 @@ loader. Явное обновление и изменение query остают
 Query не меняет identity screen; Route path и params меняют её.
 
 Все entrypoints принадлежат одному package и разрешаются полем `exports` в
-[package.json](package.json). Renderer-зависимости объявлены optional peers и не
-становятся обязательными зависимостями core-only consumer; отдельный
+[package.json](package.json). Внешняя среда renderer-ов объявлена optional peers;
+внутренние библиотеки реактивности и error boundary входят в `dependencies`. Отдельный
 `typecheck:core` компилирует только публичный core facade без ambient React
 types. Compile-time fixtures дополнительно фиксируют React facade, отсутствие
 compatibility aliases, exact params для `to()`/`through()` и React navigation
@@ -60,6 +64,32 @@ structured address и navigation resolution. В `core` находятся баз
 contracts/scope, session state, application store,
 initializers, application feature activation, runtime failure flow, disposable
 registry и единый Application lifecycle.
+
+## Владение зависимостями
+
+- `inversify`, `mobx`, `mobx-react` и `react-error-boundary` —
+  внутренние зависимости фреймворка. Приложению не нужно объявлять их только
+  ради использования фреймворка.
+- `class-transformer`, `class-validator` и `reflect-metadata` — обязательные
+  peers: приложение объявляет декорированные модели, фреймворк обрабатывает их.
+  Host подключает `reflect-metadata` до выполнения декораторов.
+- React, React DOM, React Native и используемые нативные библиотеки предоставляет
+  host выбранного renderer-а. Optional peer означает возможность не устанавливать
+  библиотеку неиспользуемого renderer-а, а не возможность запускать его без неё.
+- `@floating-ui/react` остаётся optional web peer: его собственный контракт
+  требует React DOM. Он не устанавливается автоматически для native consumer.
+- `classnames` предоставляет web-приложение как peer dependency. Для core/native
+  он не требуется и поэтому отмечен optional.
+- Reanimated `4.7.x` и Worklets `0.13.x` образуют согласованную native-связку;
+  обновлять их нужно с учётом совместимости с React Native.
+
+Пакет, непосредственно подключающий `@sellgar/app`, объявляет необходимые peers
+в своём manifest. Наличие зависимости только в соседнем workspace не заменяет
+этот контракт. Внутренние библиотеки по-прежнему предъявляют собственные требования
+к React; отсутствие runtime-импорта React в core не означает, что дерево установки
+всего объединённого пакета полностью свободно от renderer-зависимостей.
+
+## Application runtime
 
 Core `Application` остаётся внутренней реализацией. React entrypoint уже
 предоставляет renderer facade с публичным именем `Application`, типизированным

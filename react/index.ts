@@ -1,5 +1,6 @@
 export { Application } from './application/lifecycle/application';
 export type { ApplicationOptions } from './application/lifecycle/application';
+export { useApplicationReporter } from './application/reporting/hook/use-application-reporter';
 export { ApplicationConfiguratorInterface } from './application/config/application-configurator';
 export type {
   ApplicationComponents,
@@ -100,3 +101,4 @@ export { useRouteActive } from './router/hook/use-route-active';
 export { useRoutePending } from './router/hook/use-route-pending';
 export { NavItem } from './router/nav-item';
 export { NavLink } from './router/nav-link';
+export { Feature, type ApplicationFeatureOptions } from '../shared/application/feature/application-feature';

@@ -3,7 +3,7 @@
 - Статус документа: target
 - Статус RFC: accepted
 - Статус реализации: in-progress
-- Последнее согласование: 2026-09-02
+- Последнее согласование: 2026-09-25
 
 ### Уточнения контрактов по аудиту 2026-09-17
 
@@ -159,10 +159,29 @@ const app = new ManagementPanelApplication({
   }),
 });
 
+app.reporter([ConsoleReporter, SentryReporter]);
+
 app.compose();
 const AppView = app.createView();
 void app.initialize();
 ```
+
+Application reporters объявляются через `@Reporter()` и передаются приложению до
+`compose()`. Во время `compose()` application scope сначала активирует их
+`@UseBindings`, затем разрешает экземпляры. Поэтому reporter и принадлежащие ему
+сервисы получают инфраструктурные зависимости обычной constructor injection без
+отдельного initializer или `ApplicationStore`. Отчёты, возникшие до активации
+reporters, core временно сохраняет и передаёт им после активации.
+
+Публичный `ApplicationReporterInterface` предоставляет единый API уровней
+`debug`, `info`, `warning` и `error` для core и application-кода. React, Native и
+FSM adapters предоставляют тот же экземпляр из своего runtime scope через
+`useApplicationReporter()`. Внутренний dispatcher собирает ранние отчёты и
+выполняет fan-out, а настраиваемые через `app.reporter(...)` классы реализуют
+только handler-контракт. Runtime failure публикуется тем же dispatcher как
+структурированный `error`-отчёт и не создаёт параллельную систему репортинга.
+Конкретные integrations console, Sentry и других систем не принадлежат core и
+поставляются отдельными пакетами `reporters/*`.
 
 ### 2. Renderer-specific declarations
 
@@ -303,22 +322,25 @@ owner scope + widget token + (runtimeKey ?? default key)
 
 - Feature является framework-level capability в `ApplicationScope`, а не
   product business feature, Route, Module или Widget. Она подключается через
-  сохраняющий текущую семантику вызов `app.features([...])` и живёт до dispose
+  token-класс в `app.features([...])` и живёт до dispose
   приложения независимо от переходов между Route-ветками.
-- Feature не образует новый универсальный runtime owner. Если capability нужен
+- Feature реализует `ApplicationFeatureInterface` напрямую и объявляется
+  `@Feature()`. Базового класса, `extends`, `super(...)` и provider-прокси в
+  feature-контракте нет.
+- Feature не образует отдельный runtime owner на каждый token. Если capability нужен
   собственный runtime состояния, им владеет сама capability: например,
   `NotificationRuntime`, `UserRequestRuntime` или
   `NavigationBlockerRuntime`.
 - Core владеет service tokens, runtime state, operations, очередями,
   subscriptions, cleanup и bindings feature. Bindings по-прежнему
   подключаются через `@UseBindings()`; поля `bindings` в feature options нет.
-- Renderer adapter владеет одноимённым публичным Feature facade,
-  `Presentation`, view props, hooks и application layer/host. React facade
+- Renderer adapter владеет renderer-вариантом `@Feature()`, `Presentation`,
+  view props, hooks и application layer/host. React facade
   принимает React components, Native facade — React Native components. Ни один
   из этих типов не попадает в core source или публичный core `.d.ts`.
-- `ApplicationFeatureInterface.createLayer(): React.ReactNode` не является
-  допустимым core-контрактом. Core активирует capability и её bindings ровно
-  один раз; renderer host отдельно монтирует соответствующий layer в том же
+- Rendering не является методом feature instance. Core активирует capability,
+  её bindings и lifecycle ровно один раз; renderer host читает неизменяемую
+  metadata token-класса и монтирует соответствующий layer в том же
   `ApplicationScope`. Это внутреннее разделение не меняет публичный вызов
   `app.features([...])` и не создаёт второй lifecycle.
 - Renderer layer монтируется на уровне приложения после готовности Application,

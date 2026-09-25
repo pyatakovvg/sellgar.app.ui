@@ -1,4 +1,8 @@
 import type { DependencyConstructor } from '../../../di/binding/binding-builder';
+import {
+  ApplicationReportDispatcherInterface,
+  type ApplicationReporterDeclaration,
+} from '../../reporting/application-report';
 import { UseBindings } from '../../../di/composition/use-bindings';
 import type { DependencyToken } from '../../../di/token/dependency-token';
 import { Exception } from '../../../exception/contract/exception';
@@ -37,11 +41,7 @@ import {
   executeRuntimeOperation,
   executeRuntimeParticipant,
 } from '../../../runtime/operation/runtime-operation';
-import {
-  reportRuntimeFailure,
-  RuntimeFailureReporterInterface,
-  type RuntimeFailureSource,
-} from '../../../runtime/failure/runtime-failure';
+import { reportRuntimeFailure, type RuntimeFailureSource } from '../../../runtime/failure/runtime-failure';
 import { captureRuntimeFailure, throwRuntimeOperationError } from '../../../runtime/failure/runtime-failure-signal';
 import {
   createRuntimeException,
@@ -70,6 +70,7 @@ import {
 } from '../../session/session-runtime-state';
 import { ApplicationEventBusBindings } from '../../event/application-event-bus';
 import { ApplicationStoreBindings } from '../../store/application-store';
+import { ApplicationFeaturesRuntime } from '../../feature/application-features-runtime';
 import {
   ApplicationControllerInterface,
   type ApplicationLifecycleListener,
@@ -146,7 +147,10 @@ export abstract class Application<
   private readonly listeners = new Set<ApplicationLifecycleListener>();
   private readonly navigationListeners = new Set<ApplicationNavigationListener>();
   private readonly navigationHistory = new NavigationHistory<RouterRuntimeActivation<TPresentation>>();
+  private reporterDeclarations: readonly ApplicationReporterDeclaration[] = [];
   private readonly scope = new ApplicationScope();
+  private featuresRuntime: ApplicationFeaturesRuntime | null = null;
+  private detachFeatures: (() => void) | null = null;
   private readonly session = new SessionRuntimeState();
 
   private initializerAbortController: AbortController | null = null;
@@ -157,6 +161,7 @@ export abstract class Application<
   private navigationPromise: Promise<boolean> | null = null;
   private navigationRequest: ApplicationNavigationRequest | null = null;
   private navigateService: NavigateServiceInterface | null = null;
+  private reporterInitializationPromise: Promise<void> = Promise.resolve();
   private navigationSnapshot: ApplicationNavigationSnapshot = Object.freeze({
     decision: null,
     navigation: undefined,
@@ -203,12 +208,20 @@ export abstract class Application<
     this.fail(createApplicationException(failure, 'application.failed'));
     await this.routerRuntime?.dispose();
     await reportRuntimeFailure(
-      this.scope.get(RuntimeFailureReporterInterface),
+      this.scope.get(ApplicationReportDispatcherInterface),
       failure,
       { kind: 'application' },
       'application.failed',
       'failed',
     );
+  }
+
+  reporter(reporters: readonly ApplicationReporterDeclaration[]): void {
+    if (this.state !== 'created') {
+      throw new Error('Репортеры приложения нужно настроить до compose.');
+    }
+
+    this.reporterDeclarations = [...reporters];
   }
 
   compose(): void {
@@ -227,6 +240,7 @@ export abstract class Application<
       this.detachSessionState = this.session.subscribe((change) => this.captureSessionBoundary(change));
       this.scope.bindDisposables(this.disposables);
       this.scope.activate(this);
+      this.reporterInitializationPromise = this.scope.activateReporters(this.reporterDeclarations);
       this.configure(this.config);
       getRouterGraph(this.config.routerValue);
 
@@ -259,9 +273,19 @@ export abstract class Application<
         .get(RuntimeOperationCoordinator)
         .attachRefresh(() => this.refreshRuntime());
 
-      for (const feature of this.config.featuresValue) {
-        this.scope.activate(feature);
-      }
+      const features = this.scope.activateFeatures(this.config.featuresValue);
+
+      this.featuresRuntime = new ApplicationFeaturesRuntime(this.scope, this.config.featuresValue, features);
+      this.detachFeatures = this.featuresRuntime.subscribe(() => {
+        const snapshot = this.featuresRuntime?.getSnapshot();
+        if (
+          (this.state === 'ready' || this.state === 'initializing') &&
+          snapshot?.phase === 'failed' &&
+          snapshot.exception
+        ) {
+          this.fail(snapshot.exception);
+        }
+      });
       this.setState('composed');
     } catch (error) {
       this.detachSessionState?.();
@@ -311,6 +335,8 @@ export abstract class Application<
     }
 
     this.setState('disposing');
+    this.detachFeatures?.();
+    this.detachFeatures = null;
     this.detachSessionState?.();
     this.detachSessionState = null;
     this.detachRuntimeRefresh?.();
@@ -319,6 +345,7 @@ export abstract class Application<
     if (this.scope.has(SessionRuntimeStateInterface)) {
       this.scope.get(RequestExecutor).cancelAll();
     }
+    await Promise.allSettled([this.reporterInitializationPromise]);
     this.applicationAbortController.abort(new Error('Приложение освобождено.'));
     this.navigationAbortController?.abort(new Error('Навигация остановлена при освобождении приложения.'));
     await Promise.allSettled(this.navigationPromise ? [this.navigationPromise] : []);
@@ -326,6 +353,7 @@ export abstract class Application<
     await this.routerBridge.dispose();
     await this.routerRuntime?.dispose();
     await this.scope.disposeWidgetRuntimes();
+    await this.featuresRuntime?.dispose();
     await this.scope.disposeProviders();
     if (this.scope.has(RuntimeOperationCoordinator)) {
       this.scope.get(RuntimeOperationCoordinator).dispose();
@@ -339,6 +367,7 @@ export abstract class Application<
 
       this.reportFailure(failure, 'cleanup.contained', 'disposing');
     });
+    await this.scope.disposeReporters();
     this.scope.dispose();
     this.navigationListeners.clear();
     this.setState('disposed');
@@ -411,6 +440,11 @@ export abstract class Application<
     return this.scope;
   }
 
+  protected getFeaturesRuntime(): ApplicationFeaturesRuntime {
+    if (!this.featuresRuntime) throw new Error('Features runtime недоступен до compose().');
+    return this.featuresRuntime;
+  }
+
   protected subscribeNavigation(listener: ApplicationNavigationListener): () => void {
     this.navigationListeners.add(listener);
 
@@ -431,12 +465,24 @@ export abstract class Application<
     this.setState('initializing');
 
     try {
+      await this.reporterInitializationPromise;
+
+      if (signal.aborted) {
+        return;
+      }
+
       for (const declaration of this.config.initializersValue) {
         await this.executeInitializerDeclaration(declaration, signal);
       }
 
       if (signal.aborted) {
         return;
+      }
+
+      await this.getFeaturesRuntime().load({ signal });
+      if (signal.aborted) return;
+      if (this.getFeaturesRuntime().getSnapshot().phase !== 'ready') {
+        throw new Error('Подготовка features была прервана.');
       }
 
       await this.routerBridge.initialize({
@@ -454,6 +500,9 @@ export abstract class Application<
         return;
       }
 
+      if (this.getFeaturesRuntime().getSnapshot().phase !== 'ready') {
+        throw requireRuntimeException(this.getFeaturesRuntime().getSnapshot().exception).cause;
+      }
       this.setState('ready');
     } catch (error) {
       if (signal.aborted) {
@@ -468,7 +517,7 @@ export abstract class Application<
       const failure = captureRuntimeFailure(error, createApplicationRuntimeSource('initialize'));
 
       await reportRuntimeFailure(
-        this.scope.get(RuntimeFailureReporterInterface),
+        this.scope.get(ApplicationReportDispatcherInterface),
         failure,
         { kind: 'application' },
         'application.activation-failed',
@@ -885,14 +934,15 @@ export abstract class Application<
         }
 
         await bridgeCommit;
+
+        this.setNavigationSnapshot(
+          transition.navigation,
+          transition.navigation.boundary === null ? null : NOT_FOUND_DECISION,
+        );
+        await transition.complete({ signal });
       } finally {
         await this.releaseRouterActivations(historyCommit.released);
       }
-      this.setNavigationSnapshot(
-        transition.navigation,
-        transition.navigation.boundary === null ? null : NOT_FOUND_DECISION,
-      );
-      await transition.complete({ signal });
       return true;
     } catch (error) {
       if (!committed) {
@@ -1309,7 +1359,7 @@ export abstract class Application<
   ): void {
     try {
       void reportRuntimeFailure(
-        this.scope.get(RuntimeFailureReporterInterface),
+        this.scope.get(ApplicationReportDispatcherInterface),
         failure,
         { kind: 'application' },
         disposition,

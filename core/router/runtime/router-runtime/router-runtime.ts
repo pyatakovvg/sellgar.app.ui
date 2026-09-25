@@ -1,4 +1,5 @@
 import type { ApplicationControllerInterface } from '../../../application/lifecycle/application-lifecycle';
+import { ApplicationReportDispatcherInterface } from '../../../application/reporting/application-report';
 import type { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
 import { Exception } from '../../../exception/contract/exception';
 import type { NavigationBlockerBoundary } from '../../../features/navigation-blocker/runtime/navigation-blocker-runtime';
@@ -7,7 +8,6 @@ import type { PolicyBoundaryDecision } from '../../../policy/contract/policy-bou
 import { PolicyRunner } from '../../../policy/runtime/policy-runner';
 import {
   reportRuntimeFailure,
-  RuntimeFailureReporterInterface,
   type RuntimeFailure,
   type RuntimeFailureDisposition,
   type RuntimeOwner,
@@ -2433,7 +2433,7 @@ export class RouterRuntime<TPresentation = unknown> {
     ownerState = 'failed',
   ): Promise<void> {
     await reportRuntimeFailure(
-      this.routerScope.get(RuntimeFailureReporterInterface),
+      this.routerScope.get(ApplicationReportDispatcherInterface),
       failure,
       this.owner,
       disposition,
@@ -2449,7 +2449,7 @@ export class RouterRuntime<TPresentation = unknown> {
     });
 
     await reportRuntimeFailure(
-      this.routerScope.get(RuntimeFailureReporterInterface),
+      this.routerScope.get(ApplicationReportDispatcherInterface),
       failure,
       this.owner,
       'cleanup.contained',

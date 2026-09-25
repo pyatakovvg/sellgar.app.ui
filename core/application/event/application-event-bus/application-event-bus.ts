@@ -1,7 +1,8 @@
 import { DisposableRegistryInterface } from '../../disposable/disposable-registry';
+import { ApplicationReportDispatcherInterface } from '../../reporting/application-report';
 import { Inject, Injectable } from '../../../di/injection/decorators';
 import type { DependencyToken } from '../../../di/token/dependency-token';
-import { reportRuntimeFailure, RuntimeFailureReporterInterface } from '../../../runtime/failure/runtime-failure';
+import { reportRuntimeFailure } from '../../../runtime/failure/runtime-failure';
 import { executeRuntimeOperation } from '../../../runtime/operation/runtime-operation';
 
 import type {
@@ -20,8 +21,8 @@ export class ApplicationEventBus extends ApplicationEventBusInterface {
   private readonly subscriptions = new Map<ApplicationEventToken<object>, ApplicationEventSubscriptionSet>();
 
   constructor(
-    @Inject(RuntimeFailureReporterInterface)
-    private readonly reporter: RuntimeFailureReporterInterface,
+    @Inject(ApplicationReportDispatcherInterface)
+    private readonly reporter: ApplicationReportDispatcherInterface,
     @Inject(DisposableRegistryInterface) disposables: DisposableRegistryInterface,
   ) {
     super();

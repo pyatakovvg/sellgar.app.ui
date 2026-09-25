@@ -6,6 +6,7 @@ import {
 } from '../../../controller/data/controller-loader-data';
 import { invokeControllerMethod } from '../../../controller/runtime/controller-method-invoker';
 import { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
+import { ApplicationReportDispatcherInterface } from '../../../application/reporting/application-report';
 import type { DependencyToken } from '../../../di/token/dependency-token';
 import type { ModuleExportResolverInterface, ModuleExports } from '../../resolution/module-export-resolver';
 import {
@@ -19,7 +20,6 @@ import {
 import type { RuntimeScope } from '../../../runtime/scope/base/runtime-scope';
 import {
   reportRuntimeFailure,
-  RuntimeFailureReporterInterface,
   type RuntimeFailure,
   type RuntimeFailureSource,
   type RuntimeOwner,
@@ -413,7 +413,7 @@ export class ModuleRuntime<TPresentation = unknown> {
             inProcess: false,
           });
           await reportRuntimeFailure(
-            this.ownerScope.get(RuntimeFailureReporterInterface),
+            this.ownerScope.get(ApplicationReportDispatcherInterface),
             result.failure,
             activeModule.owner,
             'action.failed',
@@ -423,7 +423,7 @@ export class ModuleRuntime<TPresentation = unknown> {
         case 'escalated':
           this.transitionToFailed(activeModule, result.failure);
           await reportRuntimeFailure(
-            this.ownerScope.get(RuntimeFailureReporterInterface),
+            this.ownerScope.get(ApplicationReportDispatcherInterface),
             result.failure,
             activeModule.owner,
             'module.failed',
@@ -559,7 +559,7 @@ export class ModuleRuntime<TPresentation = unknown> {
     }
 
     await reportRuntimeFailure(
-      this.ownerScope.get(RuntimeFailureReporterInterface),
+      this.ownerScope.get(ApplicationReportDispatcherInterface),
       failure,
       moduleRuntime.owner,
       'module.failed',
@@ -816,7 +816,7 @@ export class ModuleRuntime<TPresentation = unknown> {
         throw result.error;
       case 'failed':
         await reportRuntimeFailure(
-          this.ownerScope.get(RuntimeFailureReporterInterface),
+          this.ownerScope.get(ApplicationReportDispatcherInterface),
           result.failure,
           moduleRuntime.owner,
           'revalidate.failed',
@@ -826,7 +826,7 @@ export class ModuleRuntime<TPresentation = unknown> {
       case 'escalated':
         this.transitionToFailed(moduleRuntime, result.failure);
         await reportRuntimeFailure(
-          this.ownerScope.get(RuntimeFailureReporterInterface),
+          this.ownerScope.get(ApplicationReportDispatcherInterface),
           result.failure,
           moduleRuntime.owner,
           'module.failed',
@@ -882,7 +882,7 @@ export class ModuleRuntime<TPresentation = unknown> {
 
     if (this.transitionToFailed(moduleRuntime, failure)) {
       void reportRuntimeFailure(
-        this.ownerScope.get(RuntimeFailureReporterInterface),
+        this.ownerScope.get(ApplicationReportDispatcherInterface),
         failure,
         moduleRuntime.owner,
         'module.failed',

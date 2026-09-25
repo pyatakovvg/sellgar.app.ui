@@ -1,12 +1,8 @@
 import type { DependencyConstructor } from '../../../../di/binding/binding-builder';
+import { ApplicationReportDispatcherInterface } from '../../../../application/reporting/application-report';
 import type { DependencyToken } from '../../../../di/token/dependency-token';
 import { captureRuntimeFailure, throwRuntimeOperationError } from '../../../failure/runtime-failure-signal';
-import {
-  reportRuntimeFailure,
-  RuntimeFailureReporterInterface,
-  type RuntimeFailureSource,
-  type RuntimeOwner,
-} from '../../../failure/runtime-failure';
+import { reportRuntimeFailure, type RuntimeFailureSource, type RuntimeOwner } from '../../../failure/runtime-failure';
 import type {
   ProviderActivateContextInterface,
   ProviderCleanup,
@@ -345,7 +341,7 @@ export class ProviderScope extends RuntimeScope {
 
   private async reportCleanupFailure(error: unknown, source: RuntimeFailureSource): Promise<void> {
     await reportRuntimeFailure(
-      this.get(RuntimeFailureReporterInterface),
+      this.get(ApplicationReportDispatcherInterface),
       captureRuntimeFailure(error, source),
       source.owner,
       'cleanup.contained',

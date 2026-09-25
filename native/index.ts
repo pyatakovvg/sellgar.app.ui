@@ -6,6 +6,7 @@ export type {
   ApplicationRouting,
   ResolvedApplicationRouting,
 } from './application/config/application-configurator';
+export { useApplicationReporter } from './application/reporting/hook/use-application-reporter';
 
 export { Layout } from './layout/declaration/layout';
 export type { LayoutConstructor, LayoutMetadata, LayoutViewProps } from './layout/declaration/layout';
@@ -150,3 +151,4 @@ export { useRoutePending } from './router/hook/use-route-pending';
 export { NavItem } from './router/nav-item';
 export { NavLink } from './router/nav-link';
 export { TabItem, type TabItemProps, type TabItemState } from './router/tab-item';
+export { Feature, type ApplicationFeatureOptions } from '../shared/application/feature/application-feature';

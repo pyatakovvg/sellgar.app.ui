@@ -7,7 +7,7 @@ import { useControllerRuntime } from '../../runtime/controller-runtime-context';
 export const useController = <TController extends object>(
   controllerToken: DependencyToken<TController>,
 ): TController => {
-  const runtime = useControllerRuntime();
+  const runtime = useControllerRuntime(controllerToken);
   const controller = runtime.getController(controllerToken);
 
   return React.useMemo(

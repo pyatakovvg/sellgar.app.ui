@@ -9,7 +9,7 @@ vi.mock('react-native', () => ({
   View: () => null,
 }));
 
-import { ApplicationFeatureInterface } from '../../../../core/application/feature/application-feature';
+import { isApplicationFeatureToken } from '../../../../core/application/feature/application-feature';
 import { getUseBindingsMetadata } from '../../../../core/di/composition/use-bindings';
 import { NotificationPresentation } from '../declaration/notification-presentation';
 import { NotificationFeature } from './notification-feature.tsx';
@@ -20,7 +20,7 @@ describe('Native NotificationFeature facade', () => {
       presentation: NotificationPresentation.define((registry) => registry.info(() => null)),
     });
 
-    expect(feature).toBeInstanceOf(ApplicationFeatureInterface);
+    expect(isApplicationFeatureToken(feature)).toBe(true);
     expect(getUseBindingsMetadata(feature)).toHaveLength(1);
   });
 });

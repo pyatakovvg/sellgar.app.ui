@@ -1,3 +1,7 @@
+import type {
+  ApplicationReport,
+  ApplicationReportDispatcherInterface,
+} from '../../../application/reporting/application-report';
 import type { DependencyToken } from '../../../di/token/dependency-token';
 
 export type RuntimeOwner =
@@ -12,6 +16,7 @@ export type RuntimeOwner =
     };
 
 export type RuntimeParticipant =
+  | { readonly kind: 'feature'; readonly token: DependencyToken<unknown> }
   | { readonly kind: 'initializer'; readonly token: DependencyToken<unknown> }
   | { readonly kind: 'policy'; readonly token: DependencyToken<unknown> }
   | { readonly kind: 'controller'; readonly token: DependencyToken<unknown> }
@@ -57,19 +62,13 @@ export interface RuntimeFailure {
   readonly source: RuntimeFailureSource;
 }
 
-export interface RuntimeFailureReport {
+export interface RuntimeFailureReport extends ApplicationReport {
+  readonly cause: unknown;
   readonly disposition: RuntimeFailureDisposition;
+  readonly event: 'runtime.failure';
   readonly failure: RuntimeFailure;
+  readonly level: 'error';
   readonly ownerState: string;
-  readonly reportedAt: number;
-}
-
-export abstract class RuntimeFailureSinkInterface {
-  abstract report(report: RuntimeFailureReport): void | Promise<void>;
-}
-
-export abstract class RuntimeFailureReporterInterface {
-  abstract report(report: RuntimeFailureReport): void | Promise<void>;
 }
 
 let failureSequence = 0;
@@ -116,15 +115,19 @@ export const createRuntimeFailureReport = (
   ownerState: string,
 ): RuntimeFailureReport => {
   return {
+    cause: failure.cause,
     disposition,
+    event: 'runtime.failure',
     failure: propagateRuntimeFailure(failure, owner, disposition),
+    id: failure.id,
+    level: 'error',
     ownerState,
     reportedAt: Date.now(),
   };
 };
 
 export const reportRuntimeFailure = async (
-  reporter: RuntimeFailureReporterInterface,
+  reporter: ApplicationReportDispatcherInterface,
   failure: RuntimeFailure,
   owner: RuntimeOwner,
   disposition: RuntimeFailureDisposition,
@@ -135,7 +138,7 @@ export const reportRuntimeFailure = async (
   } catch (cause) {
     globalThis.console.error({
       cause,
-      failedRuntimeFailureReporter: true,
+      failedApplicationReporter: true,
       runtimeFailureId: failure.id,
     });
   }

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import type { ApplicationReportDispatcherInterface } from '../../reporting/application-report';
 import { UnauthorizedException } from '../../../http/exception/http-exception';
-import type { RuntimeFailureReporterInterface } from '../../../runtime/failure/runtime-failure';
 import {
   createRuntimeCompletionRevisionGuard,
   createRuntimeRevisionGuard,
@@ -291,7 +291,7 @@ describe('RequestExecutor', () => {
       notify: vi.fn(() => Promise.reject(notifierError)),
     } as SessionExpirationNotifierInterface;
     const report = vi.fn();
-    const reporter = { report } as unknown as RuntimeFailureReporterInterface;
+    const reporter = { report } as unknown as ApplicationReportDispatcherInterface;
     const executor = new RequestExecutor(session, notifier, reporter);
 
     session.setAuthenticated();

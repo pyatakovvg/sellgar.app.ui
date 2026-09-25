@@ -1,10 +1,12 @@
 import React from 'react';
+import type { ApplicationFeaturesRuntime } from '../../../../core/application/feature/application-features-runtime';
+import { ApplicationFeaturesHost } from '../../../../shared/application/feature/application-features-host';
 
 import type {
   ApplicationLifecycleListener,
   ApplicationLifecycleSnapshot,
 } from '../../../../core/application/lifecycle/application-lifecycle';
-import type { ApplicationFeatureInterface } from '../../../../core/application/feature/application-feature';
+import type { ApplicationFeatureToken } from '../../../../core/application/feature/application-feature';
 import type {
   ApplicationNavigationListener,
   ApplicationNavigationSnapshot,
@@ -13,7 +15,10 @@ import type { RouterRuntime } from '../../../../core/router/runtime/router-runti
 import type { NavigationState } from '../../../../core/router/runtime/navigation-state';
 import type { RuntimeScope } from '../../../../core/runtime/scope/base/runtime-scope';
 import { requireRuntimeException, type RuntimeException } from '../../../../core/runtime/exception/runtime-exception';
-import { renderApplicationFeatures } from '../../feature/application-feature-renderer';
+import {
+  renderApplicationFeatures,
+  wrapApplicationFeatures,
+} from '../../../../shared/application/feature/application-feature-renderer';
 import { renderLayouts } from '../../../layout/rendering/layout-renderer';
 import type { LayoutConstructor } from '../../../layout/declaration/layout';
 import type { ModuleMetadata } from '../../../module/declaration/module';
@@ -25,16 +30,17 @@ import { RuntimeScopeProvider } from '../../../runtime/scope/runtime-scope-conte
 import { RuntimeErrorBoundary } from '../../../runtime/exception/runtime-error-boundary';
 import type { ApplicationComponents, ResolvedApplicationRouting } from '../../config/application-configurator';
 import { ApplicationComponentsProvider } from '../application-components-context';
-import { OverlayHost } from '../overlay-host';
-import { PresentationLayer } from '../presentation-layer';
+import { OverlayHost } from '../../../../shared/application/rendering/overlay-host';
+import { PresentationLayer } from '../../../../shared/application/rendering/presentation-layer';
 
 import s from './default.module.scss';
 
 export interface ApplicationViewSource {
+  readonly featuresRuntime: ApplicationFeaturesRuntime;
   readonly components: ApplicationComponents;
   readonly createHref: (navigation: NavigationState) => string;
   readonly createRenderException: (error: unknown) => RuntimeException;
-  readonly features: readonly ApplicationFeatureInterface[];
+  readonly features: readonly ApplicationFeatureToken[];
   readonly failRender: (error: unknown) => void | Promise<void>;
   readonly getLifecycle: () => ApplicationLifecycleSnapshot;
   readonly getNavigation: () => ApplicationNavigationSnapshot;
@@ -112,10 +118,22 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
             resolveException={props.source.createRenderException}
             resetKeys={[props.source]}
           >
-            <OverlayHost frame={frame} modal={modalFeatures} notification={notificationFeatures}>
-              <div className={s.wrapper}>{content}</div>
-              {applicationFeatures}
-            </OverlayHost>
+            <ApplicationFeaturesHost runtime={props.source.featuresRuntime} fallback={content}>
+              {wrapApplicationFeatures(
+                props.source.features,
+                <RuntimeErrorBoundary
+                  exception={props.source.components.failed ?? props.source.components.exception}
+                  onError={(error) => void props.source.failRender(error)}
+                  resolveException={props.source.createRenderException}
+                  resetKeys={[props.source]}
+                >
+                  <OverlayHost frame={frame} modal={modalFeatures} notification={notificationFeatures}>
+                    <div className={s.wrapper}>{content}</div>
+                    {applicationFeatures}
+                  </OverlayHost>
+                </RuntimeErrorBoundary>,
+              )}
+            </ApplicationFeaturesHost>
           </RuntimeErrorBoundary>
         </ApplicationComponentsProvider>
       </NavigationStateProvider>

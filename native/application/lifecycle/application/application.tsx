@@ -70,6 +70,7 @@ export abstract class Application extends CoreApplication<ModuleMetadata, Applic
       components: this.nativeConfig.componentsValue,
       createRenderException: (error: unknown) => this.createRenderException(error),
       failRender: (error: unknown) => this.failRender(error),
+      featuresRuntime: this.getFeaturesRuntime(),
       features: this.nativeConfig.featuresValue,
       getLifecycle: () => this.lifecycle,
       layouts: this.nativeConfig.layoutsValue,

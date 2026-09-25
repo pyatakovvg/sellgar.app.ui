@@ -5,4 +5,4 @@ import { useControllerRuntime } from '../../runtime/controller-runtime-context';
 export type { ControllerSubmit } from '../../../../shared/controller/hook/use-submit';
 
 export const useSubmit = <TController>(controllerToken: DependencyToken<TController>) =>
-  useRuntimeSubmit(useControllerRuntime(), controllerToken);
+  useRuntimeSubmit(useControllerRuntime(controllerToken), controllerToken);

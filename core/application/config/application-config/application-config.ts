@@ -1,13 +1,13 @@
 import type { Router } from '../../../router/declaration/router';
-import type { ApplicationFeatureInterface } from '../../feature/application-feature';
+import type { ApplicationFeatureToken } from '../../feature/application-feature';
 import { ApplicationConfiguratorInterface, type ApplicationInitializerDeclaration } from '../application-configurator';
 
 export class ApplicationConfig extends ApplicationConfiguratorInterface {
-  private featuresList: ApplicationFeatureInterface[] = [];
+  private featuresList: ApplicationFeatureToken[] = [];
   private initializersList: ApplicationInitializerDeclaration[] = [];
   private routerDeclaration: Router | null = null;
 
-  get featuresValue(): readonly ApplicationFeatureInterface[] {
+  get featuresValue(): readonly ApplicationFeatureToken[] {
     return this.featuresList;
   }
 
@@ -23,7 +23,7 @@ export class ApplicationConfig extends ApplicationConfiguratorInterface {
     return this.routerDeclaration;
   }
 
-  features(features: readonly ApplicationFeatureInterface[]): void {
+  features(features: readonly ApplicationFeatureToken[]): void {
     this.featuresList = [...features];
   }
 

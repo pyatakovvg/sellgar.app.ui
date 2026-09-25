@@ -38,6 +38,7 @@ export abstract class Application extends CoreApplication<ModuleMetadata, Applic
       createHref: (navigation: NavigationState) => this.createHref(navigation),
       createRenderException: (error: unknown) => this.createRenderException(error),
       failRender: (error: unknown) => this.failRender(error),
+      featuresRuntime: this.getFeaturesRuntime(),
       features: this.reactConfig.featuresValue,
       getLifecycle: () => this.lifecycle,
       getNavigation: () => this.getNavigationSnapshot(),

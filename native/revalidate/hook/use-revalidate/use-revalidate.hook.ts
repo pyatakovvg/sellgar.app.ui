@@ -5,4 +5,4 @@ import { useControllerRuntime } from '../../../controller/runtime/controller-run
 export type { RevalidateHandler } from '../../../../shared/revalidate/hook/use-revalidate';
 
 export const useRevalidate = (controllerToken?: DependencyToken<unknown>) =>
-  useRuntimeRevalidate(useControllerRuntime(), controllerToken);
+  useRuntimeRevalidate(useControllerRuntime(controllerToken), controllerToken);

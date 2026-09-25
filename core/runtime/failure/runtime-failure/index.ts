@@ -4,8 +4,6 @@ export {
   createRuntimeFailureReport,
   propagateRuntimeFailure,
   reportRuntimeFailure,
-  RuntimeFailureReporterInterface,
-  RuntimeFailureSinkInterface,
 } from './runtime-failure.ts';
 export type {
   RuntimeFailure,

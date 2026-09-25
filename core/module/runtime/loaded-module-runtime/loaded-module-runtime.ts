@@ -5,16 +5,13 @@ import type {
   WithPayload,
   WithProps,
 } from '../../../controller/contract/controller';
+import { ApplicationReportDispatcherInterface } from '../../../application/reporting/application-report';
 import { createControllerLoaderData, type ControllerLoaderData } from '../../../controller/data/controller-loader-data';
 import type { DependencyToken } from '../../../di/token/dependency-token';
 import { executeGuardedMethod } from '../../../guard/runtime/guard-method-executor';
 import type { ModuleRuntimeDefinition } from '../../contract/module-runtime-definition';
 import { captureRuntimeFailure } from '../../../runtime/failure/runtime-failure-signal';
-import {
-  reportRuntimeFailure,
-  RuntimeFailureReporterInterface,
-  type RuntimeOwner,
-} from '../../../runtime/failure/runtime-failure';
+import { reportRuntimeFailure, type RuntimeOwner } from '../../../runtime/failure/runtime-failure';
 import { executeRuntimeParticipant } from '../../../runtime/operation/runtime-operation';
 import { ProviderPipeline } from '../../../runtime/provider/provider-pipeline';
 import { ModuleScope } from '../../../runtime/scope/kind/module-scope';
@@ -24,7 +21,7 @@ export type LoadedModuleControllerContext = ControllerArgs<WithParams<Record<str
 export interface LoadedModuleRuntime<TPresentation = unknown> {
   readonly controllers: Map<DependencyToken<unknown>, RuntimeController>;
   readonly definition: ModuleRuntimeDefinition<TPresentation>;
-  readonly failureReporter: RuntimeFailureReporterInterface;
+  readonly reporter: ApplicationReportDispatcherInterface;
   loaderData: ControllerLoaderData;
   readonly owner: RuntimeOwner;
   readonly providerPipeline: ProviderPipeline;
@@ -37,7 +34,7 @@ export const createLoadedModuleRuntime = async <TPresentation>(
   owner: RuntimeOwner,
 ): Promise<LoadedModuleRuntime<TPresentation>> => {
   const controllers = new Map<DependencyToken<unknown>, RuntimeController>();
-  const failureReporter = scope.get(RuntimeFailureReporterInterface);
+  const reporter = scope.get(ApplicationReportDispatcherInterface);
 
   try {
     scope.activate(definition.token, { collectControllerBindings: true });
@@ -53,15 +50,15 @@ export const createLoadedModuleRuntime = async <TPresentation>(
     return {
       controllers,
       definition,
-      failureReporter,
+      reporter,
       loaderData: createControllerLoaderData([]),
       owner,
       providerPipeline: new ProviderPipeline(scope, definition.providers, owner),
       scope,
     };
   } catch (error) {
-    await disposeControllers(controllers, failureReporter, owner);
-    await disposeModuleScope(scope, failureReporter, owner);
+    await disposeControllers(controllers, reporter, owner);
+    await disposeModuleScope(scope, reporter, owner);
     throw error;
   }
 };
@@ -144,9 +141,9 @@ export const executeLoadedModuleAction = async <TPayload>(
 };
 
 export const disposeLoadedModuleRuntime = async (runtime: LoadedModuleRuntime): Promise<void> => {
-  await disposeControllers(runtime.controllers, runtime.failureReporter, runtime.owner);
+  await disposeControllers(runtime.controllers, runtime.reporter, runtime.owner);
   await runtime.providerPipeline.dispose();
-  await disposeModuleScope(runtime.scope, runtime.failureReporter, runtime.owner);
+  await disposeModuleScope(runtime.scope, runtime.reporter, runtime.owner);
 };
 
 const loadControllers = async (
@@ -217,7 +214,7 @@ const throwIfAborted = (signal: AbortSignal, message: string): void => {
 
 const disposeControllers = async (
   controllers: ReadonlyMap<DependencyToken<unknown>, RuntimeController>,
-  failureReporter: RuntimeFailureReporterInterface,
+  reporter: ApplicationReportDispatcherInterface,
   owner: RuntimeOwner,
 ): Promise<void> => {
   const results = await Promise.allSettled(
@@ -227,7 +224,7 @@ const disposeControllers = async (
   await Promise.allSettled(
     results.map((result) => {
       return result.status === 'rejected'
-        ? reportCleanupFailure(failureReporter, owner, result.reason, 'controller.dispose')
+        ? reportCleanupFailure(reporter, owner, result.reason, 'controller.dispose')
         : Promise.resolve();
     }),
   );
@@ -235,24 +232,24 @@ const disposeControllers = async (
 
 const disposeModuleScope = async (
   scope: ModuleScope,
-  failureReporter: RuntimeFailureReporterInterface,
+  reporter: ApplicationReportDispatcherInterface,
   owner: RuntimeOwner,
 ): Promise<void> => {
   try {
     scope.dispose();
   } catch (error) {
-    await reportCleanupFailure(failureReporter, owner, error, 'scope.dispose');
+    await reportCleanupFailure(reporter, owner, error, 'scope.dispose');
   }
 };
 
 const reportCleanupFailure = async (
-  failureReporter: RuntimeFailureReporterInterface,
+  reporter: ApplicationReportDispatcherInterface,
   owner: RuntimeOwner,
   error: unknown,
   operation: string,
 ): Promise<void> => {
   await reportRuntimeFailure(
-    failureReporter,
+    reporter,
     captureRuntimeFailure(error, {
       operation,
       owner,

@@ -1,4 +1,6 @@
 import React from 'react';
+import type { ApplicationFeaturesRuntime } from '../../../../core/application/feature/application-features-runtime';
+import { ApplicationFeaturesHost } from '../../../../shared/application/feature/application-features-host';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -7,11 +9,14 @@ import type {
   ApplicationLifecycleListener,
   ApplicationLifecycleSnapshot,
 } from '../../../../core/application/lifecycle/application-lifecycle';
-import type { ApplicationFeatureInterface } from '../../../../core/application/feature/application-feature';
+import type { ApplicationFeatureToken } from '../../../../core/application/feature/application-feature';
 import type { RouterRuntime } from '../../../../core/router/runtime/router-runtime';
 import type { RuntimeScope } from '../../../../core/runtime/scope/base/runtime-scope';
 import { requireRuntimeException, type RuntimeException } from '../../../../core/runtime/exception/runtime-exception';
-import { renderApplicationFeatures } from '../../feature/application-feature-renderer';
+import {
+  renderApplicationFeatures,
+  wrapApplicationFeatures,
+} from '../../../../shared/application/feature/application-feature-renderer';
 import type { ApplicationComponents } from '../../config/application-configurator';
 import { renderLayouts } from '../../../layout/rendering/layout-renderer';
 import type { LayoutConstructor } from '../../../layout/declaration/layout';
@@ -27,13 +32,14 @@ import { RuntimeScopeProvider } from '../../../runtime/scope/runtime-scope-conte
 import type { ResolvedApplicationRouting } from '../../config/application-configurator';
 import { ApplicationComponentsProvider } from '../application-components-context';
 import { OverlayHost } from '../overlay-host';
-import { PresentationLayer } from '../presentation-layer';
+import { PresentationLayer } from '../../../../shared/application/rendering/presentation-layer';
 
 export interface ApplicationViewSource {
+  readonly featuresRuntime: ApplicationFeaturesRuntime;
   readonly components: ApplicationComponents;
   readonly createRenderException: (error: unknown) => RuntimeException;
   readonly failRender: (error: unknown) => void | Promise<void>;
-  readonly features: readonly ApplicationFeatureInterface[];
+  readonly features: readonly ApplicationFeatureToken[];
   readonly getLifecycle: () => ApplicationLifecycleSnapshot;
   readonly getRouterRuntime: () => RouterRuntime<ModuleMetadata>;
   readonly layouts: readonly LayoutConstructor[];
@@ -102,10 +108,22 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
                 resolveException={props.source.createRenderException}
                 resetKeys={[props.source]}
               >
-                <OverlayHost frame={framePresentation} modal={modalFeatures} notification={notificationFeatures}>
-                  {content}
-                  {applicationFeatures}
-                </OverlayHost>
+                <ApplicationFeaturesHost runtime={props.source.featuresRuntime} fallback={content}>
+                  {wrapApplicationFeatures(
+                    props.source.features,
+                    <RuntimeErrorBoundary
+                      exception={props.source.components.failed ?? props.source.components.exception}
+                      onError={(error) => void props.source.failRender(error)}
+                      resolveException={props.source.createRenderException}
+                      resetKeys={[props.source]}
+                    >
+                      <OverlayHost frame={framePresentation} modal={modalFeatures} notification={notificationFeatures}>
+                        {content}
+                        {applicationFeatures}
+                      </OverlayHost>
+                    </RuntimeErrorBoundary>,
+                  )}
+                </ApplicationFeaturesHost>
               </RuntimeErrorBoundary>
             </SafeAreaProvider>
           </GestureHandlerRootView>

@@ -1,4 +1,5 @@
 import { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
+import { ApplicationReportDispatcherInterface } from '../../../application/reporting/application-report';
 import type { DependencyToken } from '../../../di/token/dependency-token';
 import { NavigationBlockerServiceInterface } from '../../../features/navigation-blocker/contract/navigation-blocker-service';
 import {
@@ -23,7 +24,6 @@ import { PolicyRunner } from '../../../policy/runtime/policy-runner';
 import { getRouteDefinition, type RouteDeclaration, type RouteDefinition } from '../../declaration/route';
 import {
   reportRuntimeFailure,
-  RuntimeFailureReporterInterface,
   type RuntimeFailure,
   type RuntimeFailureDisposition,
   type RuntimeFailureSource,
@@ -418,7 +418,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
 
   reportActionFailure(error: unknown): Promise<void> {
     return reportRuntimeFailure(
-      this.routeScope.get(RuntimeFailureReporterInterface),
+      this.routeScope.get(ApplicationReportDispatcherInterface),
       captureRuntimeFailure(error, this.createRuntimeSource('action')),
       this.owner,
       'action.failed',
@@ -602,7 +602,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
     await this.moduleRuntime?.dispose();
     await this.callbacks.onRenderFailure?.(this, error);
     await reportRuntimeFailure(
-      this.routeScope.get(RuntimeFailureReporterInterface),
+      this.routeScope.get(ApplicationReportDispatcherInterface),
       failure,
       this.owner,
       'route.activation-failed',
@@ -804,7 +804,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
 
   private async reportRouteFailure(error: unknown, operation: string): Promise<void> {
     await reportRuntimeFailure(
-      this.routeScope.get(RuntimeFailureReporterInterface),
+      this.routeScope.get(ApplicationReportDispatcherInterface),
       captureRuntimeFailure(error, {
         operation,
         owner: this.owner,
@@ -818,7 +818,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
 
   private async reportRevalidateFailure(error: unknown): Promise<void> {
     await reportRuntimeFailure(
-      this.routeScope.get(RuntimeFailureReporterInterface),
+      this.routeScope.get(ApplicationReportDispatcherInterface),
       captureRuntimeFailure(error, this.createRuntimeSource('revalidate')),
       this.owner,
       'revalidate.failed',
@@ -831,7 +831,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
       failure.source.owner.kind === 'module' ? 'module.activation-failed' : 'route.activation-failed';
 
     await reportRuntimeFailure(
-      this.routeScope.get(RuntimeFailureReporterInterface),
+      this.routeScope.get(ApplicationReportDispatcherInterface),
       failure,
       this.owner,
       disposition,

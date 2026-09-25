@@ -1,6 +1,7 @@
 import { Inject, Injectable, Optional } from '../../../di/injection/decorators';
+import { ApplicationReportDispatcherInterface } from '../../reporting/application-report';
 import { isHttpException, type HttpException } from '../../../http/exception/http-exception';
-import { reportRuntimeFailure, RuntimeFailureReporterInterface } from '../../../runtime/failure/runtime-failure';
+import { reportRuntimeFailure } from '../../../runtime/failure/runtime-failure';
 import { captureRuntimeFailure } from '../../../runtime/failure/runtime-failure-signal';
 import { createRuntimeInterruption } from '../../../runtime/operation/runtime-interruption';
 import { SessionExpirationNotifierInterface } from '../../session/session-expiration-notifier';
@@ -81,9 +82,9 @@ export class RequestExecutor implements RequestExecutorInterface {
     @Inject(SessionExpirationNotifierInterface)
     @Optional()
     private readonly expirationNotifier?: SessionExpirationNotifierInterface,
-    @Inject(RuntimeFailureReporterInterface)
+    @Inject(ApplicationReportDispatcherInterface)
     @Optional()
-    private readonly reporter?: RuntimeFailureReporterInterface,
+    private readonly reporter?: ApplicationReportDispatcherInterface,
   ) {}
 
   get request(): RequestInterceptorRegistration {

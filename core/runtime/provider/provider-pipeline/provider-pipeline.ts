@@ -1,11 +1,7 @@
 import type { DependencyToken } from '../../../di/token/dependency-token';
+import { ApplicationReportDispatcherInterface } from '../../../application/reporting/application-report';
 import { captureRuntimeFailure, throwRuntimeOperationError } from '../../failure/runtime-failure-signal';
-import {
-  reportRuntimeFailure,
-  RuntimeFailureReporterInterface,
-  type RuntimeFailureSource,
-  type RuntimeOwner,
-} from '../../failure/runtime-failure';
+import { reportRuntimeFailure, type RuntimeFailureSource, type RuntimeOwner } from '../../failure/runtime-failure';
 import type { RuntimeScope } from '../../scope/base/runtime-scope';
 import {
   ProviderScope,
@@ -55,7 +51,7 @@ export class ProviderPipeline<TProps extends object = object> {
   private readonly applicationProviders: ResolvedApplicationProvider<TProps>[];
   private readonly cleanupTasks = new Set<Promise<void>>();
   private readonly initializationCleanups: RetainedProviderResult[] = [];
-  private readonly reporter: RuntimeFailureReporterInterface;
+  private readonly reporter: ApplicationReportDispatcherInterface;
   private readonly runtimeProviders: ResolvedRuntimeProvider<TProps>[];
   private activationCleanups: RetainedProviderResult[] = [];
   private activationPromise: Promise<void> | undefined;
@@ -78,7 +74,7 @@ export class ProviderPipeline<TProps extends object = object> {
 
     this.applicationProviders = resolved.applicationProviders;
     this.runtimeProviders = resolved.runtimeProviders;
-    this.reporter = scope.get(RuntimeFailureReporterInterface);
+    this.reporter = scope.get(ApplicationReportDispatcherInterface);
   }
 
   get size(): number {

@@ -1,10 +1,13 @@
 import React from 'react';
 
-import { ApplicationFeatureInterface } from '../../../../core/application/feature/application-feature';
+import type {
+  ApplicationFeatureInterface,
+  ApplicationFeatureToken,
+} from '../../../../core/application/feature/application-feature';
+import { Feature } from '../../../../shared/application/feature/application-feature';
 import { UseBindings } from '../../../../core/di/composition/use-bindings';
 import { NotificationBindings } from '../../../../core/features/notification/binding/notification-bindings';
-import { configureApplicationFeatureRenderer } from '../../../application/feature/application-feature-renderer';
-import { PresentationLayer } from '../../../application/rendering/presentation-layer';
+import { PresentationLayer } from '../../../../shared/application/rendering/presentation-layer';
 import type { NotificationPresentation } from '../declaration/notification-presentation';
 import { NotificationLayer } from '../presentation/notification-layer';
 
@@ -12,16 +15,19 @@ export interface NotificationFeatureOptions {
   readonly presentation: NotificationPresentation;
 }
 
-@UseBindings(NotificationBindings)
-export class NotificationFeature extends ApplicationFeatureInterface {
-  private constructor(options: NotificationFeatureOptions) {
-    super();
-    configureApplicationFeatureRenderer(this, PresentationLayer.Notification, () => (
-      <NotificationLayer presentation={options.presentation} />
-    ));
-  }
+export class NotificationFeature {
+  private constructor() {}
 
-  static configure(options: NotificationFeatureOptions): NotificationFeature {
-    return new NotificationFeature(options);
+  static configure(options: NotificationFeatureOptions): ApplicationFeatureToken {
+    @UseBindings(NotificationBindings)
+    @Feature({
+      presentation: {
+        layer: PresentationLayer.Notification,
+        view: <NotificationLayer presentation={options.presentation} />,
+      },
+    })
+    class ConfiguredNotificationFeature implements ApplicationFeatureInterface {}
+
+    return ConfiguredNotificationFeature;
   }
 }

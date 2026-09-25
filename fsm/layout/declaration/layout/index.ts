@@ -1,0 +1,2 @@
+export { getLayoutMetadata, isLayoutConstructor, Layout } from './layout.decorator.ts';
+export type { LayoutConstructor, LayoutMetadata, LayoutViewProps } from './layout.decorator.ts';

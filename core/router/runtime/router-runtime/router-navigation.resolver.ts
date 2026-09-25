@@ -66,6 +66,16 @@ export const resolveNavigationCandidates = (
   };
   const root = validateRouterState(navigation.root, rootRouter, null, context);
 
+  if (navigation.boundary !== null) {
+    return Object.freeze([
+      Object.freeze({
+        navigation: freezeNavigation({ ...navigation, root: toNavigationRouterState(root) }),
+        probeCanMatch: false,
+        target: toRouterTarget(root),
+      }),
+    ]);
+  }
+
   return Object.freeze(
     expandRouterState(root, context, false, false).map((expansion) => {
       const resolvedNavigation = freezeNavigation({

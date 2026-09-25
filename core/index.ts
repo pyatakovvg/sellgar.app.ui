@@ -1,4 +1,11 @@
-export { ApplicationFeatureInterface } from './application/feature/application-feature';
+export { Feature } from './application/feature/application-feature';
+export type {
+  ApplicationFeatureCleanup,
+  ApplicationFeatureInitializeContextInterface,
+  ApplicationFeatureInterface,
+  ApplicationFeatureResult,
+  ApplicationFeatureToken,
+} from './application/feature/application-feature';
 export { ApplicationEventBusInterface } from './application/event/application-event-bus';
 export {
   ApplicationEventHandlerInterface,
@@ -54,6 +61,16 @@ export {
 } from './application/session/session-expiration-notifier';
 export { ApplicationStoreInterface } from './application/store/application-store';
 export type { ApplicationStoreClassKey } from './application/store/application-store';
+export { ApplicationReporterInterface } from './application/reporting/application-report';
+export type {
+  ApplicationErrorReportInput,
+  ApplicationReport,
+  ApplicationReportHandlerInterface,
+  ApplicationReportInput,
+  ApplicationReportLevel,
+  ApplicationReporterDeclaration,
+} from './application/reporting/application-report';
+export { Reporter } from './application/reporting/reporter';
 
 export { Controller } from './controller/contract/controller';
 export type {
@@ -154,7 +171,6 @@ export type {
   RuntimeExceptionRecovery,
   RuntimeExceptionRecoveryAction,
 } from './runtime/exception/runtime-exception';
-export { RuntimeFailureSinkInterface } from './runtime/failure/runtime-failure';
 export type {
   RuntimeFailure,
   RuntimeFailureDisposition,

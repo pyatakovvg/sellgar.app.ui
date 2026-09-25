@@ -29,8 +29,9 @@ sellgar.app.ui/
         application/
         application-lifecycle/
       reporting/
-        console-runtime-failure-sink/
-        runtime-failure-reporter/
+        application-report/
+        application-reporter/
+        reporter/
       request/
         request-executor/
       session/
@@ -585,17 +586,27 @@ presentation для retained target. Query не входит в screen identity,
 params входят. Физической анимацией управляет `ScreenRuntime/ScreenMachine`
 через Reanimated, а не React Navigation. Внутренний `shared/` владеет общими
 React controller/guard bindings; экземпляры renderer contexts раздельны.
-Пустой `fsm` entrypoint удалён до появления реального публичного API.
+`fsm` entrypoint повторно использует core lifecycle и React rendering, но имеет
+собственные `Application`, `Module`, `Layout`, `Router`, `Route` и rendering
+hosts. Он не содержит browser bridge, URL/history API, navigation controls,
+navigation blocker и вложенный browser-routing слой. Готовый `RouterBridge`
+передаётся конкретному FSM Application извне; источник snapshots и transport не
+являются частью текущего entrypoint.
 
 | Import                | Файл              |
 | --------------------- | ----------------- |
 | `@sellgar/app`        | `core/index.ts`   |
 | `@sellgar/app/react`  | `react/index.ts`  |
 | `@sellgar/app/native` | `native/index.ts` |
+| `@sellgar/app/fsm`    | `fsm/index.ts`    |
 
 Доступность определяется только `package.json#exports`. Deep imports запрещены.
 Core не зависит от renderer entrypoints; renderer entrypoint использует core и
 добавляет только platform-specific facade и bridge integration.
-Renderer packages объявлены optional peer dependencies и нужны только consumer,
-который импортирует соответствующий renderer entrypoint. `tsconfig.core.json`
+Внешняя среда renderer-ов объявлена optional peer dependencies и нужна consumer,
+который импортирует соответствующий renderer entrypoint. Внутренние `mobx-react`
+и `react-error-boundary` устанавливаются как dependencies фреймворка.
+`@floating-ui/react` остаётся optional web peer, чтобы не требовать React DOM
+при подключении native. Инструменты разработки предоставляет монорепа;
+`devDependencies` в пакете отсутствуют. `tsconfig.core.json`
 отдельно компилирует `core/index.ts` без ambient renderer types.

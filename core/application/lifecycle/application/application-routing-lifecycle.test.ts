@@ -394,6 +394,7 @@ describe('Application routing lifecycle', () => {
   });
 
   it('restarts a released ModuleRuntime on Back when the renderer does not retain runtimes', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const firstLoad = vi.fn(loadTestModule);
     const secondLoad = vi.fn(loadTestModule);
     const router = new Router({
@@ -419,6 +420,28 @@ describe('Application routing lifecycle', () => {
     expect(secondLoad).toHaveBeenCalledOnce();
 
     await app.dispose();
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it.each(['release', 'retain'] as const)('cleans nested route branches once with %s retention', async (retention) => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const app = await createApplication(
+      createBranchRouter(),
+      (navigate) => navigate.through(WorkspaceRoute, { params: { workspaceId: 'workspace-1' } }).to(FirstRoute),
+      retention,
+    );
+    const runtimes = app.activeRoutes;
+    const disposals = runtimes.map((runtime) => vi.spyOn(runtime, 'dispose'));
+
+    await app.navigate.to(OtherRoute, { replace: true });
+
+    for (const runtime of runtimes) expect(runtime.getSnapshot().phase).toBe('disposed');
+    for (const dispose of disposals) expect(dispose).toHaveBeenCalledOnce();
+
+    await app.dispose();
+
+    for (const dispose of disposals) expect(dispose).toHaveBeenCalledOnce();
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it('keeps the active owner ModuleRuntime while a released frame is opened and closed', async () => {

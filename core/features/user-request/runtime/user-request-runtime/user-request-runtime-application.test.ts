@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ApplicationConfig } from '../../../../application/config/application-config';
 import type { ApplicationConfiguratorInterface } from '../../../../application/config/application-configurator';
-import { ApplicationFeatureInterface } from '../../../../application/feature/application-feature';
+import { Feature, type ApplicationFeatureInterface } from '../../../../application/feature/application-feature';
 import { Application } from '../../../../application/lifecycle/application';
 import { UseBindings } from '../../../../di/composition/use-bindings';
 import { createModuleRuntimeDefinition } from '../../../../module/contract/module-runtime-definition';
@@ -33,7 +33,8 @@ const router = new Router({
 });
 
 @UseBindings(UserRequestBindings)
-class TestUserRequestFeature extends ApplicationFeatureInterface {}
+@Feature()
+class TestUserRequestFeature implements ApplicationFeatureInterface {}
 
 class TestModuleExportResolver implements ModuleExportResolverInterface<null> {
   resolve() {
@@ -78,7 +79,7 @@ class TestApplication extends Application<null> {
   }
 
   protected configure(app: ApplicationConfiguratorInterface): void {
-    app.features([new TestUserRequestFeature()]);
+    app.features([TestUserRequestFeature]);
     app.router(router);
   }
 }

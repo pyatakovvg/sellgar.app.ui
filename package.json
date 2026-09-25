@@ -12,60 +12,37 @@
     "typecheck:core": "tsc -p tsconfig.core.json"
   },
   "dependencies": {
-    "class-transformer": "0.5.1",
-    "class-validator": "0.15.1",
-    "classnames": "2.5.1",
     "inversify": "8.2.3",
     "mobx": "6.16.1",
-    "reflect-metadata": "0.2.2"
-  },
-  "devDependencies": {
-    "@babel/core": "8.0.5",
-    "@floating-ui/react": "0.27.20",
-    "@react-native/metro-config": "0.87.1",
-    "@types/react": "19.3.0",
-    "@types/react-dom": "19.3.0",
     "mobx-react": "9.2.2",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "react-error-boundary": "6.1.5",
-    "react-native": "0.87.1",
-    "react-native-gesture-handler": "3.3.0",
-    "react-native-keyboard-controller": "1.22.5",
-    "react-native-reanimated": "4.6.0",
-    "react-native-safe-area-context": "5.10.0",
-    "react-native-screens": "4.28.0",
-    "react-native-worklets": "0.12.2",
-    "typescript": "7.0.2"
+    "react-error-boundary": "6.1.6"
   },
   "peerDependencies": {
     "@floating-ui/react": "^0.27.0",
-    "mobx-react": "^9.0.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "classnames": "^2.5.1",
     "react": "^19.2.0",
     "react-dom": "^19.0.0",
-    "react-error-boundary": "^6.0.0",
     "react-native": ">=0.86.0 <1.0.0",
     "react-native-gesture-handler": "^3.2.0",
     "react-native-keyboard-controller": "^1.22.0",
-    "react-native-reanimated": "~4.6.0",
+    "react-native-reanimated": "~4.7.0",
     "react-native-safe-area-context": "^5.8.0",
-    "react-native-screens": "^4.26.0",
-    "react-native-worklets": "~0.12.0"
+    "react-native-worklets": "~0.13.0",
+    "reflect-metadata": "^0.2.2"
   },
   "peerDependenciesMeta": {
     "@floating-ui/react": {
       "optional": true
     },
-    "mobx-react": {
+    "classnames": {
       "optional": true
     },
     "react": {
       "optional": true
     },
     "react-dom": {
-      "optional": true
-    },
-    "react-error-boundary": {
       "optional": true
     },
     "react-native": {
@@ -81,9 +58,6 @@
       "optional": true
     },
     "react-native-safe-area-context": {
-      "optional": true
-    },
-    "react-native-screens": {
       "optional": true
     },
     "react-native-worklets": {

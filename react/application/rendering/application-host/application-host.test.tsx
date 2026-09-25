@@ -1,16 +1,17 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
+import { ApplicationFeaturesRuntime } from '../../../../core/application/feature/application-features-runtime';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { RouterRuntime } from '../../../../core/router/runtime/router-runtime';
+import type { ApplicationFeatureInterface } from '../../../../core/application/feature/application-feature';
 import { ApplicationScope } from '../../../../core/runtime/scope/kind/application-scope';
-import { ApplicationFeatureInterface } from '../../../../core/application/feature/application-feature';
+import { Feature } from '../../../../shared/application/feature/application-feature';
 import { createRuntimeFailure } from '../../../../core/runtime/failure/runtime-failure';
 import { createRuntimeException } from '../../../../core/runtime/exception/runtime-exception';
-import { configureApplicationFeatureRenderer } from '../../feature/application-feature-renderer';
 import { Layout, type LayoutViewProps } from '../../../layout/declaration/layout';
 import type { ModuleMetadata } from '../../../module/declaration/module';
-import { PresentationLayer } from '../presentation-layer';
+import { PresentationLayer } from '../../../../shared/application/rendering/presentation-layer';
 import { ApplicationHost, type ApplicationViewSource } from './application-host.tsx';
 
 describe('ApplicationHost', () => {
@@ -39,7 +40,9 @@ describe('ApplicationHost', () => {
     } as unknown as RouterRuntime<ModuleMetadata>;
     const lifecycle = { exception: null, phase: 'ready' as const };
     const navigation = { decision: null, navigation: undefined, pending: null };
+    const scope = new ApplicationScope();
     const source: ApplicationViewSource = {
+      featuresRuntime: new ApplicationFeaturesRuntime(scope, [], []),
       components: { failed: <div>application failed</div> },
       createHref: () => '/',
       createRenderException: (cause) => createApplicationRenderException(cause),
@@ -50,7 +53,7 @@ describe('ApplicationHost', () => {
       layouts: [BrokenLayout],
       routerRuntime,
       routing: null,
-      scope: new ApplicationScope(),
+      scope,
       subscribeLifecycle: () => () => undefined,
       subscribeNavigation: () => () => undefined,
     };
@@ -66,13 +69,11 @@ describe('ApplicationHost', () => {
     const error = new Error('application feature failed');
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const failRender = vi.fn(async () => undefined);
-    class FixtureFeature extends ApplicationFeatureInterface {}
-
-    const feature = new FixtureFeature();
-
-    configureApplicationFeatureRenderer(feature, PresentationLayer.Application, () => {
+    const BrokenPresentation: React.FC = () => {
       throw error;
-    });
+    };
+    @Feature({ presentation: { layer: PresentationLayer.Application, view: <BrokenPresentation /> } })
+    class FixtureFeature implements ApplicationFeatureInterface {}
 
     const routerRuntime = {
       getBranchSnapshot: () => ({
@@ -88,18 +89,20 @@ describe('ApplicationHost', () => {
     } as unknown as RouterRuntime<ModuleMetadata>;
     const lifecycle = { exception: null, phase: 'ready' as const };
     const navigation = { decision: null, navigation: undefined, pending: null };
+    const scope = new ApplicationScope();
     const source: ApplicationViewSource = {
+      featuresRuntime: new ApplicationFeaturesRuntime(scope, [], []),
       components: { failed: <div>application failed</div> },
       createHref: () => '/',
       createRenderException: (cause) => createApplicationRenderException(cause),
       failRender,
-      features: [feature],
+      features: [FixtureFeature],
       getLifecycle: () => lifecycle,
       getNavigation: () => navigation,
       layouts: [],
       routerRuntime,
       routing: null,
-      scope: new ApplicationScope(),
+      scope,
       subscribeLifecycle: () => () => undefined,
       subscribeNavigation: () => () => undefined,
     };

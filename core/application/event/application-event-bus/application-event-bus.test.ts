@@ -3,9 +3,9 @@ import 'reflect-metadata';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DisposableRegistry } from '../../disposable/disposable-registry';
+import { ApplicationReportDispatcherInterface } from '../../reporting/application-report';
 import { Injectable } from '../../../di/injection/decorators';
 import { UseBindings } from '../../../di/composition/use-bindings';
-import { RuntimeFailureReporterInterface } from '../../../runtime/failure/runtime-failure';
 import type { RuntimeFailureReport } from '../../../runtime/failure/runtime-failure';
 import { ApplicationScope } from '../../../runtime/scope/kind/application-scope';
 import { ApplicationEventHandlerInterface } from '../application-event';
@@ -142,7 +142,7 @@ describe('ApplicationEventBus', () => {
     );
   });
 
-  it('keeps publish best-effort when the failure reporter fails', async () => {
+  it('keeps publish best-effort when the application reporter fails', async () => {
     const consoleError = vi.spyOn(globalThis.console, 'error').mockImplementation(() => undefined);
     const { bus } = createBus(() => {
       throw new Error('Reporter завершился с ошибкой.');
@@ -153,14 +153,14 @@ describe('ApplicationEventBus', () => {
     });
 
     await expect(bus.publish(ProfileResolvedEvent, createProfileResolvedEvent('profile:1'))).resolves.toBeUndefined();
-    expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({ failedRuntimeFailureReporter: true }));
+    expect(consoleError).toHaveBeenCalledWith(expect.objectContaining({ failedApplicationReporter: true }));
 
     consoleError.mockRestore();
   });
 
   it('clears subscriptions through application disposables', async () => {
     const disposables = new DisposableRegistry();
-    const bus = new ApplicationEventBus(new TestRuntimeFailureReporter(), disposables);
+    const bus = new ApplicationEventBus(new TestApplicationReportDispatcher(), disposables);
     const handler = vi.fn<() => void>();
 
     bus.subscribe(ProfileResolvedEvent, handler);
@@ -197,15 +197,15 @@ class TestApplicationEventHandler implements ApplicationEventHandlerInterface<Pr
   }
 }
 
-class TestRuntimeFailureReporter implements RuntimeFailureReporterInterface {
+class TestApplicationReportDispatcher implements ApplicationReportDispatcherInterface {
   readonly reportMock;
 
   constructor(handler: (report: RuntimeFailureReport) => void | Promise<void> = () => undefined) {
     this.reportMock = vi.fn((report: RuntimeFailureReport) => handler(report));
   }
 
-  report(report: RuntimeFailureReport): void | Promise<void> {
-    return this.reportMock(report);
+  async report(report: RuntimeFailureReport): Promise<void> {
+    await this.reportMock(report);
   }
 }
 
@@ -213,9 +213,9 @@ const createBus = (
   report: (report: RuntimeFailureReport) => void | Promise<void> = () => undefined,
 ): {
   readonly bus: ApplicationEventBus;
-  readonly reporter: TestRuntimeFailureReporter;
+  readonly reporter: TestApplicationReportDispatcher;
 } => {
-  const reporter = new TestRuntimeFailureReporter(report);
+  const reporter = new TestApplicationReportDispatcher(report);
 
   return {
     bus: new ApplicationEventBus(reporter, new DisposableRegistry()),

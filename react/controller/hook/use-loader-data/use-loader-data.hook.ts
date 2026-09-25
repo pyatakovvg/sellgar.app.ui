@@ -7,7 +7,7 @@ import { useControllerRuntime } from '../../runtime/controller-runtime-context';
 export const useLoaderData = <TController>(
   controllerToken: DependencyToken<TController>,
 ): ControllerLoaderResult<TController> => {
-  const runtime = useControllerRuntime();
+  const runtime = useControllerRuntime(controllerToken);
 
   return React.useSyncExternalStore(
     React.useCallback((listener) => runtime.subscribe(listener), [runtime]),

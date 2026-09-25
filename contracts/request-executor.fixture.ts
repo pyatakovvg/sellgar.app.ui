@@ -55,10 +55,8 @@ export function verifyRequestExecutorContract(executor: RequestExecutorInterface
 
   executor.request
     .use((config) => ({ ...config, accessToken: 'example' }))
-    .request.use(
-      // @ts-expect-error A later transformation must preserve fields promised by the previous stage.
-      ({ signal, options }) => ({ signal, options }),
-    );
+    // @ts-expect-error A later transformation must preserve fields promised by the previous stage.
+    .request.use(({ signal, options }) => ({ signal, options }));
 
   return { configured, direct, responseOnly, typed, recovered };
 }
