@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { RouterBridgeInitializeContextInterface } from '../../../../core/router/bridge/router-bridge';
-import {
+import type {
   FsmSnapshotSourceInterface,
-  type FsmSnapshotSourceListener,
-  type FsmSnapshotSourceSubscription,
+  FsmSnapshotSourceListener,
+  FsmSnapshotSourceSubscription,
 } from '../../source/fsm-snapshot-source';
 import { createFsmRouterBridge } from './fsm-router-bridge.ts';
 
@@ -173,7 +173,7 @@ describe('FsmRouterBridge', () => {
   });
 });
 
-class TestFsmSnapshotSource extends FsmSnapshotSourceInterface<TestSnapshot> {
+class TestFsmSnapshotSource implements FsmSnapshotSourceInterface<TestSnapshot> {
   readonly dispose = vi.fn(async () => undefined);
 
   private listener: FsmSnapshotSourceListener<TestSnapshot> | null = null;

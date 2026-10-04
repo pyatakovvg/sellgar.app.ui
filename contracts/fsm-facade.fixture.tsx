@@ -25,7 +25,30 @@ import {
   State,
   ScreenServiceInterface,
   SnapshotServiceInterface,
+  FsmSnapshotSourceInterface,
+  type FsmSnapshotSourceListener,
+  type FsmSnapshotSourceSubscription,
+  createFsmRouterBridge,
 } from '../fsm/index.ts';
+
+interface FixtureSnapshot {
+  readonly screen: string;
+}
+
+class InheritedSnapshotSource extends FsmSnapshotSourceInterface<FixtureSnapshot> {
+  subscribe(_listener: FsmSnapshotSourceListener<FixtureSnapshot>): FsmSnapshotSourceSubscription {
+    return { dispose: async () => undefined };
+  }
+}
+
+class StructuralSnapshotSource implements FsmSnapshotSourceInterface<FixtureSnapshot> {
+  subscribe(_listener: FsmSnapshotSourceListener<FixtureSnapshot>): FsmSnapshotSourceSubscription {
+    return { dispose: async () => undefined };
+  }
+}
+
+createFsmRouterBridge({ routingKey: 'screen', source: new InheritedSnapshotSource() });
+createFsmRouterBridge({ routingKey: 'screen', source: new StructuralSnapshotSource() });
 
 class InitialScreenRoute {}
 

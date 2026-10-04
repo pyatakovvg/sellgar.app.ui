@@ -106,9 +106,15 @@ lifecycle.
 адаптер получает snapshot class в конструкторе, создаёт экземпляр и валидирует raw
 payload до публикации RouterBridge.
 
-`SignalRFsmSnapshotSource` — адаптер между этим port и demand-driven
-`@library/signal-r`. Reconnect, transport errors и физический lifecycle соединения
-остаются в transport-пакете; валидация payload и публикация snapshot — в адаптере.
+`FsmSnapshotSourceInterface` остаётся экспортируемым абстрактным классом:
+существующие consumers могут использовать `extends`, а source без наследования —
+`implements` и type-only import. RouterBridge получает готовый экземпляр source
+и не требует наследования или регистрации source в DI.
+
+`SignalRSnapshotSource` из `@source/signal-r` — конкретный source поверх
+demand-driven `@library/signal-r`. Reconnect, transport errors и физический
+lifecycle соединения остаются в transport-пакете; получение raw payload,
+создание и валидация snapshot перед публикацией принадлежат source.
 
 ## Связь Application и Router
 
@@ -173,11 +179,11 @@ initializing.
 - FSM `Module`, `Layout`, `Router` и `Route`;
 - универсальный subscription-only FSM snapshot source port и RouterBridge с настраиваемым
   выбором адреса;
-- demand-driven `@library/signal-r` и адаптер `@library/fsm-signal-r`;
+- demand-driven `@library/signal-r` и конкретный source `@source/signal-r`;
 - application-owned `FsmSnapshot` с runtime-валидацией полей первого уровня;
 - lazy Module resolution и route/module rendering;
 - compile-time facade fixture и runtime-тесты базовой композиции;
-- запускаемый `clients/fsm` с прямым bootstrap, SignalR source,
+- запускаемый `clients/customer` с прямым bootstrap, SignalR source,
   `FsmApplication` и route tree;
 - прикладные `modules/customer/splash` и `modules/customer/welcome`,
   переведённые на FSM-срез в существующих пакетах.

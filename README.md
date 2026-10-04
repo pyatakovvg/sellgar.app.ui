@@ -39,11 +39,19 @@ Native JS-тесты не доказывают корректность жест
 
 - `core/` → `@sellgar/app`;
 - `react/` → `@sellgar/app/react`;
-- `native/` → `@sellgar/app/native`.
+- `native/` → `@sellgar/app/native`;
+- `fsm/` → `@sellgar/app/fsm`.
 
 `shared/` содержит внутренние общие React bindings двух renderers, но не является
 публичным entrypoint. Контексты renderer-ов остаются раздельными; core не зависит
 ни от React, ни от этого shared-слоя.
+
+FSM entrypoint использует общий core и React rendering, но не экспортирует
+browser navigation API. Его `Application` получает `RouterBridge`, а `Router`
+и `Route` разрешают адрес из snapshot в lazy Module. Источник snapshots передаётся
+через `FsmSnapshotSourceInterface`; конкретный transport, валидация snapshot и
+его state/command модели принадлежат приложению. Контракт описан в
+[FSM Application и Router RFC](docs/rfc/fsm-application-and-router.md).
 
 Native entrypoint повторяет публичные framework-понятия React facade:
 `Application`, configurator, `Module`, `Layout`, `Widget`, renderer features,
