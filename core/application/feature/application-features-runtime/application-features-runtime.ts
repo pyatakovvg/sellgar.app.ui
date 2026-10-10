@@ -2,18 +2,18 @@ import type {
   ApplicationFeatureCleanup,
   ApplicationFeatureInterface,
   ApplicationFeatureToken,
-} from '../application-feature/index.ts';
+} from '../application-feature';
 import {
   ControllerOwnerRuntime,
   type ControllerOwnerRuntimeLoadOptions,
-} from '../../../runtime/controller/controller-owner-runtime/index.ts';
-import { ApplicationReportDispatcherInterface } from '../../reporting/application-report/index.ts';
-import type { ApplicationScope } from '../../../runtime/scope/kind/application-scope/index.ts';
-import type { DependencyToken } from '../../../di/token/dependency-token/index.ts';
-import { RuntimeRevalidateService } from '../../../revalidate/runtime/revalidate-service/index.ts';
-import { executeRuntimeParticipant } from '../../../runtime/operation/runtime-operation/index.ts';
-import { captureRuntimeFailure } from '../../../runtime/failure/runtime-failure-signal/index.ts';
-import { reportRuntimeFailure, type RuntimeFailureSource } from '../../../runtime/failure/runtime-failure/index.ts';
+} from '../../../runtime/controller/controller-owner-runtime';
+import { ApplicationReportDispatcherInterface } from '../../reporting/application-report';
+import type { ApplicationScope } from '../../../runtime/scope/kind/application-scope';
+import type { DependencyToken } from '../../../di/token/dependency-token';
+import { RuntimeRevalidateService } from '../../../revalidate/runtime/revalidate-service';
+import { executeRuntimeParticipant } from '../../../runtime/operation/runtime-operation';
+import { captureRuntimeFailure } from '../../../runtime/failure/runtime-failure-signal';
+import { reportRuntimeFailure, type RuntimeFailureSource } from '../../../runtime/failure/runtime-failure';
 
 interface ApplicationFeatureRuntimeEntry {
   readonly instance: ApplicationFeatureInterface;

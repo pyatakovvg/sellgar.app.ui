@@ -7,6 +7,7 @@ import type {
 import type { NavigationBlockerBoundary } from './navigation-blocker-boundary.ts';
 
 export interface NavigationBlockerDecisionSnapshot {
+  readonly inProcess: boolean;
   readonly registrationIdentities: readonly NavigationBlockerRegistrationIdentity[];
 }
 
@@ -26,7 +27,7 @@ export abstract class NavigationBlockerRuntimeInterface {
 
   abstract hasAcceptedDecision(): boolean;
 
-  abstract leave(): void;
+  abstract leave(): Promise<void>;
 
   abstract register(
     boundary: NavigationBlockerBoundary,
@@ -36,7 +37,7 @@ export abstract class NavigationBlockerRuntimeInterface {
 
   abstract shouldBlockUnload(): boolean;
 
-  abstract stay(): void;
+  abstract stay(): Promise<void>;
 
   abstract subscribe(listener: NavigationBlockerRuntimeListener): () => void;
 }

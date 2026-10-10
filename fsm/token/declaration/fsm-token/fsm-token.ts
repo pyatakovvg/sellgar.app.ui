@@ -20,21 +20,27 @@ const STATE = Symbol('fsm:state');
 const COMMANDS = Symbol('fsm:commands');
 const COMMAND = Symbol('fsm:command');
 
-export const State = (model: FsmModelConstructor): PropertyDecorator => (target, property) => {
-  if (property !== 'state') throw new Error('@State должен описывать поле state.');
-  Reflect.defineMetadata(STATE, model, target.constructor);
-};
+export const State =
+  (model: FsmModelConstructor): PropertyDecorator =>
+  (target, property) => {
+    if (property !== 'state') throw new Error('@State должен описывать поле state.');
+    Reflect.defineMetadata(STATE, model, target.constructor);
+  };
 
-export const Commands = (model: FsmModelConstructor): PropertyDecorator => (target, property) => {
-  if (property !== 'commands') throw new Error('@Commands должен описывать поле commands.');
-  Reflect.defineMetadata(COMMANDS, model, target.constructor);
-};
+export const Commands =
+  (model: FsmModelConstructor): PropertyDecorator =>
+  (target, property) => {
+    if (property !== 'commands') throw new Error('@Commands должен описывать поле commands.');
+    Reflect.defineMetadata(COMMANDS, model, target.constructor);
+  };
 
-export const Command = (model: FsmModelConstructor): PropertyDecorator => (target, property) => {
-  const metadata = new Map<string | symbol, FsmModelConstructor>(Reflect.getMetadata(COMMAND, target.constructor));
-  metadata.set(property, model);
-  Reflect.defineMetadata(COMMAND, metadata, target.constructor);
-};
+export const Command =
+  (model: FsmModelConstructor): PropertyDecorator =>
+  (target, property) => {
+    const metadata = new Map<string | symbol, FsmModelConstructor>(Reflect.getMetadata(COMMAND, target.constructor));
+    metadata.set(property, model);
+    Reflect.defineMetadata(COMMAND, metadata, target.constructor);
+  };
 
 export const getFsmTokenMetadata = (token: FsmToken): FsmTokenMetadata => {
   const state = Reflect.getMetadata(STATE, token) as FsmModelConstructor | undefined;

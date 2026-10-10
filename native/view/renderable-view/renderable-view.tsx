@@ -8,8 +8,7 @@ export type NativeViewElement<TProps extends object = Record<string, never>> = R
 >;
 
 export type RenderableView<TProps extends object = Record<string, never>> =
-  | NativeViewComponent<TProps>
-  | NativeViewElement<TProps>;
+  NativeViewComponent<TProps> | NativeViewElement<TProps>;
 
 export const renderView = <TProps extends object>(view: RenderableView<TProps>, props: TProps): React.ReactNode => {
   if (React.isValidElement(view)) {

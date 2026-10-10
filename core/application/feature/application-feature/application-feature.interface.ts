@@ -1,4 +1,4 @@
-import type { DependencyConstructor } from '../../../di/binding/binding-builder/index.ts';
+import type { DependencyConstructor } from '../../../di/binding/binding-builder';
 
 export interface ApplicationFeatureInitializeContextInterface {
   readonly signal: AbortSignal;

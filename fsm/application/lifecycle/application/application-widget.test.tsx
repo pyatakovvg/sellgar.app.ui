@@ -26,7 +26,7 @@ import {
   useLoaderData,
   type ApplicationConfiguratorInterface,
   type FsmSnapshotSourceListener,
-} from '../../../index';
+} from '../../..';
 
 describe('FSM application widget preload', () => {
   it('holds startup splash until a module-owned widget is ready and reuses it when rendered', async () => {

@@ -72,6 +72,33 @@ describe('NavigationBlockerRuntime', () => {
     expect(runtime.hasAcceptedDecision()).toBe(false);
   });
 
+  it('keeps the decision in process until an asynchronous stay handler completes', async () => {
+    const runtime = new NavigationBlockerRuntime();
+    const boundary = createNavigationBlockerBoundary();
+    let completeHandler!: () => void;
+    const handler = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          completeHandler = resolve;
+        }),
+    );
+
+    runtime.register(boundary, () => true, { onStay: handler });
+    const confirmation = runtime.confirm([boundary], new AbortController().signal);
+    const staying = runtime.stay();
+
+    expect(runtime.getSnapshot()?.inProcess).toBe(true);
+
+    await runtime.stay();
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    completeHandler();
+    await staying;
+
+    await expect(confirmation).resolves.toBe(false);
+    expect(runtime.getSnapshot()).toBeNull();
+  });
+
   it('cancels a pending decision when its navigation signal is aborted', async () => {
     const runtime = new NavigationBlockerRuntime();
     const boundary = createNavigationBlockerBoundary();

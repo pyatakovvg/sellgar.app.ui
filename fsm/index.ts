@@ -56,3 +56,4 @@ export { CommandsServiceInterface } from './service/commands-service';
 export type { ScreenContext } from './service/screen-service';
 export { FsmTransportInterface } from './transport/contract/fsm-transport';
 export { Feature, type ApplicationFeatureOptions } from '../shared/application/feature/application-feature';
+export { useMetric } from './application/metric/hook/use-metric';

@@ -1,4 +1,4 @@
-# Структура `@sellgar/app`
+# Структура `@tiyn/app`
 
 - Статус документа: target
 - Статус реализации: in-progress
@@ -593,12 +593,12 @@ navigation blocker и вложенный browser-routing слой. Готовы�
 передаётся конкретному FSM Application извне; источник snapshots и transport не
 являются частью текущего entrypoint.
 
-| Import                | Файл              |
-| --------------------- | ----------------- |
-| `@sellgar/app`        | `core/index.ts`   |
-| `@sellgar/app/react`  | `react/index.ts`  |
-| `@sellgar/app/native` | `native/index.ts` |
-| `@sellgar/app/fsm`    | `fsm/index.ts`    |
+| Import             | Файл              |
+| ------------------ | ----------------- |
+| `@tiyn/app`        | `core/index.ts`   |
+| `@tiyn/app/react`  | `react/index.ts`  |
+| `@tiyn/app/native` | `native/index.ts` |
+| `@tiyn/app/fsm`    | `fsm/index.ts`    |
 
 Доступность определяется только `package.json#exports`. Deep imports запрещены.
 Core не зависит от renderer entrypoints; renderer entrypoint использует core и

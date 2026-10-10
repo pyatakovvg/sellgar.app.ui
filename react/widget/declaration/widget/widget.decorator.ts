@@ -9,7 +9,7 @@ import {
 import type { ProviderToken } from '../../../../core/runtime/provider/provider-token';
 import type { RenderableView } from '../../../view/renderable-view';
 
-const WIDGET_METADATA_KEY = Symbol('@sellgar/app:react:widget:metadata');
+const WIDGET_METADATA_KEY = Symbol('@tiyn/app:react:widget:metadata');
 
 export interface WidgetMetadata<TProps extends object = object> {
   readonly exception?: React.ReactNode;

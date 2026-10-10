@@ -28,21 +28,13 @@ export const UserRequestLayer: React.FC<IProps> = (props) => {
     const View = props.presentation.resolve('alert');
 
     content = (
-      <View
-        request={request}
-        apply={() => runtime.apply(request.id)}
-        cancel={() => runtime.cancel(request.id)}
-      />
+      <View request={request} apply={() => runtime.apply(request.id)} cancel={() => runtime.cancel(request.id)} />
     );
   } else if (request.kind === 'confirm') {
     const View = props.presentation.resolve('confirm');
 
     content = (
-      <View
-        request={request}
-        apply={() => runtime.apply(request.id)}
-        cancel={() => runtime.cancel(request.id)}
-      />
+      <View request={request} apply={() => runtime.apply(request.id)} cancel={() => runtime.cancel(request.id)} />
     );
   } else {
     const View = props.presentation.resolve('prompt');

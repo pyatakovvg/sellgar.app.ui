@@ -22,7 +22,7 @@ import {
   type ApplicationConfiguratorInterface,
   type FsmSnapshotSourceListener,
   type CommandHandler,
-} from '../../../index';
+} from '../../..';
 
 class Model {
   @Expose()

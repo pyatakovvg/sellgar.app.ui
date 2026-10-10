@@ -1,6 +1,6 @@
 import React from 'react';
-import type { ApplicationFeatureToken } from '../../../../core/application/feature/application-feature/index.ts';
-import { getApplicationFeatureRendering, type ApplicationFeatureOptions } from '../application-feature/index.ts';
+import type { ApplicationFeatureToken } from '../../../../core/application/feature/application-feature';
+import { getApplicationFeatureRendering, type ApplicationFeatureOptions } from '../application-feature';
 
 const FEATURE_KEYS = new WeakMap<ApplicationFeatureToken, number>();
 let nextFeatureKey = 0;

@@ -1,5 +1,1 @@
-export {
-  NavigationHistory,
-  type NavigationHistoryEntry,
-  type NavigationHistoryMutation,
-} from './navigation-history';
+export { NavigationHistory, type NavigationHistoryEntry, type NavigationHistoryMutation } from './navigation-history';

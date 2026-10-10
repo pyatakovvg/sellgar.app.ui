@@ -1,3 +1,5 @@
+export type { UserRequestStatus } from '../../../../../core/features/user-request/contract/user-request-service';
+
 export type {
   UserRequestAlertPayload,
   UserRequestAlertRequest,

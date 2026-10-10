@@ -184,6 +184,10 @@ const expandRouterState = (
         throw new Error('Root Router содержит Route с неверной graph ancestry.');
       }
 
+      if (!canResolveEmptyAddressFrom(route)) {
+        return [];
+      }
+
       const params = context.currentParams.get(route) ?? EMPTY_PARAMS;
 
       try {
@@ -227,6 +231,20 @@ const expandRouterState = (
         state: Object.freeze({ ...state, child: child.state, path: local.path }),
       });
     });
+  });
+};
+
+const canResolveEmptyAddressFrom = (route: RouteDeclaration): boolean => {
+  const definition = getRouteDefinition(route);
+
+  if (definition.address !== undefined || definition.load !== undefined || definition.defaultTo !== undefined) {
+    return true;
+  }
+
+  return definition.routes.some((child) => {
+    const childDefinition = getRouteDefinition(child);
+
+    return childDefinition.address === undefined && childDefinition.load !== undefined;
   });
 };
 

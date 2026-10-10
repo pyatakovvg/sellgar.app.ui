@@ -1,8 +1,8 @@
-import { Injectable } from '../../../di/injection/decorators/index.ts';
+import { Injectable } from '../../../di/injection/decorators';
 
 import type { ApplicationFeatureToken } from './application-feature.interface.ts';
 
-const APPLICATION_FEATURE_METADATA_KEY = Symbol('@sellgar/app:application-feature:metadata');
+const APPLICATION_FEATURE_METADATA_KEY = Symbol('@tiyn/app:application-feature:metadata');
 
 export const Feature = (): ClassDecorator => {
   return (constructor) => {

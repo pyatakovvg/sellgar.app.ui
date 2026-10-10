@@ -127,7 +127,7 @@ export const getRouterDefinition = (router: RouterDeclaration): RouterDefinition
   const definition = routerDefinitions.get(router);
 
   if (!definition) {
-    throw new Error('Router declaration не принадлежит @sellgar/app.');
+    throw new Error('Router declaration не принадлежит @tiyn/app.');
   }
 
   return definition;

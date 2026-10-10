@@ -19,6 +19,26 @@ const createRouter = () => {
 };
 
 describe('resolveNavigationCandidates notFound', () => {
+  it('does not select a child of a structural route without an explicit default for an empty address', () => {
+    const signIn = new Route({ address: segments('sign-in'), load: async () => ({}) });
+    const passwordSet = new Route({ address: segments('password', 'set'), load: async () => ({}) });
+    const publicRoutes = new Route({ routes: [signIn, passwordSet] });
+    const terminals = new Route({ address: segments('terminals'), load: async () => ({}) });
+    const authorizedRoutes = new Route({ defaultTo: Router.firstAvailable(), routes: [terminals] });
+    const router = new Router({ routes: [publicRoutes, authorizedRoutes] });
+    const navigation = resolveRouterBridgeLocation(router, {
+      address: [],
+      nested: null,
+      query: {},
+      state: undefined,
+    });
+
+    const candidates = resolveNavigationCandidates(router, navigation, undefined);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]?.target.routes.map((entry) => entry.node.route)).toEqual([authorizedRoutes, terminals]);
+  });
+
   it.each(['unknown', 'customer.unknown', 'customer.sign-in.unknown'])(
     'preserves the matched ancestry for %s without selecting descendant routes',
     (screen) => {

@@ -256,6 +256,7 @@ export abstract class Application<
         router: this.config.routerValue,
       });
       this.scope.bindNavigate(this.navigateService);
+      this.scope.activateMetrics(this.config.metricsValue);
       this.routerRuntime = new RouterRuntime(this.config.routerValue, this.scope, this.moduleExportResolver, {
         app: this,
         applyActionRedirect: (decision) => this.executeActionPolicyRedirect(decision),
@@ -335,6 +336,7 @@ export abstract class Application<
     }
 
     this.setState('disposing');
+    const metricDisposal = this.scope.disposeMetrics();
     this.detachFeatures?.();
     this.detachFeatures = null;
     this.detachSessionState?.();
@@ -367,6 +369,7 @@ export abstract class Application<
 
       this.reportFailure(failure, 'cleanup.contained', 'disposing');
     });
+    await metricDisposal;
     await this.scope.disposeReporters();
     this.scope.dispose();
     this.navigationListeners.clear();

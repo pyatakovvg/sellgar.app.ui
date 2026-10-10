@@ -3,4 +3,8 @@
   width: 0;
   height: 0;
   isolation: isolate;
+
+  &[data-tiyn-overlay-layer='notification'] {
+    z-index: 2147483647;
+  }
 }

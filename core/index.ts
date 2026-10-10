@@ -71,6 +71,18 @@ export type {
   ApplicationReporterDeclaration,
 } from './application/reporting/application-report';
 export { Reporter } from './application/reporting/reporter';
+export { MetricEvent } from './application/metric/declaration/metric-event';
+export type { MetricEventConstructor, MetricEventData } from './application/metric/declaration/metric-event';
+export { Metric } from './application/metric/declaration/metric';
+export type {
+  MetricInitializeContext,
+  MetricInterface,
+  MetricOptions,
+  MetricPayload,
+  MetricToken,
+} from './application/metric/declaration/metric';
+export { ApplicationMetricInterface } from './application/metric/service/application-metric';
+export type { MetricTrackOptions } from './application/metric/service/application-metric';
 
 export { Controller } from './controller/contract/controller';
 export type {
@@ -135,10 +147,14 @@ export {
   type NavigationBlockerRegistrationOptions,
 } from './features/navigation-blocker/contract/navigation-blocker-service';
 
-export { NotificationServiceInterface } from './features/notification/contract/notification-service';
+export {
+  NOTIFICATION_PLACEMENTS,
+  NotificationServiceInterface,
+} from './features/notification/contract/notification-service';
 export type {
   NotificationHandle,
   NotificationPayload,
+  NotificationPlacement,
   NotificationStatus,
 } from './features/notification/contract/notification-service';
 
@@ -148,6 +164,7 @@ export type {
   UserRequestBasePayload,
   UserRequestConfirmPayload,
   UserRequestPromptPayload,
+  UserRequestStatus,
 } from './features/user-request/contract/user-request-service';
 
 export { Policy, PolicyInterface, type PolicyToken } from './policy/contract/policy';

@@ -1,6 +1,6 @@
 import { Injectable } from '../../../di/injection/decorators';
 
-const POLICY_METADATA_KEY = Symbol('@sellgar/app:policy:metadata');
+const POLICY_METADATA_KEY = Symbol('@tiyn/app:policy:metadata');
 
 export const Policy = (): ClassDecorator => {
   return (constructor) => {

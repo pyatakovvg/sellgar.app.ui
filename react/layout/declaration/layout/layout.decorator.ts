@@ -3,7 +3,7 @@ import type React from 'react';
 import type { ProviderToken } from '../../../../core/runtime/provider/provider-token';
 import type { RenderableView } from '../../../view/renderable-view';
 
-const LAYOUT_METADATA_KEY = Symbol('@sellgar/app:react:layout:metadata');
+const LAYOUT_METADATA_KEY = Symbol('@tiyn/app:react:layout:metadata');
 
 export interface LayoutViewProps {
   readonly children: React.ReactNode;

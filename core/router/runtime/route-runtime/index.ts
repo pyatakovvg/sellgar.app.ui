@@ -1,7 +1,4 @@
-export {
-  RouteRuntime,
-  type RouteRuntimeActivationResult,
-} from './route-runtime.ts';
+export { RouteRuntime, type RouteRuntimeActivationResult } from './route-runtime.ts';
 export {
   RouteActivationRuntime,
   type RouteRuntimeActionContext,

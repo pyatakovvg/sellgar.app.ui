@@ -4,7 +4,7 @@ import type { ProviderToken } from '../../../../core/runtime/provider/provider-t
 import type { LayoutConstructor } from '../../../layout/declaration/layout';
 import type { RenderableView } from '../../../view/renderable-view';
 
-const MODULE_METADATA_KEY = Symbol('@sellgar/app:native:module:metadata');
+const MODULE_METADATA_KEY = Symbol('@tiyn/app:native:module:metadata');
 
 export interface ModuleMetadata {
   readonly exception?: React.ReactNode;

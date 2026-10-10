@@ -93,13 +93,14 @@ describe('UserRequestRuntime application lifetime', () => {
 
     const service = app.requests;
     const runtime = app.requestRuntime;
-    const result = service.confirm({ title: 'Application scoped' });
+    const result = service.confirm({ title: 'Application scoped', status: 'warning' });
 
     await app.navigate.to(SecondRoute);
 
     expect(app.requests).toBe(service);
     expect(app.requestRuntime).toBe(runtime);
     expect(runtime.getSnapshot()?.payload.title).toBe('Application scoped');
+    expect(runtime.getSnapshot()?.payload.status).toBe('warning');
 
     await app.dispose();
 

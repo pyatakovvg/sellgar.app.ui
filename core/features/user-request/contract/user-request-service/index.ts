@@ -4,4 +4,5 @@ export type {
   UserRequestBasePayload,
   UserRequestConfirmPayload,
   UserRequestPromptPayload,
+  UserRequestStatus,
 } from './user-request-payload.ts';

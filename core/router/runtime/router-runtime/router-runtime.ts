@@ -22,8 +22,8 @@ import { RuntimeOperationCoordinator } from '../../../runtime/operation/runtime-
 import { ProviderPipeline } from '../../../runtime/provider/provider-pipeline';
 import type { RuntimeScope } from '../../../runtime/scope/base/runtime-scope';
 import { RouterScope } from '../../../runtime/scope/kind/router-scope';
-import type { RouteDeclaration } from '../../declaration/route';
-import { getRouterDefinition, type RouterDeclaration } from '../../declaration/router';
+import { getRouteDefinition, type RouteDeclaration } from '../../declaration/route';
+import { getRouterDefinition, isFirstAvailableRouteDefault, type RouterDeclaration } from '../../declaration/router';
 import { createScopedNavigate, NavigateServiceInterface } from '../../service/navigate-service';
 import {
   ApplicationRouteQueryService,
@@ -287,6 +287,17 @@ interface RouterPlanPolicyResult<TPresentation> {
   readonly owner:
     { readonly kind: 'route'; readonly entry: RuntimeRouteEntry<TPresentation> } | { readonly kind: 'router' };
   readonly plan: RouterTransitionPlan<TPresentation>;
+}
+
+interface FirstAvailablePolicyBoundary<TPresentation> {
+  readonly entry: RuntimeRouteEntry<TPresentation>;
+  readonly plan: RouterTransitionPlan<TPresentation>;
+}
+
+interface PolicyBoundaryCursor<TPresentation> {
+  active: boolean;
+  found: boolean;
+  readonly boundary: FirstAvailablePolicyBoundary<TPresentation>;
 }
 
 type ActivePolicyBoundary<TPresentation> =
@@ -1108,15 +1119,18 @@ export class RouterRuntime<TPresentation = unknown> {
       }
 
       this.setSnapshot({ exception: null, phase: 'preparing' });
+      const acceptedFirstAvailableBoundaries = new Set<RouteDeclaration>();
 
       for (const candidate of candidates) {
         const result = await this.prepareCandidate(
+          navigation,
           candidate,
           context,
           abortController,
           revision,
           linkedSignal.dispose,
           allowActivationReuse,
+          acceptedFirstAvailableBoundaries,
         );
 
         if (result !== null) {
@@ -1267,21 +1281,56 @@ export class RouterRuntime<TPresentation = unknown> {
   }
 
   private async prepareCandidate(
+    requestedNavigation: NavigationState,
     candidate: ResolvedNavigationCandidate,
     context: RouterRuntimePrepareContext,
     abortController: AbortController,
     revision: number,
     disposeLinkedSignal: () => void,
     allowActivationReuse: boolean,
+    acceptedFirstAvailableBoundaries: Set<RouteDeclaration>,
   ): Promise<RouterRuntimePrepareResult<TPresentation> | null> {
     const plan = this.createPlan(candidate.target, allowActivationReuse);
+    const firstAvailableBoundary = candidate.probeCanMatch ? findFirstAvailablePolicyBoundary(plan) : null;
 
     try {
       stagePlanLocations(plan, candidate.navigation);
       throwIfAborted(abortController.signal);
 
+      if (
+        firstAvailableBoundary &&
+        !acceptedFirstAvailableBoundaries.has(firstAvailableBoundary.entry.resolved.node.route)
+      ) {
+        const canMatchResult = await this.executePlanPoliciesThroughBoundary(
+          plan,
+          firstAvailableBoundary,
+          context,
+          abortController.signal,
+        );
+
+        throwIfAborted(abortController.signal);
+
+        if (canMatchResult) {
+          return await this.preparePolicyBoundaryResult(
+            requestedNavigation,
+            plan,
+            canMatchResult,
+            'canMatch',
+            context,
+            abortController,
+            revision,
+            disposeLinkedSignal,
+            allowActivationReuse,
+          );
+        }
+
+        acceptedFirstAvailableBoundaries.add(firstAvailableBoundary.entry.resolved.node.route);
+      }
+
       if (candidate.probeCanMatch) {
-        const matches = await this.testPlanCanMatch(plan, context, abortController.signal);
+        const matches = firstAvailableBoundary
+          ? await this.testPlanCanMatchAfterBoundary(plan, firstAvailableBoundary, context, abortController.signal)
+          : await this.testPlanCanMatch(plan, context, abortController.signal);
 
         throwIfAborted(abortController.signal);
 
@@ -1985,6 +2034,111 @@ export class RouterRuntime<TPresentation = unknown> {
     }
 
     return plan.childPlan ? await this.testPlanCanMatch(plan.childPlan, context, signal) : true;
+  }
+
+  private async testPlanCanMatchAfterBoundary(
+    plan: RouterTransitionPlan<TPresentation>,
+    boundary: FirstAvailablePolicyBoundary<TPresentation>,
+    context: RouterRuntimePrepareContext,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    const cursor: PolicyBoundaryCursor<TPresentation> = {
+      active: false,
+      boundary,
+      found: false,
+    };
+    const matches = await this.testPlanCanMatchWithCursor(plan, context, signal, cursor);
+
+    if (!cursor.found) {
+      throw new Error('Route с Router.firstAvailable отсутствует в целевом transition plan.');
+    }
+
+    return matches;
+  }
+
+  private async testPlanCanMatchWithCursor(
+    plan: RouterTransitionPlan<TPresentation>,
+    context: RouterRuntimePrepareContext,
+    signal: AbortSignal,
+    cursor: PolicyBoundaryCursor<TPresentation>,
+  ): Promise<boolean> {
+    throwIfAborted(signal);
+
+    if (
+      cursor.active &&
+      !(await plan.runtime.policyRunner.test(
+        plan.runtime.definition.canMatch,
+        createPolicyContext(EMPTY_PARAMS, context, signal),
+      ))
+    ) {
+      return false;
+    }
+
+    throwIfAborted(signal);
+
+    for (const entry of plan.nextRoutes) {
+      if (!cursor.active) {
+        if (plan === cursor.boundary.plan && entry === cursor.boundary.entry) {
+          cursor.active = true;
+          cursor.found = true;
+        }
+
+        continue;
+      }
+
+      if (!(await entry.runtime.testCanMatch(createPolicyContext(entry.resolved.params, context, signal)))) {
+        return false;
+      }
+
+      throwIfAborted(signal);
+    }
+
+    return plan.childPlan ? await this.testPlanCanMatchWithCursor(plan.childPlan, context, signal, cursor) : true;
+  }
+
+  private async executePlanPoliciesThroughBoundary(
+    plan: RouterTransitionPlan<TPresentation>,
+    boundary: FirstAvailablePolicyBoundary<TPresentation>,
+    context: RouterRuntimePrepareContext,
+    signal: AbortSignal,
+  ): Promise<RouterPlanPolicyResult<TPresentation> | null> {
+    throwIfAborted(signal);
+
+    if (plan.localChanged) {
+      const routerDecision = await plan.runtime.policyRunner.execute(
+        plan.runtime.definition.canMatch,
+        createPolicyContext(EMPTY_PARAMS, context, signal),
+      );
+
+      throwIfAborted(signal);
+
+      if (routerDecision.type !== 'continue') {
+        return { decision: routerDecision, owner: { kind: 'router' }, plan };
+      }
+
+      for (const entry of plan.createdRoutes) {
+        const routeDecision = await entry.runtime.executePolicyBoundary(
+          'canMatch',
+          createPolicyContext(entry.resolved.params, context, signal),
+        );
+
+        throwIfAborted(signal);
+
+        if (routeDecision.type !== 'continue') {
+          return { decision: routeDecision, owner: { entry, kind: 'route' }, plan };
+        }
+
+        if (plan === boundary.plan && entry === boundary.entry) {
+          return null;
+        }
+      }
+    }
+
+    if (plan.childPlan) {
+      return await this.executePlanPoliciesThroughBoundary(plan.childPlan, boundary, context, signal);
+    }
+
+    throw new Error('Route с Router.firstAvailable отсутствует в созданных Route runtimes transition plan.');
   }
 
   private async executePlanPolicies(
@@ -2953,6 +3107,20 @@ const appendNavigationBlockerBoundary = (
   boundary: NavigationBlockerBoundary,
 ): void => {
   if (!boundaries.includes(boundary)) boundaries.push(boundary);
+};
+
+const findFirstAvailablePolicyBoundary = <TPresentation>(
+  plan: RouterTransitionPlan<TPresentation>,
+): FirstAvailablePolicyBoundary<TPresentation> | null => {
+  for (const entry of plan.nextRoutes) {
+    const defaultTo = getRouteDefinition(entry.resolved.node.route).defaultTo;
+
+    if (defaultTo !== undefined && isFirstAvailableRouteDefault(defaultTo)) {
+      return { entry, plan };
+    }
+  }
+
+  return plan.childPlan ? findFirstAvailablePolicyBoundary(plan.childPlan) : null;
 };
 
 const createPolicyContext = (

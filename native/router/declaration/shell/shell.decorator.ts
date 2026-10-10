@@ -2,7 +2,7 @@ import type React from 'react';
 
 import type { RenderableView } from '../../../view/renderable-view';
 
-const SHELL_METADATA_KEY = Symbol('@sellgar/app:native:shell:metadata');
+const SHELL_METADATA_KEY = Symbol('@tiyn/app:native:shell:metadata');
 
 export interface ShellContextInterface {
   readonly children: React.ReactNode;

@@ -24,5 +24,5 @@ export const NavigationBlockerLayer: React.FC<IProps> = (props) => {
 
   const View = (registry.resolve(request.registrationIdentities) ?? props.presentation).resolve();
 
-  return <View leave={() => runtime.leave()} stay={() => runtime.stay()} />;
+  return <View inProcess={request.inProcess} leave={() => runtime.leave()} stay={() => runtime.stay()} />;
 };

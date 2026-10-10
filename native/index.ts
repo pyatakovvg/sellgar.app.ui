@@ -76,6 +76,7 @@ export type {
   UserRequestConfirmPayload,
   UserRequestPromptPayload,
   UserRequestService,
+  UserRequestStatus,
 } from './features/user-request/contract/user-request-service';
 export type {
   UserRequestAlertViewProps,
@@ -152,3 +153,4 @@ export { NavItem } from './router/nav-item';
 export { NavLink } from './router/nav-link';
 export { TabItem, type TabItemProps, type TabItemState } from './router/tab-item';
 export { Feature, type ApplicationFeatureOptions } from '../shared/application/feature/application-feature';
+export { useMetric } from './application/metric/hook/use-metric';

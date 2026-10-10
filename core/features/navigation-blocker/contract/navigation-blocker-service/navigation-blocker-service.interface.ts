@@ -1,5 +1,5 @@
 export type NavigationBlockerCondition = () => boolean;
-export type NavigationBlockerDecisionHandler = () => void;
+export type NavigationBlockerDecisionHandler = () => void | Promise<void>;
 
 export interface NavigationBlockerRegistrationOptions {
   readonly onLeave?: NavigationBlockerDecisionHandler;

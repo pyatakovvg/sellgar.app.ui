@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { segments } from '../core/index.ts';
+import { segments } from '../core';
 import {
   Application,
   Command,
@@ -29,7 +29,7 @@ import {
   type FsmSnapshotSourceListener,
   type FsmSnapshotSourceSubscription,
   createFsmRouterBridge,
-} from '../fsm/index.ts';
+} from '../fsm';
 
 interface FixtureSnapshot {
   readonly screen: string;

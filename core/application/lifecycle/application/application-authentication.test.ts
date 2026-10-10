@@ -102,6 +102,13 @@ class RequireAnonymousSessionPolicy extends RoutePolicyInterface {
   }
 }
 
+@Policy()
+class DenyPolicy extends RoutePolicyInterface {
+  execute(): PolicyResult {
+    return { reason: 'denied', type: 'fail' };
+  }
+}
+
 class TestModuleExportResolver implements ModuleExportResolverInterface<null> {
   resolve() {
     return createModuleRuntimeDefinition({ presentation: null, token: TestModule });
@@ -135,6 +142,20 @@ class DirectSignInTestRouterBridge extends TestRouterBridge {
 class SessionAgnosticTestRouterBridge extends TestRouterBridge {
   override async initialize(context: RouterBridgeInitializeContextInterface): Promise<void> {
     await context.navigate.to(SessionAgnosticRoute);
+  }
+}
+
+class RootTestRouterBridge extends TestRouterBridge {
+  override async initialize(context: RouterBridgeInitializeContextInterface): Promise<void> {
+    await context.restore(
+      {
+        address: [],
+        nested: null,
+        query: {},
+        state: undefined,
+      },
+      { blockersConfirmed: false },
+    );
   }
 }
 
@@ -279,6 +300,29 @@ describe('Application authentication lifecycle', () => {
 
     expect(app.sessionState.phase).toBe('authenticated');
     expect(matchesNavigationRoute(app.navigation.navigation, ProtectedRoute)).toBe(true);
+
+    await app.dispose();
+  });
+
+  it('executes a protected parent policy before selecting its first available child', async () => {
+    const signInLoad = vi.fn(async () => ({}));
+    const protectedLoad = vi.fn(async () => ({}));
+    const app = new TestApplication(
+      new RootTestRouterBridge(),
+      createFirstAvailableAuthRouter(signInLoad, protectedLoad),
+    );
+
+    app.compose();
+    await app.initialize();
+
+    expect(matchesNavigationRoute(app.navigation.navigation, SignInRoute)).toBe(true);
+    expect(signInLoad).toHaveBeenCalledOnce();
+    expect(protectedLoad).not.toHaveBeenCalled();
+
+    app.sessionState.setAuthenticated();
+
+    await vi.waitFor(() => expect(matchesNavigationRoute(app.navigation.navigation, ProtectedRoute)).toBe(true));
+    expect(protectedLoad).toHaveBeenCalledOnce();
 
     await app.dispose();
   });
@@ -556,6 +600,46 @@ const createAuthRouter = (
         ],
         load: protectedLoad,
         token: ProtectedRoute,
+      }),
+    ],
+  });
+};
+
+const createFirstAvailableAuthRouter = (
+  signInLoad: () => Promise<Readonly<Record<string, unknown>>>,
+  protectedLoad: () => Promise<Readonly<Record<string, unknown>>>,
+): Router => {
+  return new Router({
+    routes: [
+      new Route({
+        routes: [
+          new Route({
+            address: segments('sign-in'),
+            canMatch: [RequireAnonymousSessionPolicy.configure().onFail(Router.redirectToSaved({ replace: true }))],
+            load: signInLoad,
+            token: SignInRoute,
+          }),
+        ],
+      }),
+      new Route({
+        canMatch: [
+          RequireAuthenticatedSessionPolicy.configure().onFail(
+            Router.redirectTo(SignInRoute, { replace: true, saveCurrentLocation: true }),
+          ),
+        ],
+        defaultTo: Router.firstAvailable(),
+        routes: [
+          new Route({
+            address: segments('denied'),
+            canMatch: [DenyPolicy],
+            load: async () => ({}),
+          }),
+          new Route({
+            address: segments('protected'),
+            load: protectedLoad,
+            token: ProtectedRoute,
+          }),
+        ],
       }),
     ],
   });

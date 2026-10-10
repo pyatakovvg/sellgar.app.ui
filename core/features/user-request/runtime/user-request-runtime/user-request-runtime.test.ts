@@ -26,26 +26,31 @@ describe('UserRequestRuntime', () => {
     expect(runtime.getSnapshot()).toBeNull();
   });
 
-  it('preserves apply and cancel results for alert, confirm, and prompt', async () => {
+  it('passes presentation status without changing apply and cancel results', async () => {
     const runtime = new UserRequestRuntime(new DisposableRegistry());
 
-    const alertResult = runtime.open('alert', { title: 'Alert' });
+    const alertResult = runtime.open('alert', { title: 'Alert', status: 'success' });
+    expect(runtime.getSnapshot()?.payload.status).toBe('success');
     runtime.apply(runtime.getSnapshot()!.id);
     await expect(alertResult).resolves.toBeUndefined();
 
-    const confirmedResult = runtime.open('confirm', { title: 'Confirm apply' });
+    const confirmedResult = runtime.open('confirm', { title: 'Confirm apply', status: 'warning' });
+    expect(runtime.getSnapshot()?.payload.status).toBe('warning');
     runtime.apply(runtime.getSnapshot()!.id);
     await expect(confirmedResult).resolves.toBe(true);
 
-    const cancelledConfirmResult = runtime.open('confirm', { title: 'Confirm cancel' });
+    const cancelledConfirmResult = runtime.open('confirm', { title: 'Confirm cancel', status: 'destructive' });
+    expect(runtime.getSnapshot()?.payload.status).toBe('destructive');
     runtime.cancel(runtime.getSnapshot()!.id);
     await expect(cancelledConfirmResult).resolves.toBe(false);
 
-    const promptResult = runtime.open('prompt', { title: 'Prompt apply' });
+    const promptResult = runtime.open('prompt', { title: 'Prompt apply', status: 'info' });
+    expect(runtime.getSnapshot()?.payload.status).toBe('info');
     runtime.apply(runtime.getSnapshot()!.id, 'typed value');
     await expect(promptResult).resolves.toBe('typed value');
 
     const emptyPromptResult = runtime.open('prompt', { title: 'Prompt empty apply' });
+    expect(runtime.getSnapshot()?.payload.status).toBeUndefined();
     runtime.apply(runtime.getSnapshot()!.id);
     await expect(emptyPromptResult).resolves.toBe('');
 

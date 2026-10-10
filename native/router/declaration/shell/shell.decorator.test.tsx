@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 
-import { getShellMetadata, isShellConstructor, Shell, ShellInterface, type ShellContextInterface } from './index.ts';
+import { getShellMetadata, isShellConstructor, Shell, ShellInterface, type ShellContextInterface } from '.';
 
 const ShellView: React.FC<ShellContextInterface> = (props) => <>{props.children}</>;
 const ShellBackdrop: React.FC = () => <>backdrop</>;

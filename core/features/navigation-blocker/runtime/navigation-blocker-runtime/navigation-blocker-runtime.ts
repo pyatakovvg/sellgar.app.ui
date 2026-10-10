@@ -90,6 +90,7 @@ export class NavigationBlockerRuntime extends NavigationBlockerRuntimeInterface 
         resolve,
       };
       this.snapshot = Object.freeze({
+        inProcess: false,
         registrationIdentities: Object.freeze(identities),
       });
       this.emit();
@@ -104,23 +105,25 @@ export class NavigationBlockerRuntime extends NavigationBlockerRuntimeInterface 
     return this.acceptedDecision;
   }
 
-  leave(): void {
-    if (!this.pendingDecision || !this.snapshot) {
+  async leave(): Promise<void> {
+    if (!this.pendingDecision || !this.snapshot || this.snapshot.inProcess) {
       return;
     }
 
     const decision = this.pendingDecision;
     const identities = this.snapshot.registrationIdentities;
 
-    this.pendingDecision = null;
-    this.acceptedDecision = true;
-    this.snapshot = null;
+    this.snapshot = Object.freeze({ ...this.snapshot, inProcess: true });
     this.emit();
     const handlers = this.resolveDecisionHandlers(identities, 'onLeave');
 
     try {
-      invokeDecisionHandlers(handlers);
+      await invokeDecisionHandlers(handlers);
     } finally {
+      this.pendingDecision = null;
+      this.acceptedDecision = true;
+      this.snapshot = null;
+      this.emit();
       decision.resolve(true);
     }
   }
@@ -152,19 +155,21 @@ export class NavigationBlockerRuntime extends NavigationBlockerRuntimeInterface 
     return [...this.registrations.values()].some((registration) => registration.condition());
   }
 
-  stay(): void {
-    if (!this.pendingDecision || !this.snapshot) {
+  async stay(): Promise<void> {
+    if (!this.pendingDecision || !this.snapshot || this.snapshot.inProcess) {
       return;
     }
 
     const decision = this.pendingDecision;
     const handlers = this.resolveDecisionHandlers(this.snapshot.registrationIdentities, 'onStay');
 
-    this.clearDecision();
+    this.snapshot = Object.freeze({ ...this.snapshot, inProcess: true });
+    this.emit();
 
     try {
-      invokeDecisionHandlers(handlers);
+      await invokeDecisionHandlers(handlers);
     } finally {
+      this.clearDecision();
       decision.resolve(false);
     }
   }
@@ -270,12 +275,12 @@ export class NavigationBlockerRuntime extends NavigationBlockerRuntimeInterface 
   }
 }
 
-const invokeDecisionHandlers = (handlers: readonly NavigationBlockerDecisionHandler[]): void => {
+const invokeDecisionHandlers = async (handlers: readonly NavigationBlockerDecisionHandler[]): Promise<void> => {
   const errors: unknown[] = [];
 
   for (const handler of handlers) {
     try {
-      handler();
+      await handler();
     } catch (error) {
       errors.push(error);
     }

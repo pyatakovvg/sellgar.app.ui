@@ -101,7 +101,7 @@ export const getRouteDefinition = (route: RouteDeclaration): RouteDefinition => 
   const definition = routeDefinitions.get(route);
 
   if (!definition) {
-    throw new Error('Route declaration не принадлежит @sellgar/app.');
+    throw new Error('Route declaration не принадлежит @tiyn/app.');
   }
 
   return definition;

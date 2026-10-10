@@ -30,6 +30,7 @@ const nestedRouter = new Router({
 
 const indexRoute = new Route({ load: async () => ({}) });
 const namedIndexRoute = new Route({ load: async () => ({}), token: NamedIndexRoute });
+const siblingRoute = new Route({ address: segments('sibling'), load: async () => ({}) });
 
 const oneRoute = new Route({
   address: segments('ones', param('id')),
@@ -132,6 +133,27 @@ describe('matchesNavigationState', () => {
     expect(matchesNavigationState(twise, one, { end: false })).toBe(true);
     expect(matchesNavigationState(otherBranch, one, { end: false })).toBe(false);
     expect(matchesNavigationState(localDescendant, one)).toBe(false);
+  });
+
+  it('keeps an address branch active when its addressless load route is replaced by a sibling', async () => {
+    const owner = await createOneNavigation();
+    const target: NavigationState = {
+      ...owner,
+      root: {
+        ...owner.root,
+        path: [...owner.root.path, { params: {}, route: namedIndexRoute, token: NamedIndexRoute }],
+      },
+    };
+    const sibling: NavigationState = {
+      ...owner,
+      root: {
+        ...owner.root,
+        path: [...owner.root.path, { params: {}, route: siblingRoute, token: undefined }],
+      },
+    };
+
+    expect(matchesNavigationState(sibling, target, { end: false })).toBe(true);
+    expect(matchesNavigationState(sibling, target)).toBe(false);
   });
 });
 

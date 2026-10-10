@@ -1,7 +1,7 @@
 import type { DependencyConstructor } from '../../../di/binding/binding-builder';
 import { Injectable } from '../../../di/injection/decorators';
 
-const REPORTER_METADATA_KEY = Symbol('@sellgar/app:reporter:metadata');
+const REPORTER_METADATA_KEY = Symbol('@tiyn/app:reporter:metadata');
 
 export const Reporter = (): ClassDecorator => {
   return (constructor) => {

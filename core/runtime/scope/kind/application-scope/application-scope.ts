@@ -13,6 +13,9 @@ import {
   ApplicationReporterInterface,
 } from '../../../../application/reporting/application-report';
 import { ApplicationReporter } from '../../../../application/reporting/application-reporter';
+import { ApplicationMetric } from '../../../../application/metric/runtime/application-metric';
+import { ApplicationMetricInterface } from '../../../../application/metric/service/application-metric';
+import type { MetricToken } from '../../../../application/metric/declaration/metric';
 import { isReporterToken } from '../../../../application/reporting/reporter';
 import { NavigateServiceInterface } from '../../../../router/service/navigate-service';
 import { ClassTransformerRouterParamsConverter } from '../../../../router/params/class-transformer-router-params-converter';
@@ -52,6 +55,8 @@ export class ApplicationScope extends RuntimeScope {
       registry.bind(ApplicationReporter).toSelf().inSingletonScope();
       registry.bind(ApplicationReporterInterface).toService(ApplicationReporter);
       registry.bind(ApplicationReportDispatcherInterface).toService(ApplicationReporter);
+      registry.bind(ApplicationMetric).toSelf().inSingletonScope();
+      registry.bind(ApplicationMetricInterface).toService(ApplicationMetric);
       registry.bind(RuntimeExceptionServiceInterface).to(RuntimeExceptionService).inSingletonScope();
       registry.bind(RequestExecutor).toSelf().inSingletonScope();
       registry.bind(RequestExecutorInterface).toService(RequestExecutor);
@@ -62,6 +67,18 @@ export class ApplicationScope extends RuntimeScope {
 
   disposeWidgetRuntimes(): Promise<void> {
     return this.widgetRuntimeRegistry.dispose();
+  }
+
+  activateMetrics(metrics: readonly MetricToken[]): void {
+    this.get(ApplicationMetric).activate(metrics, (declaration) => {
+      this.activate(declaration);
+      this.bindSelfSingleton(declaration);
+      return () => this.get(declaration);
+    });
+  }
+
+  disposeMetrics(): Promise<void> {
+    return this.get(ApplicationMetric).dispose();
   }
 
   activateReporters(reporters: readonly ApplicationReporterDeclaration[]): Promise<void> {

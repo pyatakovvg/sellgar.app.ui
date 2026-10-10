@@ -33,8 +33,6 @@ import { ApplicationComponentsProvider } from '../application-components-context
 import { OverlayHost } from '../../../../shared/application/rendering/overlay-host';
 import { PresentationLayer } from '../../../../shared/application/rendering/presentation-layer';
 
-import s from './default.module.scss';
-
 export interface ApplicationViewSource {
   readonly featuresRuntime: ApplicationFeaturesRuntime;
   readonly components: ApplicationComponents;
@@ -128,7 +126,7 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
                   resetKeys={[props.source]}
                 >
                   <OverlayHost frame={frame} modal={modalFeatures} notification={notificationFeatures}>
-                    <div className={s.wrapper}>{content}</div>
+                    {content}
                     {applicationFeatures}
                   </OverlayHost>
                 </RuntimeErrorBoundary>,

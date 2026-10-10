@@ -13,8 +13,8 @@ Core владеет lifecycle-контрактом `ApplicationFeatureInterface`
 ## Декларация
 
 ```tsx
-import { Inject, UseBindings, type ApplicationFeatureInterface } from '@sellgar/app';
-import { Feature } from '@sellgar/app/fsm';
+import { Inject, UseBindings, type ApplicationFeatureInterface } from '@tiyn/app';
+import { Feature } from '@tiyn/app/fsm';
 
 @UseBindings(FeatureBindings)
 @Feature({
@@ -72,6 +72,25 @@ app.features([
 Конфигурация не изменяет общий класс и не создаёт runtime-экземпляр: создание,
 DI и lifecycle остаются в core. Настройки задаются при конфигурации приложения,
 а не при render. Отдельные функции `create…Feature` не экспортируются.
+
+### Статус UserRequest
+
+`alert`, `confirm` и `prompt` принимают необязательный `status`:
+`info`, `success`, `warning` или `destructive`. Тип `UserRequestStatus`
+экспортируется из `@tiyn/app`, `@tiyn/app/react` и `@tiyn/app/native`.
+
+```ts
+await userRequest.alert({ status: 'success', title: 'Изменения сохранены' });
+const confirmed = await userRequest.confirm({ status: 'warning', title: 'Продолжить операцию?' });
+const name = await userRequest.prompt({ status: 'info', title: 'Введите название' });
+```
+
+View читает `request.payload.status` и выбирает оформление: иконку, цвета и
+композицию. Без статуса используется прежнее нейтральное оформление.
+Core передаёт статус без назначения значения по умолчанию. Регистрация
+`registry.alert/confirm/prompt` остаётся прежней; статус не меняет FIFO,
+действия apply/cancel или тип результата. Готовые визуальные шаблоны принадлежат
+приложению и обновляются в нём.
 
 ## Rendering
 

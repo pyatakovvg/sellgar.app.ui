@@ -219,15 +219,17 @@ const matchesNavigationRouterState = (
   target: NavigationRouterState,
   end: boolean,
 ): boolean => {
+  const targetPath = end ? target.path : resolveNavigationBranchPath(target.path);
+
   if (
     navigation.router !== target.router ||
     navigation.owner !== target.owner ||
-    target.path.length > navigation.path.length
+    targetPath.length > navigation.path.length
   ) {
     return false;
   }
 
-  const matchesTarget = target.path.every((entry, index) => {
+  const matchesTarget = targetPath.every((entry, index) => {
     const candidate = navigation.path[index];
 
     return candidate?.route === entry.route && areNavigationParamsEqual(candidate.params, entry.params);
@@ -240,7 +242,7 @@ const matchesNavigationRouterState = (
   if (
     end &&
     !navigation.path
-      .slice(target.path.length)
+      .slice(targetPath.length)
       .every((entry) => entry.token === undefined && getRouteDefinition(entry.route).address === undefined)
   ) {
     return false;
@@ -255,6 +257,12 @@ const matchesNavigationRouterState = (
   }
 
   return matchesNavigationRouterState(navigation.child, target.child, end);
+};
+
+const resolveNavigationBranchPath = (path: readonly NavigationRouteEntry[]): readonly NavigationRouteEntry[] => {
+  const lastAddressIndex = path.findLastIndex((entry) => getRouteDefinition(entry.route).address !== undefined);
+
+  return lastAddressIndex < 0 ? path : path.slice(0, lastAddressIndex + 1);
 };
 
 const matchesNavigationRouterTarget = (navigation: NavigationRouterState, target: NavigationRouterState): boolean => {

@@ -17,7 +17,7 @@ import {
   useSubmit,
   useException,
   WidgetPreloaderInterface,
-} from '../../../index';
+} from '../../..';
 
 const pending = () => {
   let resolve = () => {};

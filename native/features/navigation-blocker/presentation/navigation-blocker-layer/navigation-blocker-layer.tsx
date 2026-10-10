@@ -26,9 +26,9 @@ export const NavigationBlockerLayer: React.FC<IProps> = (props) => {
 
   const View = (registry.resolve(request.registrationIdentities) ?? props.presentation).resolve();
   const presentation: ScreenPresentation = Object.freeze({
-    content: <View leave={() => runtime.leave()} stay={() => runtime.stay()} />,
+    content: <View inProcess={request.inProcess} leave={() => runtime.leave()} stay={() => runtime.stay()} />,
     key: `navigation-blocker-${request.registrationIdentities.join('-')}`,
   });
 
-  return <ModalHost onRequestClose={() => runtime.stay()} presentation={presentation} />;
+  return <ModalHost onRequestClose={() => void runtime.stay()} presentation={presentation} />;
 };
