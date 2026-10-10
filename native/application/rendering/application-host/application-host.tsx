@@ -1,4 +1,5 @@
 import React from 'react';
+import { getRouterContentKind } from '../../../router/rendering/router-content-kind';
 import type { ApplicationFeaturesRuntime } from '../../../../core/application/feature/application-features-runtime';
 import { ApplicationFeaturesHost } from '../../../../shared/application/feature/application-features-host';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -88,6 +89,7 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
         requestBack={props.source.requestBack}
         runtime={runtime}
       />,
+      getRouterContentKind(runtime),
     );
     framePresentation = <NativeFramePresentationHost source={props.source} />;
 

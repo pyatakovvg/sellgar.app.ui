@@ -4,6 +4,7 @@ import { ApplicationFeaturesRuntime } from '../../../../core/application/feature
 import { describe, expect, it, vi } from 'vitest';
 
 import type { RouterRuntime } from '../../../../core/router/runtime/router-runtime';
+import type { RouteActivationRuntime } from '../../../../core/router/runtime/route-runtime';
 import type { ApplicationFeatureInterface } from '../../../../core/application/feature/application-feature';
 import { ApplicationScope } from '../../../../core/runtime/scope/kind/application-scope';
 import { Feature } from '../../../../shared/application/feature/application-feature';
@@ -12,9 +13,78 @@ import { createRuntimeException } from '../../../../core/runtime/exception/runti
 import { Layout, type LayoutViewProps } from '../../../layout/declaration/layout';
 import type { ModuleMetadata } from '../../../module/declaration/module';
 import { PresentationLayer } from '../../../../shared/application/rendering/presentation-layer';
+import { Route } from '../../../router/declaration/route';
+import { Router } from '../../../router/declaration/router';
 import { ApplicationHost, type ApplicationViewSource } from './application-host.tsx';
 
 describe('ApplicationHost', () => {
+  it('propagates layout and module owners through application, router and route composition during loading', () => {
+    @Layout({
+      view: ({ children, kind }: LayoutViewProps) => (
+        <section data-testid="application-shell" data-kind={kind}>
+          {children}
+        </section>
+      ),
+    })
+    class ApplicationLayout {}
+    @Layout({
+      view: ({ children, kind }: LayoutViewProps) => (
+        <section data-testid="router-shell" data-kind={kind}>
+          {children}
+        </section>
+      ),
+    })
+    class RouterLayout {}
+    @Layout({
+      view: ({ children, kind }: LayoutViewProps) => (
+        <section data-testid="route-shell" data-kind={kind}>
+          {children}
+        </section>
+      ),
+    })
+    class RouteLayout {}
+    const route = new Route({ layouts: [RouteLayout], load: async () => ({}) });
+    const scope = new ApplicationScope();
+    const routeSnapshot = Object.freeze({ exception: null, phase: 'preparing' });
+    const routeRuntime = {
+      route,
+      getRouteScope: () => scope,
+      getSnapshot: () => routeSnapshot,
+      subscribe: () => () => undefined,
+    } as unknown as RouteActivationRuntime<ModuleMetadata>;
+    const routerSnapshot = Object.freeze({ exception: null, phase: 'active' });
+    const routerRuntime = {
+      router: new Router({ layouts: [RouterLayout], routes: [route] }),
+      getBranchSnapshot: () => ({ routes: [routeRuntime], pendingLocalChange: null }),
+      getSnapshot: () => routerSnapshot,
+      subscribe: () => () => undefined,
+    } as unknown as RouterRuntime<ModuleMetadata>;
+    const lifecycle = { exception: null, phase: 'ready' as const };
+    const navigation = { decision: null, navigation: undefined, pending: null };
+    const source: ApplicationViewSource = {
+      featuresRuntime: new ApplicationFeaturesRuntime(scope, [], []),
+      components: { fallback: <div>loading screen</div> },
+      createHref: () => '/',
+      createRenderException: createApplicationRenderException,
+      failRender: vi.fn(),
+      features: [],
+      getLifecycle: () => lifecycle,
+      getNavigation: () => navigation,
+      layouts: [ApplicationLayout],
+      routerRuntime,
+      routing: null,
+      scope,
+      subscribeLifecycle: () => () => undefined,
+      subscribeNavigation: () => () => undefined,
+    };
+
+    render(<ApplicationHost source={source} />);
+    expect(screen.getByTestId('application-shell')).toHaveAttribute('data-kind', 'layout');
+    expect(screen.getByTestId('router-shell')).toHaveAttribute('data-kind', 'layout');
+    expect(screen.getByTestId('route-shell')).toHaveAttribute('data-kind', 'module');
+    expect(screen.getByText('loading screen')).toBeInTheDocument();
+  });
+
   it('attributes an application layout error to Application', async () => {
     const error = new Error('application layout failed');
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);

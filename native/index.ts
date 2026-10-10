@@ -9,6 +9,7 @@ export type {
 export { useApplicationReporter } from './application/reporting/hook/use-application-reporter';
 
 export { Layout } from './layout/declaration/layout';
+export type { LayoutContentKind } from '../shared/layout/declaration/layout-content-kind';
 export type { LayoutConstructor, LayoutMetadata, LayoutViewProps } from './layout/declaration/layout';
 
 export { Module } from './module/declaration/module';

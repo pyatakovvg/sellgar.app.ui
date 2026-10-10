@@ -1,4 +1,5 @@
 import React from 'react';
+import type { LayoutContentKind } from '../../../../shared/layout/declaration/layout-content-kind';
 
 import type { ApplicationNavigationDecision } from '../../../../core/application/lifecycle/application';
 import { requireRuntimeException } from '../../../../core/runtime/exception/runtime-exception';
@@ -17,6 +18,7 @@ export interface RouterPresentationContext {
 interface RouterPresentationHostProps {
   readonly children: (context: RouterPresentationContext) => React.ReactNode;
   readonly components: ApplicationComponents;
+  readonly kind: LayoutContentKind;
   readonly decision?: ApplicationNavigationDecision | null;
   readonly runtime: RouterRuntime<ModuleMetadata>;
   readonly snapshot?: RouterRuntimeSnapshot;
@@ -44,7 +46,7 @@ export const RouterPresentationHost: React.FC<RouterPresentationHostProps> = (pr
       resolveException={(error) => props.runtime.createRenderException(error)}
       resetKeys={[props.runtime]}
     >
-      {renderLayouts(definition.layouts, resolveContent(props, components, snapshot))}
+      {renderLayouts(definition.layouts, resolveContent(props, components, snapshot), props.kind)}
     </RuntimeErrorBoundary>
   );
 };

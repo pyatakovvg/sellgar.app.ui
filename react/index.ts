@@ -9,6 +9,7 @@ export type {
 } from './application/config/application-configurator';
 
 export { Layout } from './layout/declaration/layout';
+export type { LayoutContentKind } from '../shared/layout/declaration/layout-content-kind';
 export type { LayoutConstructor, LayoutMetadata, LayoutViewProps } from './layout/declaration/layout';
 
 export { Module } from './module/declaration/module';

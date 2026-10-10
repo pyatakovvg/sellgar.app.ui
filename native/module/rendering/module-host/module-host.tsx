@@ -51,7 +51,7 @@ export const ModuleHost: React.FC<IProps> = (props) => {
     >
       <RuntimeScopeProvider scope={presentationModule.scope}>
         <ControllerRuntimeProvider value={props.routeRuntime}>
-          {renderLayouts(metadata.layouts ?? [], view)}
+          {renderLayouts(metadata.layouts ?? [], view, 'module')}
         </ControllerRuntimeProvider>
       </RuntimeScopeProvider>
     </RuntimeErrorBoundary>

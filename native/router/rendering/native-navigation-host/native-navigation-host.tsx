@@ -1,4 +1,5 @@
 import React from 'react';
+import { getRouteContentKind } from '../router-content-kind';
 
 import type { RouterRuntime } from '../../../../core/router/runtime/router-runtime';
 import type { ApplicationComponents } from '../../../application/config/application-configurator';
@@ -22,8 +23,18 @@ export const NativeNavigationHost: React.FC<NativeNavigationHostProps> = (props)
     props.presentationRuntime.getNavigationSnapshot,
   );
 
+  const branch = props.runtime.getBranchSnapshot();
+  const kind = getRouteContentKind(branch.routes, {
+    pendingAfterRouteCount: branch.pendingLocalChange?.commonRouteCount,
+  });
+
   return (
-    <RouterPresentationHost components={props.components} decision={presentation.decision} runtime={props.runtime}>
+    <RouterPresentationHost
+      kind={kind}
+      components={props.components}
+      decision={presentation.decision}
+      runtime={props.runtime}
+    >
       {() =>
         presentation.navigation || presentation.pending ? (
           <NativeBackGestureHost requestBack={props.requestBack}>

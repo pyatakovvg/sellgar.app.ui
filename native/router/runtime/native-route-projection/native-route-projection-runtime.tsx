@@ -1,4 +1,6 @@
 import React from 'react';
+import type { LayoutContentKind } from '../../../../shared/layout/declaration/layout-content-kind';
+import { getRouteContentKind } from '../../rendering/router-content-kind';
 
 import type {
   ApplicationRouterHistoryEntry,
@@ -56,6 +58,7 @@ interface OutletProjection {
 
 interface CachedSceneContent {
   readonly childRuntime: ScreenRuntime | null;
+  readonly childKind: LayoutContentKind;
   readonly components: ApplicationComponents;
   readonly content: React.ReactNode;
   readonly kind: 'index' | 'module' | 'route';
@@ -198,6 +201,15 @@ export class NativeRouteProjectionRuntime {
       const kind = route.routes.length > 0 ? 'route' : 'module';
       const content = this.resolveContent(key, {
         childRuntime,
+        childKind: childRuntime
+          ? getRouteContentKind(tree.routes, {
+              startIndex: projection.depth + 1,
+              pendingAfterRouteCount: projection.pending?.changeDepth,
+              ...(projection.depth + 1 >= tree.routes.length ? { outletKind: route.load ? 'module' : null } : {}),
+            })
+          : route.load
+            ? 'module'
+            : null,
         components,
         kind,
         routeRuntime,
@@ -217,6 +229,7 @@ export class NativeRouteProjectionRuntime {
       const key = resolveNativeRouteIndexPresentationKey(ownerEntry, projection.depth);
       const content = this.resolveContent(key, {
         childRuntime: null,
+        childKind: getRouteDefinition(ownerRuntime.route).load ? 'module' : null,
         components: projection.components,
         kind: 'index',
         routeRuntime: ownerRuntime,
@@ -248,6 +261,7 @@ export class NativeRouteProjectionRuntime {
       const key = resolveNativeRouteIndexPresentationKey(owner, depth);
       const content = this.resolveContent(key, {
         childRuntime: null,
+        childKind: getRouteDefinition(ownerRuntime.route).load ? 'module' : null,
         components,
         kind: 'index',
         routeRuntime: ownerRuntime,
@@ -304,6 +318,7 @@ export class NativeRouteProjectionRuntime {
     if (
       current &&
       current.childRuntime === input.childRuntime &&
+      current.childKind === input.childKind &&
       current.components === input.components &&
       current.kind === input.kind &&
       current.routeRuntime === input.routeRuntime
@@ -321,6 +336,7 @@ export class NativeRouteProjectionRuntime {
         child
       ) : (
         <RouteHost
+          kind={input.childKind}
           components={input.components}
           layouts={getRoutePresentationDefinition(input.routeRuntime.route).layouts}
           runtime={input.routeRuntime}

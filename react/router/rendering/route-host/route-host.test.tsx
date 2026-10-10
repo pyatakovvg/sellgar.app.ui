@@ -23,7 +23,7 @@ describe('RouteHost', () => {
     } as unknown as RouteActivationRuntime<ModuleMetadata>;
 
     render(
-      <RouteHost components={{}} layouts={[]} runtime={runtime}>
+      <RouteHost kind="module" components={{}} layouts={[]} runtime={runtime}>
         <div>child screen</div>
       </RouteHost>,
     );
@@ -59,7 +59,7 @@ describe('RouteHost', () => {
     };
 
     render(
-      <RouteHost components={{ exception: <div>route exception</div> }} layouts={[]} runtime={runtime}>
+      <RouteHost kind="module" components={{ exception: <div>route exception</div> }} layouts={[]} runtime={runtime}>
         <BrokenChild />
       </RouteHost>,
     );

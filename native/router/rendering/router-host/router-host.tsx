@@ -1,4 +1,5 @@
 import React from 'react';
+import { getRouteContentKind } from '../router-content-kind';
 
 import type { ApplicationNavigationDecision } from '../../../../core/application/lifecycle/application';
 import type { RouterRuntime, RouterRuntimeActivationTree } from '../../../../core/router/runtime/router-runtime';
@@ -16,8 +17,17 @@ interface IProps {
 }
 
 export const RouterHost: React.FC<IProps> = (props) => {
+  const branch = props.tree
+    ? { routes: props.tree.routes, pendingLocalChange: null }
+    : props.runtime.getBranchSnapshot();
+  const kind = props.pending
+    ? null
+    : getRouteContentKind(branch.routes, {
+        pendingAfterRouteCount: branch.pendingLocalChange?.commonRouteCount,
+      });
   return (
     <RouterPresentationHost
+      kind={kind}
       components={props.components}
       decision={props.decision}
       runtime={props.runtime}

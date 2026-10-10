@@ -5,6 +5,7 @@ import {
   type ApplicationConfiguratorInterface,
   Layout,
   type LayoutViewProps,
+  type LayoutContentKind,
   Module,
   NavigationBlockerFeature,
   NavigationBlockerPresentation,
@@ -87,3 +88,6 @@ const fixtureView = <WidgetHost props={{ value: 'fixture' }} token={FixtureWidge
 void FixtureApplication;
 void fixtureView;
 void (null as NativeFacadeMustCoverReactFacade | null);
+
+const layoutKind: LayoutContentKind = null;
+void layoutKind;

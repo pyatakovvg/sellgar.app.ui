@@ -1,4 +1,7 @@
 import React from 'react';
+import { getRouteDefinition } from '../../../../core/router/declaration/route';
+import type { LayoutContentKind } from '../../../../shared/layout/declaration/layout-content-kind';
+import { getRouteContentKind } from '../router-content-kind';
 
 import type { RouteActivationRuntime } from '../../../../core/router/runtime/route-runtime';
 import type { ApplicationComponents } from '../../../application/config/application-configurator';
@@ -12,6 +15,7 @@ let routeRuntimeKey = 0;
 interface RoutePathHostProps {
   readonly components: ApplicationComponents;
   readonly endIndex?: number;
+  readonly outletKind?: LayoutContentKind;
   readonly outlet?: (components: ApplicationComponents) => React.ReactNode;
   readonly pendingAfterRouteCount?: number | null;
   readonly routes: readonly RouteActivationRuntime<ModuleMetadata>[];
@@ -26,6 +30,7 @@ export const RoutePathHost: React.FC<RoutePathHostProps> = (props) => {
     props.startIndex ?? 0,
     props.endIndex ?? props.routes.length,
     props.outlet,
+    props.outletKind ?? null,
   );
 };
 
@@ -36,6 +41,7 @@ const renderRoutePath = (
   index: number,
   endIndex: number,
   outlet: RoutePathHostProps['outlet'],
+  outletKind: LayoutContentKind,
 ): React.ReactNode => {
   if (pendingAfterRouteCount === index) return inheritedComponents.fallback ?? null;
   if (index >= endIndex) return outlet?.(inheritedComponents) ?? null;
@@ -60,11 +66,29 @@ const renderRoutePath = (
         <RouteModuleHost components={components} runtime={runtime} />
       )
     ) : (
-      renderRoutePath(components, routes, pendingAfterRouteCount, index + 1, endIndex, outlet)
+      renderRoutePath(components, routes, pendingAfterRouteCount, index + 1, endIndex, outlet, outletKind)
     );
 
+  let kind: LayoutContentKind;
+  if (index + 1 >= endIndex) {
+    kind = outlet ? outletKind : getRouteDefinition(runtime.route).load ? 'module' : null;
+  } else {
+    kind = getRouteContentKind(routes, {
+      startIndex: index + 1,
+      endIndex,
+      pendingAfterRouteCount,
+      ...(outlet ? { outletKind } : {}),
+    });
+  }
+
   return (
-    <RouteHost key={getRouteRuntimeKey(runtime)} components={components} layouts={definition.layouts} runtime={runtime}>
+    <RouteHost
+      kind={kind}
+      key={getRouteRuntimeKey(runtime)}
+      components={components}
+      layouts={definition.layouts}
+      runtime={runtime}
+    >
       {child}
     </RouteHost>
   );

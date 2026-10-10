@@ -5,6 +5,7 @@ import {
   type ApplicationConfiguratorInterface,
   Layout,
   type LayoutViewProps,
+  type LayoutContentKind,
   Module,
   NotificationFeature,
   NotificationPresentation,
@@ -67,3 +68,6 @@ const fixtureView = <WidgetHost props={{ value: 'fixture' }} token={FixtureWidge
 
 void FixtureApplication;
 void fixtureView;
+
+const layoutKind: LayoutContentKind = null;
+void layoutKind;

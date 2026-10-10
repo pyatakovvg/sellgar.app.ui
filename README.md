@@ -81,6 +81,38 @@ contracts/scope, session state, application store,
 initializers, application feature activation, runtime failure flow, disposable
 registry и единый Application lifecycle.
 
+## Структурное содержимое Layout (React и Native)
+
+`LayoutViewProps.kind` описывает непосредственную логическую границу внутри
+лейаута: `'layout'`, `'module'` или `null`, если выбранной границы пока нет.
+Framework определяет её по декларациям выбранной ветки маршрутов и передаёт
+вместе с `children`. DOM, тип React-элемента и внутренние layouts модуля для
+этого не исследуются. Router/Route hosts прозрачны для определения границы.
+
+```tsx
+const LayoutView: React.FC<LayoutViewProps> = ({ children, kind }) => (
+  <main data-content-kind={kind ?? 'empty'}>{children}</main>
+);
+```
+
+- `Layout → Layout → Module`: внешний получает `layout`, внутренний — `module`.
+- `Layout → Module → собственный Layout → View`: внешний получает `module`.
+  Собственный layout модуля тоже получает `module` для его view.
+- Несколько собственных layouts модуля образуют отдельную цепочку: промежуточные
+  получают `layout`, последний — `module`. За границу Module эта цепочка не выходит.
+- Загрузка, локальная ошибка, action и revalidate не меняют принадлежность
+  выбранного Module. При замене ветки сохранённый префикс не получает сведения
+  о layouts ещё не показанной ветки; незаполненный outlet имеет `kind: null`.
+
+Это метаданные композиции, не новое runtime-состояние или подписка. Layout keys,
+scopes, providers и error boundaries сохраняются. Изменение `kind` само по себе
+не перемонтирует layout. При этом изменение пользователем формы JSX вокруг
+`children` может перемонтировать потомков по обычным правилам React.
+
+Layout view может быть компонентом или объявленным React-элементом: в обоих
+случаях renderer передаёт `children` и `kind`; остальные props, key и ref элемента
+сохраняются. Произвольные элементы внутри `children` renderer не изменяет.
+
 ## Владение зависимостями
 
 - `inversify`, `mobx`, `mobx-react` и `react-error-boundary` —

@@ -29,7 +29,10 @@ describe('NativeNavigationHost', () => {
       routes,
     } as unknown as NativePresentationRuntime;
     const subscribe = vi.fn();
-    const runtime = { subscribe } as unknown as React.ComponentProps<typeof NativeNavigationHost>['runtime'];
+    const runtime = {
+      subscribe,
+      getBranchSnapshot: () => ({ routes: [], pendingLocalChange: null }),
+    } as unknown as React.ComponentProps<typeof NativeNavigationHost>['runtime'];
     const view = render(
       <NativeNavigationHost
         components={{ fallback: <div>initial preparation</div> }}

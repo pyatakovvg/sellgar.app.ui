@@ -1,4 +1,5 @@
 import React from 'react';
+import type { LayoutContentKind } from '../../../../shared/layout/declaration/layout-content-kind';
 
 import type { RouteActivationRuntime } from '../../../../core/router/runtime/route-runtime';
 import { requireRuntimeException } from '../../../../core/runtime/exception/runtime-exception';
@@ -13,6 +14,7 @@ import { RuntimeScopeProvider } from '../../../runtime/scope/runtime-scope-conte
 
 interface IProps {
   readonly children: React.ReactNode;
+  readonly kind: LayoutContentKind;
   readonly components: ApplicationComponents;
   readonly layouts: readonly LayoutConstructor[];
   readonly runtime: RouteActivationRuntime<ModuleMetadata>;
@@ -34,7 +36,7 @@ export const RouteHost: React.FC<IProps> = (props) => {
       resetKeys={[props.runtime]}
     >
       <RuntimeScopeProvider scope={props.runtime.getRouteScope()}>
-        {renderLayouts(props.layouts, content)}
+        {renderLayouts(props.layouts, content, props.kind)}
       </RuntimeScopeProvider>
     </RuntimeErrorBoundary>
   );

@@ -1,4 +1,6 @@
 import React from 'react';
+import { getRouteDefinition } from '../../../../core/router/declaration/route';
+import { getRouteContentKind } from '../router-content-kind';
 
 import type { ApplicationNavigationDecision } from '../../../../core/application/lifecycle/application';
 import { requireRuntimeException } from '../../../../core/runtime/exception/runtime-exception';
@@ -37,6 +39,13 @@ export const RouterHost: React.FC<IProps> = (props) => {
     notFound: definition.notFound ?? props.components.notFound,
   };
 
+  const branch = props.runtime.getBranchSnapshot();
+  const kind = props.pending
+    ? null
+    : getRouteContentKind(branch.routes, {
+        pendingAfterRouteCount: branch.pendingLocalChange?.commonRouteCount,
+      });
+
   return (
     <RuntimeErrorBoundary
       exception={components.exception}
@@ -44,7 +53,7 @@ export const RouterHost: React.FC<IProps> = (props) => {
       resolveException={(error) => props.runtime.createRenderException(error)}
       resetKeys={[props.runtime]}
     >
-      {renderLayouts(definition.layouts, renderRouterContent(props, components, snapshot))}
+      {renderLayouts(definition.layouts, renderRouterContent(props, components, snapshot, branch), kind)}
     </RuntimeErrorBoundary>
   );
 };
@@ -53,6 +62,7 @@ const renderRouterContent = (
   props: IProps,
   components: ApplicationComponents,
   snapshot: ReturnType<RouterRuntime<ModuleMetadata>['getSnapshot']>,
+  branch: ReturnType<RouterRuntime<ModuleMetadata>['getBranchSnapshot']>,
 ): React.ReactNode => {
   const decision = props.decision?.type;
 
@@ -76,7 +86,6 @@ const renderRouterContent = (
     return components.fallback ?? null;
   }
 
-  const branch = props.runtime.getBranchSnapshot();
   const routes = branch.routes;
 
   if (routes.length === 0) {
@@ -111,8 +120,21 @@ const renderRoutePath = (
   };
   const childRoute = renderRoutePath(components, routes, pendingAfterRouteCount, index + 1);
 
+  const terminalKind = getRouteDefinition(runtime.route).load ? 'module' : null;
+  const kind = getRouteContentKind(routes, {
+    startIndex: index + 1,
+    pendingAfterRouteCount,
+    ...(index + 1 >= routes.length ? { outletKind: terminalKind } : {}),
+  });
+
   return (
-    <RouteHost key={getRouteRuntimeKey(runtime)} components={components} layouts={definition.layouts} runtime={runtime}>
+    <RouteHost
+      kind={kind}
+      key={getRouteRuntimeKey(runtime)}
+      components={components}
+      layouts={definition.layouts}
+      runtime={runtime}
+    >
       {childRoute}
     </RouteHost>
   );
