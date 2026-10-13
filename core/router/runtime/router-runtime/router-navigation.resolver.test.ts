@@ -39,6 +39,25 @@ describe('resolveNavigationCandidates notFound', () => {
     expect(candidates[0]?.target.routes.map((entry) => entry.node.route)).toEqual([authorizedRoutes, terminals]);
   });
 
+  it('resolves an explicit root index without treating its policies as availability probes', () => {
+    const index = new Route({ load: async () => ({}) });
+    const parent = new Route({ routes: [index] });
+    const router = new Router({ routes: [parent] });
+    const navigation = resolveRouterBridgeLocation(router, { address: [], nested: null, query: {}, state: undefined });
+    const [candidate] = resolveNavigationCandidates(router, navigation, undefined);
+    expect(candidate?.target.routes.map((entry) => entry.node.route)).toEqual([parent, index]);
+    expect(candidate?.probeCanMatch).toBe(false);
+  });
+
+  it('keeps availability probing for an explicit first-available default', () => {
+    const page = new Route({ address: segments('page'), load: async () => ({}) });
+    const parent = new Route({ defaultTo: Router.firstAvailable(), routes: [page] });
+    const router = new Router({ routes: [parent] });
+    const navigation = resolveRouterBridgeLocation(router, { address: [], nested: null, query: {}, state: undefined });
+    const [candidate] = resolveNavigationCandidates(router, navigation, undefined);
+    expect(candidate?.probeCanMatch).toBe(true);
+  });
+
   it.each(['unknown', 'customer.unknown', 'customer.sign-in.unknown'])(
     'preserves the matched ancestry for %s without selecting descendant routes',
     (screen) => {

@@ -185,6 +185,10 @@ RequestExecutor: он сохраняет очереди, scoped cancellation и 
 runtime operations без передачи исходной ошибки контроллеру. Обычные
 `setAuthenticated()`/`setAnonymous()` остаются управляемыми переходами: action
 входа или выхода физически завершается, но его stale result не публикуется.
+При запуске на `/` явно заданный index Route проходит обычный policy pipeline:
+его `onFail` redirect выполняется. Проверка доступности с пропуском кандидата
+относится к `Router.firstAvailable()`, а не к точному совпадению index Route.
+Это сохраняет переход на вход после начального `401` профиля.
 Renderer-independent `ApplicationEventBusInterface` также является singleton
 того же ApplicationScope: Module, Route и Widget runtimes обмениваются
 типизированными событиями без зависимости от renderer adapter. `publish()`

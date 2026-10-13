@@ -203,7 +203,7 @@ const expandRouterState = (
         }),
       ]);
 
-      return expandRoutePath(path, context, true, replace).map((local) => {
+      return expandRoutePath(path, context, !hasIndexMatch(route), replace).map((local) => {
         return Object.freeze({
           probeCanMatch: local.probeCanMatch,
           replace: local.replace,
@@ -232,6 +232,18 @@ const expandRouterState = (
       });
     });
   });
+};
+
+const hasIndexMatch = (route: RouteDeclaration): boolean => {
+  const definition = getRouteDefinition(route);
+  if (definition.address !== undefined) return false;
+  return (
+    definition.load !== undefined ||
+    definition.routes.some((child) => {
+      const childDefinition = getRouteDefinition(child);
+      return childDefinition.address === undefined && childDefinition.load !== undefined;
+    })
+  );
 };
 
 const canResolveEmptyAddressFrom = (route: RouteDeclaration): boolean => {

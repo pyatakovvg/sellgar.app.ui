@@ -1626,6 +1626,10 @@ request -> resolve -> blockers -> policies -> prepare -> commit | abort
   поля `canAction` нет.
 - Первая failure в обычном target pipeline прекращает операцию; runtime
   применяет configured `PolicyBoundaryDecision` этой failure.
+- Явный index Route при пустом browser address является точным target:
+  он и его родительские boundaries выполняют обычный policy pipeline с
+  configured `onFail`, включая redirect. Он не отбрасывается как недоступный
+  кандидат автоматического поиска.
 - `Router.firstAvailable()` проверяет `canMatch` кандидатов в том же порядке и
   пропускает недоступные ветки. Failure при таком probing означает только, что
   кандидат недоступен: redirect/forbidden handler отвергнутого кандидата не

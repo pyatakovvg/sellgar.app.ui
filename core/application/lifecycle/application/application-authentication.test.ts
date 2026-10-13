@@ -88,6 +88,23 @@ class AuthenticateInitializer implements ApplicationInitializerInterface {
   }
 }
 
+@Initializer()
+class ResolveAnonymousSessionInitializer implements ApplicationInitializerInterface {
+  constructor(@Inject(RequestExecutorInterface) private readonly requests: RequestExecutorInterface) {}
+
+  async execute(context: ApplicationInitializerContextInterface): Promise<void> {
+    try {
+      await this.requests.run({ scope: 'profile:get' }, async () => {
+        throw new UnauthorizedException({ title: 'Unauthorized' });
+      });
+      context.session.setAuthenticated();
+    } catch (error) {
+      if (!(error instanceof UnauthorizedException)) throw error;
+      context.session.setAnonymous();
+    }
+  }
+}
+
 @Policy()
 class RequireAuthenticatedSessionPolicy extends RoutePolicyInterface {
   execute(context: RouteRuntimeContextInterface): PolicyResult {
@@ -247,6 +264,51 @@ describe('Application authentication lifecycle', () => {
     expect(bridge.commits).toHaveLength(1);
 
     await app.dispose();
+  });
+
+  it('finishes startup and redirects to sign-in when the profile returns 401', async () => {
+    const signInLoad = vi.fn(async () => ({}));
+    const protectedLoad = vi.fn(async () => ({}));
+    const bridge = new RootTestRouterBridge();
+    const app = new TestApplication(
+      bridge,
+      new Router({
+        routes: [
+          new Route({
+            canMatch: [
+              RequireAuthenticatedSessionPolicy.configure().onFail(
+                Router.redirectTo(SignInRoute, { replace: true, saveCurrentLocation: true }),
+              ),
+            ],
+            routes: [new Route({ token: ProtectedRoute, load: protectedLoad })],
+          }),
+          new Route({
+            routes: [
+              new Route({
+                token: SignInRoute,
+                address: segments('sign-in'),
+                canMatch: [RequireAnonymousSessionPolicy.configure().onFail(Router.redirectToSaved({ replace: true }))],
+                load: signInLoad,
+              }),
+            ],
+          }),
+        ],
+      }),
+      [ResolveAnonymousSessionInitializer],
+    );
+
+    app.compose();
+    const initialization = app.initialize();
+    try {
+      await initialization;
+      expect(app.sessionState.phase).toBe('anonymous');
+      expect(signInLoad).toHaveBeenCalledOnce();
+      expect(matchesNavigationRoute(app.navigation.navigation, SignInRoute)).toBe(true);
+      expect(protectedLoad).not.toHaveBeenCalled();
+      expect(bridge.commits).toHaveLength(1);
+    } finally {
+      await app.dispose();
+    }
   });
 
   it('redirects direct protected navigation to sign-in and restores it through one refresh wave per session change', async () => {
