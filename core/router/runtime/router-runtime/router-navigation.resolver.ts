@@ -7,6 +7,7 @@ import {
 } from '../../declaration/router';
 import type { NavigationRouteEntry, NavigationRouterState, NavigationState } from '../navigation-state';
 import { getRoutePath, getRouterGraph, type RouteGraphNode, validateRouteParams } from '../router-graph';
+import { resolveRouterBridgeNestedAddress } from '../router-address-resolver';
 
 export interface ResolvedRouteEntry {
   readonly node: RouteGraphNode;
@@ -61,7 +62,7 @@ export const resolveNavigationCandidates = (
   const graph = getRouterGraph(rootRouter);
   const context: ResolverContext = {
     currentParams: collectNavigationParams(current?.root),
-    nodesByRoute: new Map(graph.nodes.map((node) => [node.route, node])),
+    nodesByRoute: graph.nodesByRoute,
     rootRouter,
   };
   const root = validateRouterState(navigation.root, rootRouter, null, context);
@@ -77,18 +78,39 @@ export const resolveNavigationCandidates = (
   }
 
   return Object.freeze(
-    expandRouterState(root, context, false, false).map((expansion) => {
+    expandRouterState(root, context, false, false).flatMap((expansion) => {
       const resolvedNavigation = freezeNavigation({
         ...navigation,
         replace: navigation.replace || expansion.replace,
         root: toNavigationRouterState(expansion.state),
       });
 
-      return Object.freeze({
-        navigation: resolvedNavigation,
-        probeCanMatch: expansion.probeCanMatch,
-        target: toRouterTarget(expansion.state),
-      });
+      if (navigation.pendingNestedAddress) {
+        const pending = navigation.pendingNestedAddress;
+        const nested = resolveRouterBridgeNestedAddress(resolvedNavigation.root, pending.address, pending.query);
+
+        // The owner now exists; clear pending metadata before resolving its nested defaults.
+        return resolveNavigationCandidates(
+          rootRouter,
+          {
+            ...resolvedNavigation,
+            boundary: nested.boundary,
+            pendingNestedAddress: null,
+            root: nested.root,
+          },
+          current,
+        ).map((candidate) =>
+          Object.freeze({ ...candidate, probeCanMatch: expansion.probeCanMatch || candidate.probeCanMatch }),
+        );
+      }
+
+      return [
+        Object.freeze({
+          navigation: resolvedNavigation,
+          probeCanMatch: expansion.probeCanMatch,
+          target: toRouterTarget(expansion.state),
+        }),
+      ];
     }),
   );
 };

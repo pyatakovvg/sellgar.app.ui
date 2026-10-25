@@ -11,8 +11,8 @@ FSM-приложение использует server-driven модель: author
 backend, клиент отправляет команды, а backend публикует snapshots. В текущем
 терминальном контракте поле `screen` определяет активный экран.
 
-Новый `@tiyn/app/fsm` проектируется над общим core по образцу React-среза
-`@tiyn/app/react`. Базовым consumer-примером является композиция приложения в
+Новый `@sellgar/app/fsm` проектируется над общим core по образцу React-среза
+`@sellgar/app/react`. Базовым consumer-примером является композиция приложения в
 `sellgar.ui.admin/clients/admin/src/application` и его `bootstrap.tsx`.
 
 Этот RFC фиксирует понятия FSM Application, Router и Snapshot Source. Source port
@@ -25,7 +25,7 @@ FSM Application — React application facade для server-driven FSM. Он ис
 общий application runtime и React rendering существующего framework.
 
 Конкретное приложение наследуется от `Application`, экспортируемого
-`@tiyn/app/fsm`, и в `configure` регистрирует components, layouts, features, initializers и
+`@sellgar/app/fsm`, и в `configure` регистрирует components, layouts, features, initializers и
 корневой Router.
 
 Application не создаёт источник snapshots и не содержит transport-specific код.
@@ -174,7 +174,7 @@ initializing.
 
 В текущей итерации добавлены:
 
-- публичный entrypoint `@tiyn/app/fsm`;
+- публичный entrypoint `@sellgar/app/fsm`;
 - FSM `Application` с существующим core lifecycle и React root host;
 - FSM `Module`, `Layout`, `Router` и `Route`;
 - универсальный subscription-only FSM snapshot source port и RouterBridge с настраиваемым

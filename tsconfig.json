@@ -33,6 +33,7 @@
     "./contracts/react-facade.fixture.tsx",
     "./contracts/native-facade.fixture.tsx",
     "./contracts/fsm-facade.fixture.tsx",
-    "./contracts/application-feature.fixture.tsx"
+    "./contracts/application-feature.fixture.tsx",
+    "./contracts/application-metric.fixture.ts"
   ]
 }

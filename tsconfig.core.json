@@ -4,5 +4,5 @@
     "jsx": "preserve",
     "types": []
   },
-  "files": ["./core/index.ts"]
+  "files": ["./core/index.ts", "./contracts/application-metric.fixture.ts"]
 }

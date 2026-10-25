@@ -82,7 +82,7 @@ const fixture = () => {
 
       return { title: snapshot.title };
     },
-    available: () => true,
+    resolve: () => ({}),
     send: vi.fn(async (_snapshot, _command, _payload, _signal, id) => {
       sent.resolve(id);
       await http.promise;

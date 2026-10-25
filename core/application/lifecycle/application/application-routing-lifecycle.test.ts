@@ -24,6 +24,7 @@ import { RoutePolicyInterface } from '../../../router/runtime/route-policy';
 import type { RouteRuntimeContextInterface } from '../../../router/runtime/route-runtime-context';
 import type { RouteRuntime } from '../../../router/runtime/route-runtime';
 import { createScopedNavigate, NavigateServiceInterface } from '../../../router/service/navigate-service';
+import { RouteQueryServiceInterface } from '../../../router/service/route-query-service';
 import { BackServiceInterface, type BackInterception } from '../../../router/service/back-service';
 import { Provider, ProviderInterface } from '../../../runtime/provider/provider';
 import { ApplicationConfig } from '../../config/application-config';
@@ -958,6 +959,109 @@ describe('Application routing lifecycle', () => {
     expect(firstAvailableApp.activeRoutes.at(-1)!.getSnapshot().phase).toBe('active');
     expect(getRouteDefinition(firstAvailableApp.activeRoutes.at(-1)!.route).token).toBe(AvailableRoute);
     await firstAvailableApp.dispose();
+  });
+
+  it.each(['index', 'default', 'first-available'] as const)(
+    'restores the nested Router through %s resolution with independent scope queries',
+    async (kind) => {
+      const deniedLoad = vi.fn(loadTestModule);
+      const frame = new Route({ address: segments('frame'), load: loadTestModule, token: QueryFrameRoute });
+      const host = new Route({
+        address: kind === 'index' ? undefined : segments('module'),
+        load: loadTestModule,
+        routing: [new Router({ routes: [frame] })],
+        token: QueryModuleRoute,
+      });
+      const denied = new Route({
+        address: segments('denied'),
+        canMatch: [DenyPolicy],
+        load: deniedLoad,
+        token: DeniedRoute,
+      });
+      const router = new Router({
+        routes: [
+          ...(kind === 'index'
+            ? [host]
+            : [
+                new Route({
+                  address: segments('group'),
+                  defaultTo: kind === 'default' ? QueryModuleRoute : Router.firstAvailable(),
+                  routes: kind === 'default' ? [host] : [denied, host],
+                }),
+              ]),
+          createModuleRoute(OtherRoute, 'other'),
+        ],
+      });
+      const app = await createApplication(router, (navigate) => navigate.to(OtherRoute));
+
+      try {
+        await expect(
+          app.bridge.restore(
+            {
+              address: kind === 'index' ? [] : ['group'],
+              nested: { address: ['frame'], query: { modal: 'yes' } },
+              query: { main: 'yes' },
+              state: undefined,
+            },
+            true,
+          ),
+        ).resolves.toBe(true);
+
+        const moduleRuntime = app.activeRoutes.find((runtime) => runtime.route === host);
+        const frameRuntime = app.activeRoutes.find((runtime) => runtime.route === frame);
+
+        expect(moduleRuntime?.getSnapshot().phase).toBe('active');
+        expect(frameRuntime?.getSnapshot().phase).toBe('active');
+        expect(moduleRuntime?.getRouteScope().get(RouteQueryServiceInterface).current()).toEqual({ main: 'yes' });
+        expect(frameRuntime?.getRouteScope().get(RouteQueryServiceInterface).current()).toEqual({ modal: 'yes' });
+        expect(deniedLoad).not.toHaveBeenCalled();
+      } finally {
+        await app.dispose();
+      }
+    },
+  );
+
+  it('does not coalesce deferred nested restorations with different query values', async () => {
+    const deferred = createDeferred<Record<string, unknown>>();
+    const moduleLoad = vi.fn(() => deferred.promise);
+    const frame = new Route({ address: segments('frame'), load: loadTestModule, token: QueryFrameRoute });
+    const host = new Route({
+      address: segments('module'),
+      load: moduleLoad,
+      routing: [new Router({ routes: [frame] })],
+      token: QueryModuleRoute,
+    });
+    const router = new Router({
+      routes: [
+        new Route({ address: segments('group'), defaultTo: QueryModuleRoute, routes: [host] }),
+        createModuleRoute(OtherRoute, 'other'),
+      ],
+    });
+    const app = await createApplication(router, (navigate) => navigate.to(OtherRoute));
+    const location = (tab: string): RouterBridgeLocationInterface => ({
+      address: ['group'],
+      nested: { address: ['frame'], query: { tab } },
+      query: { main: 'yes' },
+      state: undefined,
+    });
+
+    try {
+      const first = app.bridge.restore(location('first'), true);
+
+      await vi.waitFor(() => expect(moduleLoad).toHaveBeenCalledOnce());
+      const second = app.bridge.restore(location('second'), true);
+
+      deferred.resolve({ module: TestModule });
+      await Promise.all([first, second]);
+
+      const frameRuntime = app.activeRoutes.find((runtime) => runtime.route === frame);
+
+      expect(frameRuntime?.getSnapshot().phase).toBe('active');
+      expect(frameRuntime?.getRouteScope().get(RouteQueryServiceInterface).current()).toEqual({ tab: 'second' });
+    } finally {
+      deferred.resolve({ module: TestModule });
+      await app.dispose();
+    }
   });
 
   it('keeps a Module render failure inside its ModuleRuntime', async () => {

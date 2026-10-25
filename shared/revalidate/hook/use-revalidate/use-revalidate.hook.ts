@@ -15,15 +15,28 @@ export const useRuntimeRevalidate = (
   >,
   controllerToken?: DependencyToken<unknown>,
 ): RevalidateHandler => {
-  const revision = React.useSyncExternalStore(
-    React.useCallback((listener) => runtime.subscribe(listener), [runtime]),
-    React.useCallback(() => runtime.getRevalidateRevision(), [runtime]),
-    React.useCallback(() => runtime.getRevalidateRevision(), [runtime]),
-  );
-  const runtimeState = React.useMemo(
-    () => runtime.getRevalidateState(controllerToken),
-    [controllerToken, revision, runtime],
-  );
+  const subscribe = React.useCallback((listener: () => void) => runtime.subscribe(listener), [runtime]);
+  const getSnapshot = React.useMemo(() => {
+    let revision: number | undefined;
+    let snapshot: Pick<RevalidateHandler, 'error' | 'inProcess'> | undefined;
+
+    return () => {
+      const nextRevision = runtime.getRevalidateRevision();
+
+      if (snapshot && revision === nextRevision) return snapshot;
+
+      const state = runtime.getRevalidateState(controllerToken);
+
+      revision = nextRevision;
+
+      if (!snapshot || snapshot.inProcess !== state.inProcess || !Object.is(snapshot.error, state.error)) {
+        snapshot = Object.freeze({ error: state.error, inProcess: state.inProcess });
+      }
+
+      return snapshot;
+    };
+  }, [controllerToken, runtime]);
+  const runtimeState = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   const revalidate = React.useCallback(
     () =>

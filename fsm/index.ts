@@ -49,6 +49,7 @@ export type { FsmRouterBridgeOptions } from './router/bridge/fsm-router-bridge';
 export { FsmSnapshotSourceInterface } from './router/source/fsm-snapshot-source';
 export type { FsmSnapshotSourceListener, FsmSnapshotSourceSubscription } from './router/source/fsm-snapshot-source';
 export { State, Commands, Command } from './token/declaration/fsm-token';
+export { Payload } from './token/declaration/payload';
 export type { FsmToken, FsmModelConstructor, CommandHandler } from './token/declaration/fsm-token';
 export { ScreenServiceInterface } from './service/screen-service';
 export { SnapshotServiceInterface } from './service/snapshot-service';

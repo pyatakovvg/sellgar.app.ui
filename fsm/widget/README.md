@@ -6,7 +6,7 @@ FSM использует тот же core WidgetRuntime, WidgetRuntimeRegistry �
 WidgetPreloaderInterface, что и остальные срезы. В этом каталоге находятся только
 декларация и React-renderer-интеграция с контекстами FSM.
 
-Публичный API доступен через `@tiyn/app/fsm`:
+Публичный API доступен через `@sellgar/app/fsm`:
 `Widget`, `WidgetDefinition`, `WidgetHost`, `useWidgetProps`,
 `WidgetPreloaderInterface` и соответствующие типы.
 
@@ -49,6 +49,6 @@ Renderer не импортирует React-срез и не зависит от 
 
 Из корня монорепы `code/`:
 
-- `yarn workspace @tiyn/app typecheck`, `yarn workspace @tiyn/app typecheck:core`;
+- `yarn workspace @sellgar/app typecheck`, `yarn workspace @sellgar/app typecheck:core`;
 - `yarn test library/sellgar.app.ui/fsm/widget library/sellgar.app.ui/fsm/application/lifecycle/application/application-widget.test.tsx`;
 - `yarn test library/sellgar.app.ui` — регрессия остальных срезов и общего core.

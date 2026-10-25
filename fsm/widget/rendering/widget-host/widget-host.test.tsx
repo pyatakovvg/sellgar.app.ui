@@ -49,6 +49,39 @@ const fixture = () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('FSM WidgetHost', () => {
+  it('renders accepted props once and skips unchanged parent renders', async () => {
+    const rendered = vi.fn(({ value }: Props) => <span>{value}</span>);
+    @Widget<Props>({ view: rendered })
+    class Token extends WidgetDefinition<Props> {}
+    const f = fixture();
+    const components = {};
+    const tree = (props: Props) => (
+      <ApplicationComponentsProvider components={components}>
+        <RuntimeScopeProvider scope={f.scope}>
+          <WidgetHost token={Token} props={props} />
+        </RuntimeScopeProvider>
+      </ApplicationComponentsProvider>
+    );
+    const next = { value: 'second' };
+    const view = render(tree({ value: 'first' }));
+    try {
+      await screen.findByText('first');
+      rendered.mockClear();
+      view.rerender(tree(next));
+      expect(screen.getByText('second')).toBeInTheDocument();
+      expect(rendered.mock.calls.map(([props]) => props.value)).toEqual(['second']);
+      rendered.mockClear();
+      view.rerender(tree(next));
+      expect(rendered).not.toHaveBeenCalled();
+      view.rerender(tree({ value: 'third' }));
+      expect(screen.getByText('third')).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      await f.scope.disposeWidgetRuntimes();
+      f.scope.dispose();
+    }
+  });
+
   it('reuses the core runtime in StrictMode, updates props and releases it on unmount', async () => {
     const f = fixture();
     const acquire = vi.spyOn(f.registry, 'acquire');

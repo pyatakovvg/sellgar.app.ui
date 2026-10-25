@@ -16,6 +16,7 @@ export interface RouteGraphNode {
 
 export interface RouterGraph {
   readonly nodes: readonly RouteGraphNode[];
+  readonly nodesByRoute: ReadonlyMap<RouteDeclaration, RouteGraphNode>;
   readonly tokens: ReadonlyMap<RouteToken, RouteGraphNode>;
 }
 
@@ -68,6 +69,7 @@ export const validateRouteParams = (route: RouteDeclaration, params: Readonly<Re
 
 const createRouterGraph = (router: RouterDeclaration): RouterGraph => {
   const nodes: RouteGraphNode[] = [];
+  const nodesByRoute = new Map<RouteDeclaration, RouteGraphNode>();
   const tokens = new Map<RouteToken, RouteGraphNode>();
   const visitedRoutes = new Set<RouteDeclaration>();
   const visitedRouters = new Set<RouterDeclaration>();
@@ -99,6 +101,7 @@ const createRouterGraph = (router: RouterDeclaration): RouterGraph => {
     const node = Object.freeze({ parent, route, router: currentRouter });
 
     nodes.push(node);
+    nodesByRoute.set(route, node);
 
     if (definition.token) {
       if (tokens.has(definition.token)) {
@@ -122,6 +125,7 @@ const createRouterGraph = (router: RouterDeclaration): RouterGraph => {
 
   return Object.freeze({
     nodes: Object.freeze(nodes),
+    nodesByRoute,
     tokens,
   });
 };

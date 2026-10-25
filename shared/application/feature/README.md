@@ -13,8 +13,8 @@ Core владеет lifecycle-контрактом `ApplicationFeatureInterface`
 ## Декларация
 
 ```tsx
-import { Inject, UseBindings, type ApplicationFeatureInterface } from '@tiyn/app';
-import { Feature } from '@tiyn/app/fsm';
+import { Inject, UseBindings, type ApplicationFeatureInterface } from '@sellgar/app';
+import { Feature } from '@sellgar/app/fsm';
 
 @UseBindings(FeatureBindings)
 @Feature({
@@ -77,7 +77,7 @@ DI и lifecycle остаются в core. Настройки задаются п
 
 `alert`, `confirm` и `prompt` принимают необязательный `status`:
 `info`, `success`, `warning` или `destructive`. Тип `UserRequestStatus`
-экспортируется из `@tiyn/app`, `@tiyn/app/react` и `@tiyn/app/native`.
+экспортируется из `@sellgar/app`, `@sellgar/app/react` и `@sellgar/app/native`.
 
 ```ts
 await userRequest.alert({ status: 'success', title: 'Изменения сохранены' });

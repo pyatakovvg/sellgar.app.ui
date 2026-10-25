@@ -19,6 +19,42 @@ interface TestWidgetProps {
 class TestWidget extends WidgetDefinition<TestWidgetProps> {}
 
 describe('WidgetHost', () => {
+  it('renders accepted props once and skips unchanged parent renders', async () => {
+    const rendered = vi.fn(({ value }: TestWidgetProps) => <span>{value}</span>);
+    @Widget<TestWidgetProps>({ view: rendered })
+    class Token extends WidgetDefinition<TestWidgetProps> {}
+    const scope = new ApplicationScope();
+    scope.bindSession(new SessionRuntimeState());
+    const components = {};
+    const tree = (props: TestWidgetProps) => (
+      <ApplicationComponentsProvider components={components}>
+        <RuntimeScopeProvider scope={scope}>
+          <WidgetHost token={Token} props={props} />
+        </RuntimeScopeProvider>
+      </ApplicationComponentsProvider>
+    );
+    const initial = { value: 'first' };
+    const next = { value: 'second' };
+    const view = render(tree(initial));
+    try {
+      await screen.findByText('first');
+      rendered.mockClear();
+      view.rerender(tree(next));
+      expect(screen.getByText('second')).toBeInTheDocument();
+      expect(rendered.mock.calls.map(([props]) => props.value)).toEqual(['second']);
+      rendered.mockClear();
+      view.rerender(tree(next));
+      expect(rendered).not.toHaveBeenCalled();
+      view.rerender(tree({ value: 'third' }));
+      expect(screen.getByText('third')).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      await scope.disposeWidgetRuntimes();
+      await scope.disposeProviders();
+      scope.dispose();
+    }
+  });
+
   it('reuses the same WidgetRuntime during a React StrictMode effect replay', async () => {
     const scope = new ApplicationScope();
 

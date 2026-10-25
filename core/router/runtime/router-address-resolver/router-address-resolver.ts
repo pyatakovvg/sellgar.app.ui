@@ -49,6 +49,7 @@ export const resolveRouterBridgeLocation = (
 export const resolveRouterBridgeNestedAddress = (
   root: NavigationRouterState,
   address: readonly string[],
+  query: Readonly<Record<string, unknown>> = EMPTY_QUERY,
 ): ResolvedRouterBridgeNestedAddress => {
   const nested = matchNestedAddress(root.path, address);
 
@@ -58,7 +59,13 @@ export const resolveRouterBridgeNestedAddress = (
 
   return Object.freeze({
     boundary: nested.boundary,
-    root: createRouterState(root.router, root.owner, root.path, root.query, nested.state),
+    root: createRouterState(
+      root.router,
+      root.owner,
+      root.path,
+      root.query,
+      updateDeepestQuery(nested.state, Object.freeze({ ...query })),
+    ),
   });
 };
 
@@ -68,18 +75,24 @@ const createNavigation = (
   boundary: NavigationNotFoundBoundary | null,
 ): NavigationState => {
   const nested =
-    boundary === null && location.nested ? resolveRouterBridgeNestedAddress(root, location.nested.address) : null;
+    boundary === null && location.nested
+      ? resolveRouterBridgeNestedAddress(root, location.nested.address, location.nested.query)
+      : null;
   const resolvedRoot = nested?.root ?? root;
 
   return Object.freeze({
     boundary: nested?.boundary ?? boundary,
     initiator: null,
-    pendingNestedAddress: null,
+    pendingNestedAddress:
+      boundary === null && location.nested && !resolvedRoot.child
+        ? Object.freeze({
+            address: Object.freeze([...location.nested.address]),
+            query: Object.freeze({ ...location.nested.query }),
+          })
+        : null,
     replace: location.address.length === 0,
     revalidation: location.revalidate === false ? null : Object.freeze({ kind: 'restore' }),
-    root: location.nested
-      ? updateDeepestQuery(resolvedRoot, Object.freeze({ ...location.nested.query }))
-      : resolvedRoot,
+    root: resolvedRoot,
     state: location.state,
   });
 };

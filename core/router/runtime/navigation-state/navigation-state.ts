@@ -37,7 +37,10 @@ export interface NavigationNotFoundBoundary {
 export interface NavigationState {
   readonly boundary: NavigationNotFoundBoundary | null;
   readonly initiator: NavigationInitiator | null;
-  readonly pendingNestedAddress: readonly string[] | null;
+  readonly pendingNestedAddress: {
+    readonly address: readonly string[];
+    readonly query: Readonly<Record<string, unknown>>;
+  } | null;
   readonly replace: boolean;
   readonly revalidation: NavigationRevalidation;
   readonly root: NavigationRouterState;

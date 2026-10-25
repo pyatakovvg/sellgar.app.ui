@@ -1,4 +1,4 @@
-# Структура `@tiyn/app`
+# Структура `@sellgar/app`
 
 - Статус документа: target
 - Статус реализации: in-progress
@@ -421,6 +421,11 @@ Index, explicit `defaultTo`, structural Route и `Router.firstAvailable()`
 разрешаются до prepare; probing `firstAvailable` не применяет result handlers
 отвергнутого кандидата.
 
+`core/router/runtime/router-graph` строит граф один раз для корневого Router и
+кеширует его в `WeakMap`. Граф владеет индексами token → node и Route → node;
+resolver использует готовый Route-индекс, не пересоздавая его на каждой навигации.
+Параметры и query текущего перехода не входят в этот кеш.
+
 Router declaration владеет core `providers`; React Router facade добавляет
 provider tokens и binding owners своих layouts в отдельную runtime composition,
 не протаскивая layout types в core. `RouterRuntime` удерживает pipeline на весь
@@ -529,6 +534,11 @@ query-срезы.
 staged target query до policies/loaders. После commit каждый scope публикует
 только собственный query. Browser adapter кодирует root query в search, а query
 активного nested Router — после hash address: `/module?a=1#frame?a=4`.
+Если owner вложенного Router появляется только после index/`defaultTo`/
+`firstAvailable` resolution, адрес и query вложенной части сохраняются до
+разрешения соответствующего root candidate. Вложенный query применяется только
+к найденному вложенному scope, не к основному экрану. Неизвестный вложенный адрес
+без совпавшей ветки по-прежнему игнорируется; root query при этом сохраняется.
 Browser pathname, hash, raw search и `URLSearchParams` в core contract не входят.
 
 Action, произвольный controller method и локальный revalidate RouteRuntime
@@ -593,12 +603,12 @@ navigation blocker и вложенный browser-routing слой. Готовы�
 передаётся конкретному FSM Application извне; источник snapshots и transport не
 являются частью текущего entrypoint.
 
-| Import             | Файл              |
-| ------------------ | ----------------- |
-| `@tiyn/app`        | `core/index.ts`   |
-| `@tiyn/app/react`  | `react/index.ts`  |
-| `@tiyn/app/native` | `native/index.ts` |
-| `@tiyn/app/fsm`    | `fsm/index.ts`    |
+| Import                | Файл              |
+| --------------------- | ----------------- |
+| `@sellgar/app`        | `core/index.ts`   |
+| `@sellgar/app/react`  | `react/index.ts`  |
+| `@sellgar/app/native` | `native/index.ts` |
+| `@sellgar/app/fsm`    | `fsm/index.ts`    |
 
 Доступность определяется только `package.json#exports`. Deep imports запрещены.
 Core не зависит от renderer entrypoints; renderer entrypoint использует core и

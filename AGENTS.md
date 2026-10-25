@@ -46,3 +46,12 @@
 - Prettier и `git diff --check` проходят;
 - Framework typecheck проходит для полного facade и отдельно для core.
 - Admin UI и Mobile Shop проходят свои consumer build/typecheck.
+
+## Синхронизация зеркал runtime
+
+- `tiyn-app` и `sellgar.app.ui` поддерживают общую реализацию, public contracts
+  и regression-тесты. При переносе объединять изменения обоих пакетов.
+- Различаются имя package, self-imports и соответствующие примеры документации.
+- Сохраняются редирект анонимной корневой навигации на вход,
+  `LayoutViewProps.kind` и приоритет слоя уведомлений.
+- Не копировать `.git`, `node_modules`, кеши и generated output между пакетами.

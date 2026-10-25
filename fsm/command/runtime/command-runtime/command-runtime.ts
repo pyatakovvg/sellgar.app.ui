@@ -1,6 +1,7 @@
 import type { LocationServiceInterface } from '../../../../core/router/service/location-service';
 import { getFsmCommands, type FsmModelConstructor } from '../../../token/declaration/fsm-token';
 import { materializeFsmModel } from '../../../token/runtime/fsm-model';
+import { getFsmPayload } from '../../../token/declaration/payload';
 import type { FsmTransportInterface } from '../../../transport/contract/fsm-transport';
 import type { CommandExecutionInterface } from '../command-execution';
 
@@ -20,21 +21,24 @@ export class CommandRuntime {
   ): TCommands {
     const commands = new token();
     for (const [name, command] of getFsmCommands(token)) {
-      const available = () =>
-        !this.abort.signal.aborted &&
-        this.location.location?.state === snapshot &&
-        this.transport.available(snapshot, command);
-      const execute = (payload: object = {}): Promise<void> => {
-        if (!available()) return Promise.reject(new Error('FSM команда недоступна в текущем snapshot.'));
+      const payloadModel = getFsmPayload(command);
+      const resolve = () =>
+        !this.abort.signal.aborted && this.location.location?.state === snapshot
+          ? this.transport.resolve(snapshot, command)
+          : null;
+      const execute = (...args: readonly unknown[]): Promise<void> => {
+        if (!resolve()) return Promise.reject(new Error('FSM команда недоступна в текущем snapshot.'));
         return this.execution.run(snapshot, command, async (signal, commandId) => {
           await prepare?.();
-          const validated = await materializeFsmModel(command, payload);
-          if (!available()) throw new Error('FSM snapshot изменился до отправки команды.');
+          if (!payloadModel && args.length > 0) throw new Error('FSM команда не принимает payload.');
+          const validated = payloadModel ? await materializeFsmModel(payloadModel, args[0]) : undefined;
+          const descriptor = resolve();
+          if (!descriptor) throw new Error('FSM snapshot изменился до отправки команды.');
           signal.throwIfAborted();
-          await this.transport.send(snapshot, command, validated, signal, commandId);
+          await this.transport.send(snapshot, descriptor, validated, signal, commandId);
         });
       };
-      Object.defineProperty(execute, 'available', { get: available });
+      Object.defineProperty(execute, 'available', { get: () => resolve() !== null });
       Object.defineProperty(commands, name, { value: Object.freeze(execute), enumerable: true });
     }
     return Object.freeze(commands);

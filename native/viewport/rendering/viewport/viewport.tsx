@@ -66,7 +66,7 @@ interface ViewportContentProps {
 }
 
 const ViewportImplementation: React.FC<ViewportProps> = (props) => {
-  const structure = resolveViewportStructure(props.children);
+  const structure = React.useMemo(() => resolveViewportStructure(props.children), [props.children]);
 
   if (structure.refreshable) {
     return <RefreshableViewport structure={structure} />;
@@ -225,6 +225,7 @@ const ViewportContent: React.FC<ViewportContentProps> = (props) => {
             scrollEventThrottle={16}
             stickyHeaderIndices={stickyHeaderIndices}
             style={scrollStyle}
+            showsVerticalScrollIndicator={false}
           />
         ) : shell ? (
           <ShellScrollView
@@ -238,6 +239,7 @@ const ViewportContent: React.FC<ViewportContentProps> = (props) => {
             onScrollBeginDrag={handleScrollBeginDrag}
             onScrollEndDrag={handleScrollEndDrag}
             stickyHeaderIndices={stickyHeaderIndices}
+            showsVerticalScrollIndicator={false}
             style={scrollStyle}
           >
             {props.structure.flow.map(renderFlowEntry)}
@@ -254,6 +256,7 @@ const ViewportContent: React.FC<ViewportContentProps> = (props) => {
             onScrollBeginDrag={handleScrollBeginDrag}
             onScrollEndDrag={handleScrollEndDrag}
             stickyHeaderIndices={stickyHeaderIndices}
+            showsVerticalScrollIndicator={false}
             style={scrollStyle}
           >
             {props.structure.flow.map(renderFlowEntry)}

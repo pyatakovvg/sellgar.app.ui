@@ -16,7 +16,7 @@ interface IProps<TProps extends object> {
   readonly token: WidgetConstructor<TProps>;
 }
 
-export const WidgetRuntimeHost = <TProps extends object>(props: IProps<TProps>): React.ReactElement => {
+const WidgetRuntimeHostImplementation = <TProps extends object>(props: IProps<TProps>): React.ReactElement => {
   const applicationComponents = useApplicationComponents();
   const metadata = getWidgetMetadata(props.token);
   const snapshot = React.useSyncExternalStore(
@@ -63,3 +63,5 @@ export const WidgetRuntimeHost = <TProps extends object>(props: IProps<TProps>):
     </ErrorBoundary>
   );
 };
+
+export const WidgetRuntimeHost = React.memo(WidgetRuntimeHostImplementation) as typeof WidgetRuntimeHostImplementation;

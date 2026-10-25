@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { segments } from '../../declaration/address';
+import { param, segments } from '../../declaration/address';
 import { Route } from '../../declaration/route';
 import { Router } from '../../declaration/router';
 import { resolveRouterBridgeLocation } from '../router-address-resolver';
+import * as RouterGraph from '../router-graph';
 
 import { resolveNavigationCandidates } from './router-navigation.resolver.ts';
 
@@ -19,6 +20,34 @@ const createRouter = () => {
 };
 
 describe('resolveNavigationCandidates notFound', () => {
+  it('uses the cached route index without enumerating the graph on each resolution', () => {
+    const { router, phone } = createRouter();
+    const graph = RouterGraph.getRouterGraph(router);
+    const navigation = resolveRouterBridgeLocation(router, {
+      address: ['customer', 'sign-in', 'phone'],
+      nested: null,
+      query: {},
+      state: undefined,
+    });
+    const indexedGraph = {
+      ...graph,
+      get nodes(): typeof graph.nodes {
+        throw new Error('Navigation resolution must use the cached route index.');
+      },
+    };
+    const lookup = vi.spyOn(RouterGraph, 'getRouterGraph').mockReturnValue(indexedGraph);
+
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const [candidate] = resolveNavigationCandidates(router, navigation, undefined);
+
+        expect(candidate?.target.routes.at(-1)?.node.route).toBe(phone);
+      }
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+
   it('does not select a child of a structural route without an explicit default for an empty address', () => {
     const signIn = new Route({ address: segments('sign-in'), load: async () => ({}) });
     const passwordSet = new Route({ address: segments('password', 'set'), load: async () => ({}) });
@@ -138,5 +167,120 @@ describe('resolveNavigationCandidates notFound', () => {
 
     expect(candidate?.navigation.boundary).toBeNull();
     expect(candidate?.target.routes.at(-1)?.node.route).toBe(phone);
+  });
+});
+
+describe('resolveNavigationCandidates deferred nested address', () => {
+  it('restores a nested route owned by the root index Route', () => {
+    const frame = new Route({ address: segments('inspect', param('id')), load: async () => ({}) });
+    const nested = new Router({ routes: [frame] });
+    const host = new Route({ load: async () => ({}), routing: [nested] });
+    const router = new Router({ routes: [host] });
+    const navigation = resolveRouterBridgeLocation(router, {
+      address: [],
+      nested: { address: ['inspect', '17'], query: { modal: 'yes' } },
+      query: { main: 'yes' },
+      state: { restored: true },
+    });
+
+    const [candidate] = resolveNavigationCandidates(router, navigation, undefined);
+
+    expect(candidate?.navigation.root.query).toEqual({ main: 'yes' });
+    expect(candidate?.navigation.root.child?.query).toEqual({ modal: 'yes' });
+    expect(candidate?.target.child?.routes.at(-1)?.node.route).toBe(frame);
+    expect(candidate?.target.child?.routes.at(-1)?.params).toEqual({ id: '17' });
+    expect(candidate?.navigation.pendingNestedAddress).toBeNull();
+    expect(candidate?.navigation.state).toEqual({ restored: true });
+  });
+
+  it('restores a nested route owned by an explicit default target', () => {
+    class HostRoute {}
+    const frame = new Route({ address: segments('inspect'), load: async () => ({}) });
+    const nested = new Router({ routes: [frame] });
+    const host = new Route({
+      token: HostRoute,
+      address: segments('screen'),
+      load: async () => ({}),
+      routing: [nested],
+    });
+    const group = new Route({ address: segments('group'), defaultTo: HostRoute, routes: [host] });
+    const router = new Router({ routes: [group] });
+    const navigation = resolveRouterBridgeLocation(router, {
+      address: ['group'],
+      nested: { address: ['inspect'], query: { modal: 'yes' } },
+      query: { main: 'yes' },
+      state: undefined,
+    });
+
+    const [candidate] = resolveNavigationCandidates(router, navigation, undefined);
+
+    expect(candidate?.target.routes.at(-1)?.node.route).toBe(host);
+    expect(candidate?.target.child?.routes.at(-1)?.node.route).toBe(frame);
+    expect(candidate?.navigation.root.query).toEqual({ main: 'yes' });
+    expect(candidate?.navigation.root.child?.query).toEqual({ modal: 'yes' });
+    expect(candidate?.navigation.replace).toBe(true);
+    expect(candidate?.navigation.pendingNestedAddress).toBeNull();
+  });
+
+  it('resolves nested address independently for each firstAvailable candidate', () => {
+    const firstFrame = new Route({ address: segments('inspect'), load: async () => ({}) });
+    const secondFrame = new Route({ address: segments('inspect'), load: async () => ({}) });
+    const first = new Route({
+      address: segments('first'),
+      load: async () => ({}),
+      routing: [new Router({ routes: [firstFrame] })],
+    });
+    const second = new Route({
+      address: segments('second'),
+      load: async () => ({}),
+      routing: [new Router({ routes: [secondFrame] })],
+    });
+    const group = new Route({
+      address: segments('group'),
+      defaultTo: Router.firstAvailable(),
+      routes: [first, second],
+    });
+    const router = new Router({ routes: [group] });
+    const navigation = resolveRouterBridgeLocation(router, {
+      address: ['group'],
+      nested: { address: ['inspect'], query: { modal: 'yes' } },
+      query: { main: 'yes' },
+      state: undefined,
+    });
+
+    const candidates = resolveNavigationCandidates(router, navigation, undefined);
+
+    expect(candidates).toHaveLength(2);
+    expect(candidates.map((candidate) => candidate.target.child?.routes.at(-1)?.node.route)).toEqual([
+      firstFrame,
+      secondFrame,
+    ]);
+    for (const candidate of candidates) {
+      expect(candidate.probeCanMatch).toBe(true);
+      expect(candidate.navigation.root.query).toEqual({ main: 'yes' });
+      expect(candidate.navigation.root.child?.query).toEqual({ modal: 'yes' });
+      expect(candidate.navigation.pendingNestedAddress).toBeNull();
+    }
+  });
+
+  it('preserves root query when a nested address is still unknown after default expansion', () => {
+    class HostRoute {}
+    const host = new Route({ token: HostRoute, address: segments('screen'), load: async () => ({}) });
+    const router = new Router({
+      routes: [new Route({ address: segments('group'), defaultTo: HostRoute, routes: [host] })],
+    });
+    const navigation = resolveRouterBridgeLocation(router, {
+      address: ['group'],
+      nested: { address: ['unknown'], query: { modal: 'yes' } },
+      query: { main: 'yes' },
+      state: undefined,
+    });
+
+    const [candidate] = resolveNavigationCandidates(router, navigation, undefined);
+
+    expect(candidate?.navigation.root.query).toEqual({ main: 'yes' });
+    expect(candidate?.navigation.root.child).toBeNull();
+    expect(candidate?.navigation.boundary).toBeNull();
+    expect(candidate?.navigation.pendingNestedAddress).toBeNull();
   });
 });

@@ -3,13 +3,19 @@ import { IsString } from 'class-validator';
 import { describe, expect, it, vi } from 'vitest';
 import type { LocationServiceInterface } from '../../../core/router/service/location-service';
 import { Command, type CommandHandler } from '../../token/declaration/fsm-token';
+import { Payload } from '../../token/declaration/payload';
 import { CommandsService } from './commands.service';
 import { CommandExecution } from '../../command/runtime/command-execution';
 
-class Change {
+class ChangePayload {
   @Expose()
   @IsString()
   readonly language: string;
+}
+
+class Change {
+  @Payload(ChangePayload)
+  readonly payload: ChangePayload;
 }
 
 class Commands {
@@ -28,7 +34,7 @@ const fixture = () => {
   };
   const transport = {
     state: vi.fn(),
-    available: vi.fn(() => true),
+    resolve: vi.fn<() => object | null>(() => ({})),
     send: vi.fn(async () => {
       execution.confirm({});
     }),
@@ -56,12 +62,13 @@ describe('application CommandsService', () => {
     expect(transport.state).not.toHaveBeenCalled();
     expect(transport.send).toHaveBeenCalledWith(
       {},
-      Change,
-      expect.any(Change),
+      {},
+      expect.any(ChangePayload),
       expect.any(AbortSignal),
       expect.any(String),
     );
-    await expect(commands?.change({ language: 5 } as unknown as Change)).rejects.toBeInstanceOf(Array);
+    if (!commands) throw new Error('Expected commands');
+    await expect(Reflect.apply(commands.change, undefined, [{ language: 5 }])).rejects.toBeInstanceOf(Array);
     expect(transport.send).toHaveBeenCalledTimes(1);
     service.dispose();
   });
@@ -70,10 +77,10 @@ describe('application CommandsService', () => {
     const { service, publish, transport } = fixture();
     publish();
     const commands = service.get(Commands);
-    transport.available.mockReturnValue(false);
+    transport.resolve.mockReturnValue(null);
     expect(commands?.change.available).toBe(false);
     await expect(commands?.change({ language: 'kz' })).rejects.toThrow('недоступна');
-    transport.available.mockReturnValue(true);
+    transport.resolve.mockReturnValue({});
     publish();
     await expect(commands?.change({ language: 'kz' })).rejects.toThrow('недоступна');
     const current = service.get(Commands);

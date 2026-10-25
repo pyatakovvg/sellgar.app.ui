@@ -3,6 +3,14 @@
 - Статус пакета: development
 - Статус реализации: in-progress
 
+## Метрики приложения
+
+[Подсистема метрик](core/application/metric/README.md) предоставляет классы событий
+с `@MetricEvent`, общий `track(EventClass, data, { to })`, подключение адаптеров
+через `app.metrics` и `useMetric()` для React/FSM/Native. Core валидирует данные,
+маршрутизирует события и управляет очередями и lifecycle.
+[Принятый RFC](docs/rfc/application-metrics.md) сохраняет историю решения.
+
 ## Проверка пакета
 
 Инструменты разработки и тестирования предоставляет подключающая монорепа.
@@ -52,6 +60,8 @@ browser navigation API. Его `Application` получает `RouterBridge`, а
 через `FsmSnapshotSourceInterface`; конкретный transport, валидация snapshot и
 его state/command модели принадлежат приложению. Контракт описан в
 [FSM Application и Router RFC](docs/rfc/fsm-application-and-router.md).
+Текущий контракт деклараций `@Command`, `@Payload`, типизации аргументов и
+transport resolution описан в [CommandsService](fsm/service/commands-service/README.md).
 
 Native entrypoint повторяет публичные framework-понятия React facade:
 `Application`, configurator, `Module`, `Layout`, `Widget`, renderer features,
@@ -68,6 +78,16 @@ fallback после принятия навигации. Возврат к по�
 loader. Явное обновление и изменение query остаются отдельной ревалидацией. Back во время
 `preparing` отменяет transition и мгновенно возвращает committed presentation.
 Query не меняет identity screen; Route path и params меняют её.
+При построении native screen projection retained activations один раз группируются
+по полной ancestry Route/params: вложенный outlet не сканирует всю историю заново.
+Индекс существует только на время проекции и не заменяет core history/retention.
+Вложенные index buckets создаются только для Route с дочерними маршрутами:
+конечный Route не владеет outlet, а Route с index screen сохраняет свой bucket.
+`ScreenRenderer` определяет анимацию входящей сцены один раз на render владельца,
+а не повторяет поиск для каждой retained scene. Progress и завершение перехода
+по-прежнему принадлежат Reanimated и `ScreenRuntime`.
+Native `Viewport` переиспользует разобранную структуру и данные коллекции при
+неизменной ссылке на children; новые children по-прежнему разбираются полностью.
 
 Все entrypoints принадлежат одному package и разрешаются полем `exports` в
 [package.json](package.json). Внешняя среда renderer-ов объявлена optional peers;
@@ -242,6 +262,11 @@ React guard adapter экспортирует `useGuard` и прозрачный 
 Callable handles `useSubmit` и `useRevalidate` являются снимками состояния:
 изменение наблюдаемых данных создаёт новую ссылку, не изменяя ранее выданный
 handle. Это позволяет передавать handle целиком memoized-компоненту.
+Общий binding `useRevalidate` в React и Native сохраняет ссылку на выбранный
+снимок, пока его `inProcess/error` не изменились. Изменение общей runtime revision
+само по себе не вызывает рендер потребителя другого controller token.
+Подписчики core по-прежнему получают уведомления runtime; binding исключает
+только React render при неизменном выбранном состоянии, не меняя запуск loaders.
 Controller actions выполняются на активном runtime через guards и общий
 operation/failure flow; исходный payload передаётся без сериализации, а submit
 state изолирован по controller token. Recoverable ошибка остаётся в submit
@@ -274,6 +299,10 @@ load/action/revalidate operation захватывает собственный p
 superseded revalidation не публикует late result. React entrypoint владеет
 `@Widget`, `WidgetHost`, `useWidgetProps` и локальными fallback/exception,
 включая render error boundary; core не импортирует presentation types.
+В React, Native и FSM внутренний widget host мемоизирован по runtime/token:
+сам по себе рендер внешнего host не запускает widget view повторно.
+Изменение props принимается runtime; обновления самого runtime и renderer
+contexts продолжают обновлять widget view независимо от мемоизации.
 Core `RouteRuntime` создаёт отдельный RouteScope, владеет scoped params и
 optional ModuleRuntime, route providers и поддерживает явный
 `prepare -> commit | discard` переход. Routing-only Route активируется без

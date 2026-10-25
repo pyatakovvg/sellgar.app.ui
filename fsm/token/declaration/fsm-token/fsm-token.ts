@@ -7,9 +7,11 @@ export interface FsmTokenContract {
 
 export type FsmToken = FsmModelConstructor<FsmTokenContract>;
 
-export type CommandHandler<TPayload extends object> = (keyof TPayload extends never
-  ? () => Promise<void>
-  : (payload: TPayload) => Promise<void>) & { readonly available: boolean };
+export type CommandHandler<TCommand extends object> = (TCommand extends {
+  readonly payload: infer TPayload extends object;
+}
+  ? (payload: TPayload) => Promise<void>
+  : () => Promise<void>) & { readonly available: boolean };
 
 interface FsmTokenMetadata {
   readonly state: FsmModelConstructor;

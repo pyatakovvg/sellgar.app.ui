@@ -57,7 +57,17 @@ export class NativeBackRuntime {
 
     const driver: NativeNavigationDriver = { rootBack: this.handleRootBack };
 
-    this.unsubscribeBridge = this.bridge.subscribe(this.resetRootBack);
+    let previous = this.bridge.getSnapshot();
+
+    this.unsubscribeBridge = this.bridge.subscribe(() => {
+      const current = this.bridge.getSnapshot();
+
+      if (current.entries !== previous.entries || current.index !== previous.index) {
+        this.resetRootBack();
+      }
+
+      previous = current;
+    });
     this.unregisterDriver = this.bridge.registerDriver(driver);
 
     if (Platform.OS === 'android') {

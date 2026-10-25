@@ -44,6 +44,10 @@ export const ScreenRenderer: React.FC<ScreenRendererProps> = React.memo(
 
     const snapshot = React.useSyncExternalStore(runtime.subscribe, runtime.getSnapshot, runtime.getSnapshot);
     const machine = snapshot.machine;
+    const animation =
+      machine.phase === 'transitioning' && machine.incomingKey !== null
+        ? findPresentation(machine, machine.incomingKey).transition?.animation
+        : undefined;
     const finishTransition = React.useCallback(
       (transitionId: number) => runtime.completeTransition(transitionId),
       [runtime],
@@ -81,6 +85,7 @@ export const ScreenRenderer: React.FC<ScreenRendererProps> = React.memo(
         {snapshot.scenes.map((scene) => (
           <ScreenSceneView
             key={scene.key}
+            animation={animation}
             machine={machine}
             onPresentationComplete={onPresentationComplete}
             owner={runtime}
@@ -94,6 +99,7 @@ export const ScreenRenderer: React.FC<ScreenRendererProps> = React.memo(
 );
 
 interface ScreenSceneViewProps {
+  readonly animation: ScreenAnimation | undefined;
   readonly machine: ScreenMachineState;
   readonly onPresentationComplete?: (runtime: ScreenRuntime) => void;
   readonly owner: ScreenRuntime;
@@ -102,14 +108,12 @@ interface ScreenSceneViewProps {
 }
 
 const ScreenSceneView: React.FC<ScreenSceneViewProps> = React.memo(
-  ({ machine, onPresentationComplete, owner, progress, runtime }) => {
+  ({ animation, machine, onPresentationComplete, owner, progress, runtime }) => {
     const scene = React.useSyncExternalStore(runtime.subscribe, runtime.getSnapshot, runtime.getSnapshot);
     const onScenePresented = useScreenPresentationCommit();
     const presentationActive = useScreenActive();
     const dimensions = useWindowDimensions();
     const role = resolveScreenSceneRole(machine, runtime.key);
-    const incoming = machine.incomingKey ? findPresentation(machine, machine.incomingKey) : null;
-    const animation = machine.phase === 'transitioning' ? incoming?.transition?.animation : undefined;
     const animatedStyle = useAnimatedStyle(() =>
       resolveAnimatedStyle(role, animation, progress.value, dimensions.width, dimensions.height),
     );

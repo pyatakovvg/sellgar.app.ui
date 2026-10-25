@@ -23,6 +23,43 @@ ScreenService сохраняет маршрутную границу и пред
 Доступность определяется transport и данными сервера, не наличием декларации.
 Framework не знает `shell`, названий команд и полей прикладного снапшота.
 
+## Декларация команды и payload
+
+`@Command(CommandModel)` связывает свойство набора с моделью descriptor команды.
+Прикладные поля descriptor описываются class-transformer/class-validator.
+Модель аргумента принадлежит команде и объявляется на одном поле:
+
+```ts
+class ChangeCommand {
+  @Payload(ChangePayload)
+  readonly payload: ChangePayload;
+}
+
+class Commands {
+  @Command(ChangeCommand)
+  readonly change: CommandHandler<ChangeCommand>;
+}
+```
+
+`Payload` — публичный декоратор `@sellgar/app/fsm`. Он связывает runtime-модель с
+типом свойства; несовместимые типы свойства/модели отклоняются компилятором.
+Обычное поле класса может содержать `undefined`: это допустимая декларация,
+а не входящие данные descriptor. `@Payload` не допускает заполнения этого поля
+данными snapshot. Свойства не требуют `declare` или assertions.
+
+`CommandHandler<CommandModel>` выводит тип аргумента из поля `payload`.
+Без этого поля обработчик вызывается без аргументов и runtime не создаёт
+пустой payload. Runtime проверяет аргумент по модели из `@Payload`, отдельно
+от descriptor. Модели аргумента нельзя подменять моделью схемы из snapshot.
+
+`FsmTransportInterface.resolve(snapshot, CommandModel)` возвращает исходный
+проверенный descriptor либо `null`. Приложение владеет формой snapshot,
+выбором descriptor и проверкой его специфичных полей. Перед отправкой runtime
+повторно проверяет актуальность snapshot и доступность descriptor, затем
+вызывает `send(snapshot, descriptor, payload | undefined, signal, commandId)`.
+Transport отвечает за сборку запроса из descriptor и проверенного payload.
+Framework не знает формат серверного payloadSchema и HTTP request envelope.
+
 ## Завершение команды
 
 - Promise команды успешно завершается после готовности маршрута, выбранного

@@ -4,6 +4,7 @@ import { segments } from '../core';
 import {
   Application,
   Command,
+  Payload,
   Commands,
   CommandsServiceInterface,
   type CommandHandler,
@@ -195,3 +196,66 @@ Router.redirectTo(InitialScreenRoute);
 
 // @ts-expect-error FSM facade не экспортирует authorization presentation.
 new Router({ forbidden: <div>Forbidden</div>, routes: [new Route({ load: async () => ({ InitialScreenModule }) })] });
+
+class FixturePhonePayload {
+  readonly phone: string;
+}
+class FixtureAmountPayload {
+  readonly amount: { readonly value: number };
+}
+class FixturePhoneCommand {
+  @Payload(FixturePhonePayload) readonly payload: FixturePhonePayload;
+}
+class FixtureAmountCommand {
+  @Payload(FixtureAmountPayload) readonly payload: FixtureAmountPayload;
+}
+class FixtureNoPayloadCommand {}
+class FixtureCommands {
+  @Command(FixturePhoneCommand) readonly requestOtp: CommandHandler<FixturePhoneCommand>;
+  @Command(FixtureAmountCommand) readonly submitAmount: CommandHandler<FixtureAmountCommand>;
+  @Command(FixtureNoPayloadCommand) readonly startDeposit: CommandHandler<FixtureNoPayloadCommand>;
+}
+function valid(commands: FixtureCommands): void {
+  void commands.requestOtp({ phone: '+77001234567' });
+  void commands.submitAmount({ amount: { value: 5000 } });
+  void commands.startDeposit();
+  const available: boolean = commands.requestOtp.available;
+  void available;
+}
+
+function invalid(commands: FixtureCommands): void {
+  // @ts-expect-error Missing required payload
+  void commands.requestOtp();
+  // @ts-expect-error Wrong field type
+  void commands.requestOtp({ phone: 123 });
+  // @ts-expect-error Unknown field
+  void commands.requestOtp({ amount: 5000 });
+  // @ts-expect-error Extra field
+  void commands.requestOtp({ phone: '+77001234567', extra: true });
+  // @ts-expect-error Nested field type
+  void commands.submitAmount({ amount: { value: '5000' } });
+  // @ts-expect-error Missing nested field
+  void commands.submitAmount({ amount: {} });
+  // @ts-expect-error No-payload command forbids data
+  void commands.startDeposit({ phone: '+77001234567' });
+  // @ts-expect-error No-payload command forbids even an empty object
+  void commands.startDeposit({});
+}
+
+class InvalidBinding {
+  // @ts-expect-error Runtime model must agree with the declared schema payload
+  @Payload(FixtureAmountPayload)
+  readonly payload: FixturePhonePayload;
+}
+
+class InvalidProperty {
+  // @ts-expect-error A schema binding cannot decorate an unrelated property type
+  @Payload(FixturePhonePayload)
+  readonly payload: string;
+}
+
+class InvalidPropertyName {
+  // @ts-expect-error Payload binding has exactly one named place in a command
+  @Payload(FixturePhonePayload)
+  readonly otherPayload: FixturePhonePayload;
+}

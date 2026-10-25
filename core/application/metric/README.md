@@ -9,7 +9,7 @@ Core предоставляет один `ApplicationMetricInterface` на пр�
 ## Объявление события
 
 ```ts
-import { MetricEvent } from '@tiyn/app';
+import { MetricEvent } from '@sellgar/app';
 import { IsNumber, IsString } from 'class-validator';
 
 @MetricEvent('payment.completed')
@@ -55,8 +55,8 @@ metric.track(PaymentCompletedEvent, { paymentId, amount }, { to: [YandexMetric, 
 Без подключённых метрик вызов ничего не отправляет. `track` возвращает `void`.
 
 Контроллер получает `ApplicationMetricInterface` через `@Inject`. View получает
-тот же application-scoped сервис через `useMetric()` из `@tiyn/app/react`,
-`@tiyn/app/fsm` или `@tiyn/app/native`:
+тот же application-scoped сервис через `useMetric()` из `@sellgar/app/react`,
+`@sellgar/app/fsm` или `@sellgar/app/native`:
 
 ```tsx
 const metric = useMetric();
@@ -73,7 +73,7 @@ const handleHelpOpen = () => {
 ## Адаптеры и конфигурация
 
 ```ts
-import { Metric, type MetricInterface, type MetricPayload } from '@tiyn/app';
+import { Metric, type MetricInterface, type MetricPayload } from '@sellgar/app';
 
 @Metric()
 export class ConsoleMetric implements MetricInterface {

@@ -19,7 +19,11 @@ import type {
 } from '../../../router/bridge/router-bridge';
 import { resolveRouterBridgeLocation } from '../../../router/runtime/router-address-resolver';
 import { NavigationHistory } from '../../../router/runtime/navigation-history';
-import { areNavigationStatesEqual, type NavigationState } from '../../../router/runtime/navigation-state';
+import {
+  areNavigationQueriesEqual,
+  areNavigationStatesEqual,
+  type NavigationState,
+} from '../../../router/runtime/navigation-state';
 import {
   RouterRuntime,
   type RouterRuntimeActivation,
@@ -1477,8 +1481,9 @@ const isSameNestedAddress = (
   left === right ||
   (left !== null &&
     right !== null &&
-    left.length === right.length &&
-    left.every((segment, index) => segment === right[index]));
+    left.address.length === right.address.length &&
+    left.address.every((segment, index) => segment === right.address[index]) &&
+    areNavigationQueriesEqual(left.query, right.query));
 
 const isSameNavigationRevalidation = (
   left: NavigationState['revalidation'],

@@ -50,10 +50,15 @@ interface OutletProjection {
   readonly currentPath: readonly NavigationRouteEntry[];
   readonly depth: number;
   readonly pending: NativePendingRouteProjection | null;
-  readonly runtimeEntries: readonly ApplicationRouterRuntimeEntry<ModuleMetadata>[];
+  readonly retained: RetainedRouteIndex;
   readonly transition: NativeScreenTransition | null;
   readonly tree: RouterRuntimeActivationTree<ModuleMetadata> | null;
   readonly tracksCompletion: boolean;
+}
+
+interface RetainedRouteIndex {
+  readonly children: Map<string, RetainedRouteIndex>;
+  readonly entries: ApplicationRouterRuntimeEntry<ModuleMetadata>[];
 }
 
 interface CachedSceneContent {
@@ -130,7 +135,7 @@ export class NativeRouteProjectionRuntime {
       currentPath: targetPath,
       depth: 0,
       pending: projectedPending,
-      runtimeEntries: input.runtimeEntries,
+      retained: indexRetainedRoutes(input.runtimeEntries),
       transition,
       tree: projectedTree,
       tracksCompletion: true,
@@ -195,6 +200,7 @@ export class NativeRouteProjectionRuntime {
               components,
               currentPath: path,
               depth: projection.depth + 1,
+              retained: projection.retained.children.get(key) ?? EMPTY_RETAINED_ROUTES,
               tree,
             })
           : null;
@@ -279,14 +285,8 @@ export class NativeRouteProjectionRuntime {
   ): readonly ScreenPresentation[] {
     const presentations = new Map<string, ScreenPresentation>();
 
-    for (let index = projection.runtimeEntries.length - 1; index >= 0; index -= 1) {
-      const runtimeEntry = projection.runtimeEntries[index];
-
-      if (!runtimeEntry) continue;
-
+    for (const runtimeEntry of projection.retained.entries) {
       const path = runtimeEntry.activation.navigation.root.path;
-
-      if (!hasSameOutletAncestry(path, projection.currentPath, projection.depth)) continue;
 
       const candidateKey = resolvePathPresentationKey(path, projection.depth);
 
@@ -388,28 +388,34 @@ const describeRoute = (route: Parameters<typeof getRouteDefinition>[0]): string 
 
 const createChildOutletKey = (parentPresentationKey: string): string => `${parentPresentationKey}:outlet`;
 
-const hasSameOutletAncestry = (
-  candidate: readonly NavigationRouteEntry[],
-  current: readonly NavigationRouteEntry[],
-  depth: number,
-): boolean => {
-  if (candidate.length < depth || current.length < depth) return false;
+// One ephemeral ancestry index per projection; core remains the owner of retained activations.
+const indexRetainedRoutes = (entries: readonly ApplicationRouterRuntimeEntry<ModuleMetadata>[]): RetainedRouteIndex => {
+  const root: RetainedRouteIndex = { children: new Map(), entries: [] };
 
-  for (let index = 0; index < depth; index += 1) {
-    const candidateEntry = candidate[index];
-    const currentEntry = current[index];
+  // Keep the existing newest-first selection for duplicate presentation identities.
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (!entry) continue;
 
-    if (
-      !candidateEntry ||
-      !currentEntry ||
-      resolveNativeRoutePresentationKey(candidateEntry, index) !==
-        resolveNativeRoutePresentationKey(currentEntry, index)
-    ) {
-      return false;
+    let outlet = root;
+    outlet.entries.push(entry);
+    const path = entry.activation.navigation.root.path;
+    for (let depth = 0; depth < path.length; depth += 1) {
+      // Only owners have descendant outlets, including when their own index screen ends the path.
+      if (getRouteDefinition(path[depth].route).routes.length === 0) break;
+
+      const key = resolveNativeRoutePresentationKey(path[depth], depth);
+      let child = outlet.children.get(key);
+      if (!child) {
+        child = { children: new Map(), entries: [] };
+        outlet.children.set(key, child);
+      }
+      child.entries.push(entry);
+      outlet = child;
     }
   }
 
-  return true;
+  return root;
 };
 
 const resolvePathPresentationKey = (path: readonly NavigationRouteEntry[], depth: number): string | null => {
@@ -502,3 +508,4 @@ const reverseScreenAnimation = (animation: ScreenAnimation | undefined): ScreenA
 const ROOT_FALLBACK_KEY = 'native-root-fallback';
 const ROOT_OUTLET = 'root';
 const EMPTY_PATH: readonly NavigationRouteEntry[] = Object.freeze([]);
+const EMPTY_RETAINED_ROUTES: RetainedRouteIndex = { children: new Map(), entries: [] };

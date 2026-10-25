@@ -39,7 +39,7 @@ const createFixture = () => {
   };
   const transport = {
     state: vi.fn((value: unknown) => value),
-    available: vi.fn(() => true),
+    resolve: vi.fn(() => ({})),
     send: vi.fn(async () => {
       execution.confirm({});
     }),
@@ -65,8 +65,8 @@ describe('ScreenService', () => {
     await context.commands.complete();
     expect(transport.send).toHaveBeenCalledWith(
       { title: 'first' },
-      CompleteCommand,
-      expect.any(CompleteCommand),
+      {},
+      undefined,
       expect.any(AbortSignal),
       expect.any(String),
     );

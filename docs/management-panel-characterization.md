@@ -1,4 +1,4 @@
-# Сверка `@tiyn/app` с текущим Management Panel
+# Сверка `@sellgar/app` с текущим Management Panel
 
 - Статус документа: current
 - Статус миграции production-приложения: не начата

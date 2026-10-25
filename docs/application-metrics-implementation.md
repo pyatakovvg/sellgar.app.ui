@@ -4,7 +4,7 @@
 - Source: запрос пользователя «приступай к реализации».
 - Контракт: [метрики приложения](../core/application/metric/README.md).
 - История решения: [принятый RFC](rfc/application-metrics.md).
-- Repository: `@tiyn/app`; branch: `development` (по явному указанию пользователя).
+- Repository: `@sellgar/app`; branch: `development` (по явному указанию пользователя).
 - Base: `origin/development`, `4bb160c669d1764c188828595fba066a8b857a3b` после fetch.
 - Profile: L2 — новый public API и поведение одного framework package.
 - In scope: core contracts/runtime, DI/lifecycle, React/FSM/Native hooks, tests, docs.
@@ -23,7 +23,7 @@
 
 - Source/approval: пользователь поручил исправить подтверждённые дефекты и
   согласовать решения консилиумом субагентов.
-- Profile: L2, четыре behavior bugfix внутри `@tiyn/app`; evidence mode —
+- Profile: L2, четыре behavior bugfix внутри `@sellgar/app`; evidence mode —
   regression Red → Green и общий runtime/typecheck/build gate.
 - Base: `07f7baa48620086b378b6c9fb3f35b6d8892de36` плюс implementation diff
   `e76565d26f3799d2d881e3c0187106bc7953d68170f3e676ec1ed920ee98512b`.
@@ -50,7 +50,7 @@
 - Approval: после отчёта об исправлениях пользователь явно запросил
   «закоммить и запушь изменения в дев фреймворка».
 - Новый stop boundary: commit проверенного diff и push непосредственно в
-  `@tiyn/app` → `origin/development`. MR, rollout и gitlinks родительских
+  `@sellgar/app` → `origin/development`. MR, rollout и gitlinks родительских
   репозиториев не входят в этот запрос.
 - Перед commit: fetch подтвердил неизменный remote HEAD
   `07f7baa48620086b378b6c9fb3f35b6d8892de36`; scope digest совпал с итоговым
@@ -63,7 +63,7 @@
 
 - Execution status: complete — local implementation and review fixes
 - Owner: текущая задача
-- Last verified revisions: `@tiyn/app` — `07f7baa48620086b378b6c9fb3f35b6d8892de36`
+- Last verified revisions: `@sellgar/app` — `07f7baa48620086b378b6c9fb3f35b6d8892de36`
   плюс локальный implementation diff. Этот HEAD добавляет ранее согласованный RFC;
   исходная code base остаётся `4bb160c669d1764c188828595fba066a8b857a3b`.
 - Open acceptance: none; четыре исходных P2 и дополнительная shutdown race исправлены.
@@ -101,7 +101,7 @@ workspace documentation/inventory checks и `git diff --check` framework repo.
 
 | Проверка                                                                               | Результат                                                                                          |
 | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `yarn workspaces list --json`                                                          | `@tiyn/app` зарегистрирован                                                                        |
+| `yarn workspaces list --json`                                                          | `@sellgar/app` зарегистрирован                                                                     |
 | `./node_modules/.bin/tsc -p library/tiyn-app/tsconfig.core.json`                       | PASS, включая metric compile-time fixture                                                          |
 | Web/FSM facade и новые test files через временные tsconfig, наследующие package config | PASS; source/manifest/config проекта не подменялись                                                |
 | `yarn build:management_panel_ui`                                                       | PASS; стандартное предупреждение о размере vendor chunk                                            |
@@ -134,24 +134,24 @@ workspace documentation/inventory checks и `git diff --check` framework repo.
 
 ## Ограничения окружения
 
-- `yarn workspace @tiyn/app typecheck:core` и `typecheck` не находят `tsc` в
+- `yarn workspace @sellgar/app typecheck:core` и `typecheck` не находят `tsc` в
   workspace PATH; локальный бинарник monorepo доступен и использован напрямую.
 - Полный package typecheck до изменений уже не проходил: в Management Panel
   отсутствуют optional Native peers. Пробная проверка с доступными внешними
   RN 0.87.1 types оставляет ошибки в неизменённом Native `shell-scroll-view`.
   Это не PASS полного facade; требуется совместимое штатное Native окружение.
 - Доступный отдельный Admin UI использует legacy public API (`Application`,
-  hooks и другие renderer exports из корня `@tiyn/app`). Проверка с текущим
+  hooks и другие renderer exports из корня `@sellgar/app`). Проверка с текущим
   framework выявляет несовместимость существующего consumer, не metric API.
 - Доступный Mobile Shop уже использует `@sellgar/app/native`, поэтому его
-  обычный typecheck не проверяет этот checkout `@tiyn/app` и не засчитывается.
+  обычный typecheck не проверяет этот checkout `@sellgar/app` и не засчитывается.
   Native metric hook проверен runtime-тестом и typecheck новых tests.
 - Реальные SDK, внешние приёмщики, физические устройства и browser delivery
   не проверялись: они не входят в текущий framework outcome.
 
 ## Review
 
-- Scope: только `@tiyn/app`, tracked diff и новые файлы относительно
+- Scope: только `@sellgar/app`, tracked diff и новые файлы относительно
   `07f7baa48620086b378b6c9fb3f35b6d8892de36`; этот execution evidence document
   исключён из digest, чтобы обновление evidence не меняло identity кода.
 - Начальный review scope SHA-256 (tracked + new files):

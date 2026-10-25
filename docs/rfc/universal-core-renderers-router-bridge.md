@@ -29,7 +29,7 @@
 
 ## Назначение
 
-RFC фиксирует согласованную архитектуру `@tiyn/app`. Реализация и публичный
+RFC фиксирует согласованную архитектуру `@sellgar/app`. Реализация и публичный
 контракт находятся в этом package; документ дополняет current design и фиксирует
 согласованные semantic delta.
 
@@ -111,16 +111,16 @@ alias в промежуточной реализации не делает ег�
 Разделить framework на независимое ядро и renderer adapters:
 
 ```text
-@tiyn/app
-@tiyn/app/react
-@tiyn/app/native
+@sellgar/app
+@sellgar/app/react
+@sellgar/app/native
 ```
 
-`@tiyn/app/native` является конкретным React Native adapter, а не обобщённым
+`@sellgar/app/native` является конкретным React Native adapter, а не обобщённым
 контрактом для произвольных native renderers. Другие native-технологии в
 package topology не предполагаются. Потенциальная FSM integration получает
 отдельный adapter и не расширяет ответственность `native`. Пустой
-`@tiyn/app/fsm` не экспортируется: публичный entrypoint появляется вместе
+`@sellgar/app/fsm` не экспортируется: публичный entrypoint появляется вместе
 с реальным контрактом и реализацией, а не резервирует будущее API.
 
 Ядро владеет application lifecycle, DI, controllers, loaders, actions,
@@ -191,7 +191,7 @@ FSM adapters предоставляют тот же экземпляр из св
   `Module`, `Layout`, `Widget`, renderer-specific часть `Route`, fallback,
   exception и shell declarations.
 - `@UseBindings`, controllers, providers, DI, loaders и actions принадлежат
-  `@tiyn/app`.
+  `@sellgar/app`.
 - `bindings` не является полем metadata `Module`; bindings подключаются только
   через `@UseBindings()`.
 - Разработчик отвечает за подключение module, адаптированного к выбранному
@@ -218,8 +218,8 @@ FSM adapters предоставляют тот же экземпляр из св
 Пример формы declaration:
 
 ```tsx
-import { UseBindings } from '@tiyn/app';
-import { Module } from '@tiyn/app/react';
+import { UseBindings } from '@sellgar/app';
+import { Module } from '@sellgar/app/react';
 
 @UseBindings(UsersBindings)
 @Module({
@@ -386,8 +386,8 @@ owner scope + widget token + (runtimeKey ?? default key)
 Форма конфигурации остаётся одинаковой для renderer adapters:
 
 ```tsx
-import { NotificationServiceInterface } from '@tiyn/app';
-import { NotificationFeature, NotificationPresentation } from '@tiyn/app/react';
+import { NotificationServiceInterface } from '@sellgar/app';
+import { NotificationFeature, NotificationPresentation } from '@sellgar/app/react';
 
 app.features([
   NotificationFeature.configure({
@@ -400,7 +400,7 @@ app.features([
 ]);
 ```
 
-`@tiyn/app/native` экспортирует те же имена и ту же форму конфигурации, но
+`@sellgar/app/native` экспортирует те же имена и ту же форму конфигурации, но
 типизирует presentation React Native component types.
 
 #### NotificationFeature
@@ -2337,7 +2337,7 @@ instance.
 
 ## Отклонённые варианты
 
-- Хранить renderer entities в `@tiyn/app` core.
+- Хранить renderer entities в `@sellgar/app` core.
 - Делать React Router источником истины для framework lifecycle.
 - Использовать отдельную публичную конфигурацию `NavigationScope`.
 - Возвращать отдельные `navigate.frame.open()` / `navigate.frame.close()` как
@@ -2375,7 +2375,7 @@ instance.
 ## Package direction
 
 Реализация принадлежит repository `sellgar.app.ui` и публикуется как
-`@tiyn/app`. Consumers подключают её целиком по публичным package boundaries;
+`@sellgar/app`. Consumers подключают её целиком по публичным package boundaries;
 backward-compatible aliases отсутствуют. Параллельного framework package или
 private cross-package imports нет.
 
