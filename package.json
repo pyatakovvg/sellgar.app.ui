@@ -7,7 +7,9 @@
   "license": "ISC",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "typecheck:core": "tsc -p tsconfig.core.json"
+    "typecheck:core": "tsc -p tsconfig.core.json",
+    "typecheck:next": "tsc -p next/tsconfig.json",
+    "test:next": "node --import ./next/module/runtime/module-session/register-test-loader.mjs --test next/plugin/config/next-plugin/next-plugin.test.mjs next/plugin/transform/root-layout/root-layout-loader.test.cjs next/plugin/transform/module-page/module-page-loader.test.cjs next/plugin/transform/module-page/client-registry-loader.test.cjs next/module/runtime/module-session/module-session.test.ts next/layout/runtime/layout-scope-registry/layout-scope-registry.test.ts next/plugin/transform/module-page/server-registry-loader.test.cjs next/application/rendering/root-layout/root-layout.test.cjs"
   },
   "dependencies": {
     "inversify": "8.2.3",
@@ -20,6 +22,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "classnames": "^2.5.1",
+    "next": ">=16.3.0 <17",
     "react": "^19.2.0",
     "react-dom": "^19.0.0",
     "react-native": ">=0.86.0 <1.0.0",
@@ -28,13 +31,17 @@
     "react-native-reanimated": "~4.7.0",
     "react-native-safe-area-context": "^5.8.0",
     "react-native-worklets": "~0.13.0",
-    "reflect-metadata": "^0.2.2"
+    "reflect-metadata": "^0.2.2",
+    "typescript": ">=5.9.0 <7"
   },
   "peerDependenciesMeta": {
     "@floating-ui/react": {
       "optional": true
     },
     "classnames": {
+      "optional": true
+    },
+    "next": {
       "optional": true
     },
     "react": {
@@ -60,6 +67,9 @@
     },
     "react-native-worklets": {
       "optional": true
+    },
+    "typescript": {
+      "optional": true
     }
   },
   "main": "./core/index.ts",
@@ -68,6 +78,16 @@
     ".": "./core/index.ts",
     "./react": "./react/index.ts",
     "./native": "./native/index.ts",
-    "./fsm": "./fsm/index.ts"
+    "./fsm": "./fsm/index.ts",
+    "./next": {
+      "types": "./next/index.ts",
+      "react-server": "./next/entry/server/index.ts",
+      "browser": "./next/entry/client/index.ts",
+      "node": "./next/entry/node/index.mjs",
+      "default": "./next/entry/client/index.ts"
+    }
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
   }
 }

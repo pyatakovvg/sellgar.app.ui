@@ -14,8 +14,8 @@
 ## Проверка пакета
 
 Инструменты разработки и тестирования предоставляет подключающая монорепа.
-У пакета нет `devDependencies`; TypeScript, типы React/React DOM и test runner
-должны быть установлены в окружении разработки.
+Для Next-адаптера закреплён TypeScript в `devDependencies`; типы React/React DOM
+и окружение тестирования предоставляет подключающая монорепа.
 
 `tsconfig.json` самодостаточен: не наследует конфигурацию приложения и не задаёт
 путей к внешним `node_modules`. Зависимости разрешаются стандартным механизмом
@@ -31,7 +31,11 @@ compile-time fixtures. `include: []` исключает неявное вклю�
 ```sh
 yarn workspace @sellgar/app typecheck:core
 yarn workspace @sellgar/app typecheck
+yarn workspace @sellgar/app typecheck:next
+yarn workspace @sellgar/app test:next
 ```
+
+Для `typecheck:next` в окружении разработки также нужен optional peer `next`.
 
 Тестовое окружение проекта запускает core в Node, Web и общие React bindings
 в jsdom, JS-контракты Native — с локальными подменами нативного UI.
@@ -48,7 +52,8 @@ Native JS-тесты не доказывают корректность жест
 - `core/` → `@sellgar/app`;
 - `react/` → `@sellgar/app/react`;
 - `native/` → `@sellgar/app/native`;
-- `fsm/` → `@sellgar/app/fsm`.
+- `fsm/` → `@sellgar/app/fsm`;
+- `next/` → `@sellgar/app/next` — [адаптер Next.js App Router](next/README.md).
 
 `shared/` содержит внутренние общие React bindings двух renderers, но не является
 публичным entrypoint. Контексты renderer-ов остаются раздельными; core не зависит
