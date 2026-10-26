@@ -366,6 +366,50 @@ describe('Application authentication lifecycle', () => {
     await app.dispose();
   });
 
+  it('resumes authentication before the sign-in presentation acknowledges completion', async () => {
+    const presentation = createDeferred<void>();
+    let presentationSignal: AbortSignal | undefined;
+    class PendingSignInBridge extends TestRouterBridge {
+      override commit(navigation: NavigationState, context: RouterBridgeCommitContextInterface): void | Promise<void> {
+        super.commit(navigation, context);
+        if (!matchesNavigationRoute(navigation, SignInRoute)) return;
+
+        presentationSignal = context.signal;
+        context.signal.addEventListener('abort', () => presentation.resolve(), { once: true });
+        return presentation.promise;
+      }
+    }
+    const bridge = new PendingSignInBridge();
+    const app = new TestApplication(
+      bridge,
+      createAuthRouter(
+        async () => ({}),
+        async () => ({}),
+      ),
+      [AuthenticateInitializer],
+    );
+    app.compose();
+
+    try {
+      await app.initialize();
+      void app.requests.run(() => Promise.reject(new UnauthorizedException({ title: 'Unauthorized' })));
+      await vi.waitFor(() => expect(presentationSignal).toBeDefined());
+
+      const authentication = app.action('authenticate');
+      await vi.waitFor(() =>
+        expect(bridge.commits.filter((entry) => matchesNavigationRoute(entry, ProtectedRoute))).toHaveLength(2),
+      );
+      await authentication;
+
+      expect(presentationSignal?.aborted).toBe(true);
+      expect(matchesNavigationRoute(app.navigation.navigation, ProtectedRoute)).toBe(true);
+      expect(app.runtimeEntryCount).toBe(1);
+    } finally {
+      presentation.resolve();
+      await app.dispose();
+    }
+  });
+
   it('executes a protected parent policy before selecting its first available child', async () => {
     const signInLoad = vi.fn(async () => ({}));
     const protectedLoad = vi.fn(async () => ({}));

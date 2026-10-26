@@ -298,7 +298,12 @@ export type {
   RouteQueryMutationOptions,
   RouteQueryServiceListener,
 } from './router/service/route-query-service';
-export type { NavigateQueryOptions, NavigateTerminalOptions, NavigateThrough } from './router/service/navigate-service';
+export type {
+  NavigateQueryOptions,
+  NavigateResetOptions,
+  NavigateTerminalOptions,
+  NavigateThrough,
+} from './router/service/navigate-service';
 export {
   BackServiceInterface,
   type BackCondition,

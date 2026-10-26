@@ -75,6 +75,10 @@ class TestApplication extends Application<null> {
     return this.getApplicationScope().get(NavigateServiceInterface);
   }
 
+  get history() {
+    return this.getRouterHistoryEntries();
+  }
+
   get blocker(): NavigationBlockerServiceInterface {
     return this.getRouterRuntime()
       .getActiveRouteRuntimes()
@@ -94,6 +98,30 @@ class TestApplication extends Application<null> {
 }
 
 describe('NavigationBlocker Application pipeline', () => {
+  it('clears history only after a reset transition passes the navigation blocker', async () => {
+    const app = new TestApplication(new TestRouterBridge());
+    app.compose();
+    await app.initialize();
+    try {
+      await app.navigate.to(SecondRoute);
+      await app.navigate.to(FirstRoute);
+      app.blocker.register(() => true);
+      const stayed = app.navigate.resetTo(SecondRoute);
+      await vi.waitFor(() => expect(app.blockerRuntime.getSnapshot()).not.toBeNull());
+      app.blockerRuntime.stay();
+      await stayed;
+      expect(app.history).toHaveLength(3);
+
+      const left = app.navigate.resetTo(SecondRoute);
+      await vi.waitFor(() => expect(app.blockerRuntime.getSnapshot()).not.toBeNull());
+      app.blockerRuntime.leave();
+      await left;
+      expect(app.history).toHaveLength(1);
+    } finally {
+      await app.dispose();
+    }
+  });
+
   it('commits a transition after leave and preserves the current branch after stay', async () => {
     const bridge = new TestRouterBridge();
     const app = new TestApplication(bridge);

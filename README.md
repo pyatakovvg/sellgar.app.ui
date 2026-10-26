@@ -83,6 +83,20 @@ fallback после принятия навигации. Возврат к по�
 loader. Явное обновление и изменение query остаются отдельной ревалидацией. Back во время
 `preparing` отменяет transition и мгновенно возвращает committed presentation.
 Query не меняет identity screen; Route path и params меняют её.
+
+`navigate.resetTo(Token, options)` начинает новую логическую историю с одной
+позицией целевого Route. Target может принадлежать любому Router, включая
+вложенный; params, query, state, revalidation и `through(...).resetTo(...)`
+разрешаются так же, как у `to()`. `replace` в options отсутствует: `to(...,
+{ replace: true })` заменяет только текущую позицию, а `resetTo()` удаляет все
+прежние. Policies, blockers и exception boundaries сохраняют обычный контракт
+перехода. Отмена до commit сохраняет прежнюю историю; после commit Native bridge
+получает `reset`, а удалённые activations освобождаются после presentation
+completion. Retained runtime цели и общие ancestors могут переиспользоваться.
+`NavItem`/`NavLink` также принимают factory `navigate => navigate.resetTo(Token)`.
+В браузере reset очищает core history и заменяет текущий URL; History API не
+позволяет удалить предыдущие физические записи браузера.
+
 При построении native screen projection retained activations один раз группируются
 по полной ancestry Route/params: вложенный outlet не сканирует всю историю заново.
 Индекс существует только на время проекции и не заменяет core history/retention.
@@ -210,10 +224,14 @@ RequestExecutor: он сохраняет очереди, scoped cancellation и 
 runtime operations без передачи исходной ошибки контроллеру. Обычные
 `setAuthenticated()`/`setAnonymous()` остаются управляемыми переходами: action
 входа или выхода физически завершается, но его stale result не публикуется.
-При запуске на `/` явно заданный index Route проходит обычный policy pipeline:
-его `onFail` redirect выполняется. Проверка доступности с пропуском кандидата
-относится к `Router.firstAvailable()`, а не к точному совпадению index Route.
-Это сохраняет переход на вход после начального `401` профиля.
+При запуске на `/` единственная явно заданная index-ветка проходит обычный
+policy pipeline: её `onFail` redirect выполняется. Это сохраняет переход на
+вход после начального `401` профиля. Если один корневой адрес объявлен у
+нескольких index-веток, сначала проверяется их `canMatch` без failure handlers
+отклонённых кандидатов. Поэтому anonymous onboarding может уступить адрес
+authenticated dashboard после `setAuthenticated()`, не зацикливая
+`redirectToSaved()` на корне. `Router.firstAvailable()` также сохраняет
+проверку доступности кандидатов.
 Renderer-independent `ApplicationEventBusInterface` также является singleton
 того же ApplicationScope: Module, Route и Widget runtimes обмениваются
 типизированными событиями без зависимости от renderer adapter. `publish()`
@@ -340,6 +358,11 @@ fallback внутри целевого screen или shell; смена fallback 
 дочерний Router, сохраняет owner Module. Завершение frame-анимации относится
 к конкретной физической анимации, а подтверждение presentation — к её revision;
 запоздавший callback не завершает другую операцию.
+Native compositor разделяет активность слоя и передачу касаний: неактивный
+предок пропускает касания к активному вложенному frame, но его собственная
+сцена и жест закрытия shell остаются неактивными. Modal сохраняет приоритет
+над frame. Подтверждение готовности сцены не зависит от того, какой слой
+сейчас владеет взаимодействием.
 Index/default/structural branches и `Router.firstAvailable()` разрешаются до
 prepare; rejected probing candidate не запускает свой result handler.
 Router declaration принимает core `providers`, а React facade добавляет к ним

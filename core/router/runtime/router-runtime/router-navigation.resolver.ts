@@ -199,7 +199,12 @@ const expandRouterState = (
   replace: boolean,
 ): readonly RouterStateExpansion[] => {
   if (state.path.length === 0) {
-    return getRouterDefinition(state.router).routes.flatMap((route) => {
+    const routes = getRouterDefinition(state.router).routes;
+    // Competing index branches share the same address. Select the matching one
+    // before running failure handlers, which may redirect back to this root.
+    const competingIndexRoutes = routes.filter(hasIndexMatch).length > 1;
+
+    return routes.flatMap((route) => {
       const node = context.nodesByRoute.get(route);
 
       if (!node || node.parent !== undefined || node.router !== state.router) {
@@ -225,7 +230,7 @@ const expandRouterState = (
         }),
       ]);
 
-      return expandRoutePath(path, context, !hasIndexMatch(route), replace).map((local) => {
+      return expandRoutePath(path, context, competingIndexRoutes || !hasIndexMatch(route), replace).map((local) => {
         return Object.freeze({
           probeCanMatch: local.probeCanMatch,
           replace: local.replace,

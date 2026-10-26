@@ -113,6 +113,7 @@ interface ApplicationNavigationRequest {
   readonly historyTargetId: string | null;
   readonly navigation: NavigationState;
   readonly replaceCurrent: boolean;
+  readonly resetHistory: boolean;
   readonly sessionBoundary: ApplicationSessionBoundary | null;
   readonly source: RouterBridgeNavigationSource;
 }
@@ -254,8 +255,8 @@ export abstract class Application<
           await this.closeNavigation(navigation);
         },
         current: () => this.navigationSnapshot.navigation,
-        execute: async (navigation) => {
-          await this.executeNavigation(navigation);
+        execute: async (navigation, options) => {
+          await this.executeNavigation(navigation, 'internal', false, null, false, null, true, options?.resetHistory);
         },
         router: this.config.routerValue,
       });
@@ -767,12 +768,14 @@ export abstract class Application<
     replaceCurrent = false,
     sessionBoundary: ApplicationSessionBoundary | null = null,
     allowActivationReuse = true,
+    resetHistory = false,
   ): Promise<boolean> {
     const request: ApplicationNavigationRequest = Object.freeze({
       blockersConfirmed,
       historyTargetId,
       navigation,
       replaceCurrent,
+      resetHistory,
       sessionBoundary,
       source,
     });
@@ -814,6 +817,7 @@ export abstract class Application<
         replaceCurrent,
         sessionBoundary,
         allowActivationReuse,
+        resetHistory,
       );
     })().finally(() => {
       if (this.scope.has(NavigationBlockerRuntimeInterface)) {
@@ -867,6 +871,7 @@ export abstract class Application<
     replaceCurrent: boolean,
     sessionBoundary: ApplicationSessionBoundary | null,
     allowActivationReuse: boolean,
+    resetHistory: boolean,
   ): Promise<boolean> {
     if (redirectDepth > MAX_POLICY_REDIRECT_DEPTH) {
       throw new Error('Policy navigation превысила допустимую глубину redirect.');
@@ -908,6 +913,7 @@ export abstract class Application<
         replaceCurrent,
         sessionBoundary,
         allowActivationReuse,
+        resetHistory,
       );
     }
 
@@ -922,7 +928,7 @@ export abstract class Application<
         activation,
         historyTargetId,
         replaceCurrent,
-        sessionBoundary !== null,
+        resetHistory || sessionBoundary !== null,
       );
 
       try {
@@ -1042,6 +1048,7 @@ export abstract class Application<
     replaceCurrent: boolean,
     sessionBoundary: ApplicationSessionBoundary | null,
     allowActivationReuse: boolean,
+    resetHistory: boolean,
   ): Promise<boolean> {
     switch (decision.type) {
       case 'continue':
@@ -1074,6 +1081,7 @@ export abstract class Application<
           replaceCurrent,
           sessionBoundary,
           allowActivationReuse,
+          resetHistory,
         );
       }
       case 'redirect-to-saved-location': {
@@ -1100,6 +1108,7 @@ export abstract class Application<
           replaceCurrent,
           sessionBoundary,
           allowActivationReuse,
+          resetHistory,
         );
       }
       case 'forbidden':
@@ -1115,7 +1124,7 @@ export abstract class Application<
           activation,
           historyTargetId,
           replaceCurrent,
-          sessionBoundary !== null,
+          resetHistory || sessionBoundary !== null,
         );
 
         try {
@@ -1188,6 +1197,10 @@ export abstract class Application<
       allowSaveCurrentLocation: (this.pendingSessionBoundary?.allowSaveCurrentLocation ?? true) && !explicitSignOut,
       revision: change.revision,
     });
+
+    // A visible route can change the session before its bridge presentation
+    // completes. Release that navigation before the session refresh waits on it.
+    this.navigationAbortController?.abort(new Error('Навигация прервана изменением session.'));
 
     if (explicitSignOut) {
       this.savedNavigationState = undefined;
@@ -1451,6 +1464,7 @@ const isSameNavigationRequest = (left: ApplicationNavigationRequest, right: Appl
   left.blockersConfirmed === right.blockersConfirmed &&
   left.historyTargetId === right.historyTargetId &&
   left.replaceCurrent === right.replaceCurrent &&
+  left.resetHistory === right.resetHistory &&
   left.sessionBoundary === right.sessionBoundary &&
   areNavigationStatesEqual(left.navigation, right.navigation) &&
   hasSameNavigationMetadata(left.navigation, right.navigation);

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ScreenAnimation } from '../../declaration/screen-animation';
 import type { ScreenPresentation } from '../../declaration/screen-presentation';
 import { ScreenRuntime } from '../../runtime/screen-runtime';
+import { ScreenCompositor, ScreenLayerHost } from '../screen-compositor';
 import { ScreenRenderer } from './screen-renderer.tsx';
 
 const animation = vi.hoisted(() => ({
@@ -63,6 +64,40 @@ beforeEach(() => {
 });
 
 describe('ScreenRenderer transition projection', () => {
+  it('blocks the inactive scene without blocking its active nested frame or delaying presentation completion', () => {
+    const outer = new ScreenRuntime();
+    const inner = new ScreenRuntime();
+    outer.project(presentation('outer'));
+    inner.project(presentation('inner'));
+    const presented = vi.fn();
+    const tree = (nested: boolean) => (
+      <ScreenCompositor>
+        <ScreenLayerHost kind="frame">
+          <ScreenRenderer onPresentationComplete={presented} runtime={outer} />
+          {nested && (
+            <ScreenLayerHost kind="frame" depth={1}>
+              <ScreenRenderer runtime={inner} />
+            </ScreenLayerHost>
+          )}
+        </ScreenLayerHost>
+      </ScreenCompositor>
+    );
+    const view = render(tree(true));
+    const scene = (key: string) => view.container.querySelector(`[data-content="${key}"]`)!.closest('[data-scene]')!;
+
+    expect(scene('outer').getAttribute('data-pointer')).toBe('none');
+    expect(scene('outer').getAttribute('aria-hidden')).toBe('true');
+    expect(scene('inner').getAttribute('data-pointer')).toBe('auto');
+    expect(scene('inner').getAttribute('aria-hidden')).toBe('false');
+    expect(scene('inner').closest('[data-pointer="none"], [data-pointer="box-only"]')).toBeNull();
+    expect(presented).toHaveBeenCalledTimes(1);
+
+    view.rerender(tree(false));
+    expect(scene('outer').getAttribute('data-pointer')).toBe('auto');
+    expect(scene('outer').getAttribute('aria-hidden')).toBe('false');
+    expect(presented).toHaveBeenCalledTimes(1);
+  });
+
   it('resolves the incoming presentation once per owner render, not once per retained scene', () => {
     const runtime = new ScreenRuntime();
     const retained = Array.from({ length: 79 }, (_, index) => presentation(String(index)));

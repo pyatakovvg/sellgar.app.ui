@@ -87,6 +87,23 @@ describe('resolveNavigationCandidates notFound', () => {
     expect(candidate?.probeCanMatch).toBe(true);
   });
 
+  it('probes sibling root index branches so a rejected anonymous index cannot redirect back to itself', () => {
+    const anonymousIndex = new Route({ load: async () => ({}) });
+    const authenticatedIndex = new Route({ load: async () => ({}) });
+    const anonymous = new Route({ routes: [anonymousIndex] });
+    const authenticated = new Route({ routes: [authenticatedIndex] });
+    const router = new Router({ routes: [anonymous, authenticated] });
+    const navigation = resolveRouterBridgeLocation(router, { address: [], nested: null, query: {}, state: undefined });
+
+    const candidates = resolveNavigationCandidates(router, navigation, undefined);
+
+    expect(candidates.map((candidate) => candidate.target.routes.at(-1)?.node.route)).toEqual([
+      anonymousIndex,
+      authenticatedIndex,
+    ]);
+    expect(candidates.every((candidate) => candidate.probeCanMatch)).toBe(true);
+  });
+
   it.each(['unknown', 'customer.unknown', 'customer.sign-in.unknown'])(
     'preserves the matched ancestry for %s without selecting descendant routes',
     (screen) => {

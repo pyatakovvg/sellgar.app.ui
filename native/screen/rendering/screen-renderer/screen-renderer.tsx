@@ -122,6 +122,7 @@ const ScreenSceneView: React.FC<ScreenSceneViewProps> = React.memo(
     const active = presentationActive && interactive;
 
     React.useLayoutEffect(() => {
+      // A covered scene still acknowledges its presentation; activity only owns user interaction.
       if (!interactive) return;
       onScenePresented(runtime);
       onPresentationComplete?.(owner);
@@ -129,10 +130,10 @@ const ScreenSceneView: React.FC<ScreenSceneViewProps> = React.memo(
 
     return (
       <Animated.View
-        accessibilityElementsHidden={!interactive}
-        aria-hidden={!interactive}
-        importantForAccessibility={interactive ? 'auto' : 'no-hide-descendants'}
-        pointerEvents={interactive ? 'auto' : 'none'}
+        accessibilityElementsHidden={!active}
+        aria-hidden={!active}
+        importantForAccessibility={active ? 'auto' : 'no-hide-descendants'}
+        pointerEvents={active ? 'auto' : 'none'}
         style={[styles.scene, animatedStyle]}
       >
         <ScreenPresentationProvider value={runtime}>

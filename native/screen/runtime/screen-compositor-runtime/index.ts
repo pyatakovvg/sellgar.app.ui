@@ -1,1 +1,5 @@
-export { ScreenCompositorRuntime, type ScreenLayerKind } from './screen-compositor-runtime.ts';
+export {
+  ScreenCompositorRuntime,
+  type ScreenLayerKind,
+  type ScreenLayerSnapshot,
+} from './screen-compositor-runtime.ts';

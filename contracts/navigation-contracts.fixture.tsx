@@ -1,4 +1,4 @@
-import { param, segments, type NavigationRequestFactory } from '@sellgar/app';
+import { param, segments, type NavigateServiceInterface, type NavigationRequestFactory } from '@sellgar/app';
 import * as ReactFacade from '@sellgar/app/react';
 import { NavItem, NavLink, Route, Router } from '@sellgar/app/react';
 import type { ApplicationConfiguratorInterface } from '@sellgar/app/react';
@@ -41,6 +41,25 @@ const router = new Router({
 });
 
 const staticNavigation: NavigationRequestFactory = (navigate) => navigate.to(StaticRoute);
+
+const resetContracts = (navigate: NavigateServiceInterface): void => {
+  void navigate.resetTo(StaticRoute);
+  void navigate.through(OneRoute, { params: { oneId: 'one' } }).resetTo(TwiceRoute, {
+    params: { twiceId: 'two' },
+    query: { tab: 'details' },
+    state: { complete: true },
+    revalidate: false,
+  });
+  // @ts-expect-error resetTo requires the target params.
+  void navigate.resetTo(TwiceRoute);
+  // @ts-expect-error resetTo params must be exact.
+  void navigate.resetTo(TwiceRoute, { params: { twiceId: 'two', extra: true } });
+  // @ts-expect-error resetTo always resets history; replace is not an option.
+  void navigate.resetTo(StaticRoute, { replace: true });
+  // @ts-expect-error A static target does not accept params.
+  void navigate.resetTo(StaticRoute, { params: {} });
+};
+const resetNavigation: NavigationRequestFactory = (navigate) => navigate.resetTo(StaticRoute);
 
 const validNavigation = (
   <>
@@ -137,6 +156,8 @@ const removedCompatibilityContracts = (app: ApplicationConfiguratorInterface): v
 
 void router;
 void staticNavigation;
+void resetContracts;
+void resetNavigation;
 void validNavigation;
 void invalidContracts;
 void removedCompatibilityContracts;

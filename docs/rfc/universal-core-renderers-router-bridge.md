@@ -1874,6 +1874,17 @@ await navigate.to(ReportRoute, {
   меняет правила разрешения или типизации route params.
 - Обычный terminal `navigate.to()` с `replace: false` создаёт новую history
   entry; `replace: true` заменяет текущую entry.
+- `navigate.resetTo(Token, options)` явно начинает новую core history с одной
+  entry произвольного target, в том числе во вложенном Router. Разрешение target,
+  params/ancestry через `through()`, query, state, policies, blockers,
+  revalidation и exception boundaries используют общий navigation pipeline.
+  Terminal options не содержат `replace`. Reset intent принадлежит request,
+  сохраняется при policy redirect и не наследуется следующей навигацией.
+  До commit прежняя history сохраняется; commit выполняет существующую core
+  reset mutation и передаёт bridge action `reset`. Удалённые activations
+  освобождаются после bridge completion с сохранением общих runtime/ancestors.
+  В Web очищается логическая core history; прежние физические browser history
+  entries невозможно удалить через History API.
 - `navigate.query()` и построенные поверх него `RouteQueryService.set()`/
   `clear()` заменяют query snapshot текущей entry независимо от terminal
   navigation default. Поэтому Back не перебирает каждое изменение формы поиска

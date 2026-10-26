@@ -4,6 +4,44 @@ import type { NavigationState } from '../navigation-state';
 import { NavigationHistory } from './navigation-history';
 
 describe('NavigationHistory', () => {
+  it('replaces only the current entry and releases its unreferenced activation', () => {
+    const history = new NavigationHistory<object>();
+    const first = {};
+    const second = {};
+    const third = {};
+    const replacement = {};
+
+    history.push(navigation('first'), first, 'first');
+    history.push(navigation('second'), second, 'second');
+    history.push(navigation('third'), third, 'third');
+
+    const mutation = history.replace(navigation('replacement'), replacement);
+
+    expect(history.snapshot().map(({ id }) => id)).toEqual(['first', 'second', 'third']);
+    expect(mutation.current.activation).toBe(replacement);
+    expect(mutation.released).toEqual([third]);
+    expect(history.pop()?.current.activation).toBe(second);
+    expect(history.pop()?.current.activation).toBe(first);
+    expect(history.pop()).toBeNull();
+  });
+
+  it('keeps a replaced activation alive while an older entry still references it', () => {
+    const history = new NavigationHistory<object>();
+    const shared = {};
+    const middle = {};
+    const replacement = {};
+
+    history.push(navigation('first'), shared, 'first');
+    history.push(navigation('middle'), middle, 'middle');
+    history.push(navigation('first'), shared, 'first-again');
+
+    expect(history.replace(navigation('replacement'), replacement).released).toEqual([]);
+    expect(history.pop()?.released).toEqual([replacement]);
+    expect(history.pop()?.released).toEqual([middle]);
+    expect(history.current?.activation).toBe(shared);
+    expect(history.clear()).toEqual([shared]);
+  });
+
   it('keeps chronological entries and releases only unreferenced activations on pop', () => {
     const history = new NavigationHistory<object>();
     const products = {};

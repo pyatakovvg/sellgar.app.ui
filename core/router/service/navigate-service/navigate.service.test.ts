@@ -77,6 +77,39 @@ const openActiveOwnerBranch = async (harness: ReturnType<typeof createNavigation
 };
 
 describe('CoreNavigate', () => {
+  it('resolves resetTo with the same typed ancestry, params, query and state as to', async () => {
+    const harness = createNavigationHarness();
+
+    await harness.navigate.through(OneRoute, { params: { id: 'one-1' } }).resetTo(TwiseRoute, {
+      params: { id: 'two-2' },
+      query: { tab: 'details' },
+      state: { completed: true },
+      revalidate: false,
+    });
+
+    expect(harness.execute).toHaveBeenCalledWith(harness.getCurrent(), { resetHistory: true });
+    expect(harness.getCurrent()?.root.path.map(({ params }) => params)).toEqual([{ id: 'one-1' }, { id: 'two-2' }]);
+    expect(harness.getCurrent()?.root.query).toEqual({ tab: 'details' });
+    expect(harness.getCurrent()?.state).toEqual({ completed: true });
+    expect(harness.getCurrent()?.revalidation).toBeNull();
+
+    harness.execute.mockClear();
+    await harness.navigate.to(OneRoute, { params: { id: 'next' } });
+    expect(harness.execute).toHaveBeenCalledWith(harness.getCurrent());
+  });
+
+  it('preserves reset intent in declarative navigation requests', async () => {
+    const harness = createNavigationHarness();
+    const request = createNavigationRequest((navigate) =>
+      navigate.through(OneRoute, { params: { id: 'one-1' } }).resetTo(TwiseRoute, { params: { id: 'two-2' } }),
+    );
+
+    const resolved = resolveNavigateRequest(harness.navigate, request);
+    expect(harness.execute).not.toHaveBeenCalled();
+    await executeNavigateRequest(harness.navigate, request);
+    expect(harness.execute).toHaveBeenCalledWith(resolved, { resetHistory: true });
+  });
+
   it('resolves and executes the same ordered request used by declarative navigation controls', async () => {
     const harness = createNavigationHarness();
     const request = createNavigationRequest((navigate) =>

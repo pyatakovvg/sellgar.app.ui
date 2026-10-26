@@ -14,6 +14,7 @@ import type { NavigationRequest, NavigationRequestBinding } from '../navigation-
 import { createNavigationRequestBinding, createTerminalNavigationRequest } from '../navigation-request';
 import {
   type NavigateArguments,
+  type NavigateResetArguments,
   NavigateServiceInterface,
   type NavigateTerminalOptions,
   type NavigateQueryOptions,
@@ -21,7 +22,10 @@ import {
   type ThroughArguments,
 } from './navigate-service.interface.ts';
 
-export type NavigationExecutor = (navigation: NavigationState) => void | Promise<void>;
+export type NavigationExecutor = (
+  navigation: NavigationState,
+  options?: { readonly resetHistory: boolean },
+) => void | Promise<void>;
 
 export interface CoreNavigateOptions {
   readonly back: () => void | Promise<void>;
@@ -131,6 +135,13 @@ class CoreNavigate extends NavigateServiceInterface {
     await this.execute(createTerminalNavigationRequest(this.bindings, token, args[0]));
   }
 
+  async resetTo<TToken extends RouteToken, TParams extends RouteParams<TToken> = RouteParams<TToken>>(
+    token: TToken,
+    ...args: NavigateResetArguments<TToken, TParams>
+  ): Promise<void> {
+    await this.execute(createTerminalNavigationRequest(this.bindings, token, args[0], 'reset'));
+  }
+
   resolve(request: NavigationRequest): NavigationState {
     return resolveNavigation(
       this.options.router,
@@ -143,7 +154,13 @@ class CoreNavigate extends NavigateServiceInterface {
   }
 
   async execute(request: NavigationRequest): Promise<void> {
-    await this.options.execute(this.resolve(request));
+    const navigation = this.resolve(request);
+
+    if (request.history === 'reset') {
+      await this.options.execute(navigation, { resetHistory: true });
+    } else {
+      await this.options.execute(navigation);
+    }
   }
 
   async query(query: Readonly<Record<string, unknown>>, options: NavigateQueryOptions = {}): Promise<void> {

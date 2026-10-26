@@ -2,6 +2,8 @@ export { NavigateServiceInterface } from './navigate-service.interface.ts';
 export type {
   NavigateQueryOptions,
   NavigateArguments,
+  NavigateResetArguments,
+  NavigateResetOptions,
   NavigateTerminalOptions,
   NavigateThrough,
   ThroughArguments,

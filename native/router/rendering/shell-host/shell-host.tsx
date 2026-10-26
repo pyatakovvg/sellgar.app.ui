@@ -20,6 +20,7 @@ import {
   type ShellScrollBounds,
 } from '../../runtime/shell-runtime-context';
 import { renderView } from '../../../view/renderable-view';
+import { useScreenActive } from '../../../screen/runtime/screen-activity-context';
 import { useShellDismissRequest } from './shell-dismiss-request.ts';
 import { shouldCommitShellDismiss } from './shell-dismiss.ts';
 import { isTouchWithinShellScrollBounds, resolveShellPanIntent } from './shell-pan-intent.ts';
@@ -41,6 +42,7 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
   const { dismiss } = props;
   const phase = props.phase;
+  const screenActive = useScreenActive();
   const requestDismiss = useShellDismissRequest(dismiss);
   const translationY = useSharedValue(0);
   const frameHeight = useSharedValue(1);
@@ -102,7 +104,7 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
   }, [animatePresentationDismiss, ensurePresentationVisible, phase]);
 
   const gesture = usePanGesture({
-    enabled: phase === 'visible',
+    enabled: screenActive && phase === 'visible',
     manualActivation: true,
     onBegin: () => {
       if (interactiveDismissStarted.value) return;

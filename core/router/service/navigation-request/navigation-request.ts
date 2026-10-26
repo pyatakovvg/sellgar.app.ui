@@ -1,5 +1,10 @@
 import type { RouteParams, RouteToken } from '../../declaration/route-token';
-import type { NavigateArguments, NavigateTerminalOptions, ThroughArguments } from '../navigate-service';
+import type {
+  NavigateArguments,
+  NavigateResetArguments,
+  NavigateTerminalOptions,
+  ThroughArguments,
+} from '../navigate-service';
 
 export interface NavigationRequestBinding {
   readonly params: Readonly<Record<string, unknown>>;
@@ -7,6 +12,7 @@ export interface NavigationRequestBinding {
 }
 
 export interface NavigationRequest {
+  readonly history?: 'reset';
   readonly bindings: readonly NavigationRequestBinding[];
   readonly options: NavigateTerminalOptions & {
     readonly params?: Readonly<Record<string, unknown>>;
@@ -15,6 +21,11 @@ export interface NavigationRequest {
 }
 
 export interface NavigationRequestBuilder {
+  resetTo<const TToken extends RouteToken, const TParams extends RouteParams<TToken> = RouteParams<TToken>>(
+    token: TToken,
+    ...args: NavigateResetArguments<TToken, TParams>
+  ): NavigationRequest;
+
   through<const TToken extends RouteToken, const TParams extends RouteParams<TToken> = RouteParams<TToken>>(
     token: TToken,
     ...args: ThroughArguments<TToken, TParams>
@@ -36,8 +47,10 @@ export const createTerminalNavigationRequest = (
   bindings: readonly NavigationRequestBinding[],
   token: RouteToken,
   options?: NavigateTerminalOptions & { readonly params?: Readonly<Record<string, unknown>> },
+  history?: 'reset',
 ): NavigationRequest => {
   return Object.freeze({
+    ...(history ? { history } : {}),
     bindings: Object.freeze([...bindings]),
     options: freezeTerminalOptions(options),
     token,
@@ -56,6 +69,13 @@ export const createNavigationRequestBinding = (
 
 class CoreNavigationRequestBuilder implements NavigationRequestBuilder {
   constructor(private readonly bindings: readonly NavigationRequestBinding[]) {}
+
+  resetTo<TToken extends RouteToken, TParams extends RouteParams<TToken> = RouteParams<TToken>>(
+    token: TToken,
+    ...args: NavigateResetArguments<TToken, TParams>
+  ): NavigationRequest {
+    return createTerminalNavigationRequest(this.bindings, token, args[0], 'reset');
+  }
 
   through<TToken extends RouteToken, TParams extends RouteParams<TToken> = RouteParams<TToken>>(
     token: TToken,
