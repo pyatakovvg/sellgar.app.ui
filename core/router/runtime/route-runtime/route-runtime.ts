@@ -48,7 +48,10 @@ export class RouteRuntime<TPresentation = unknown> {
     const existing =
       options.reuse === false
         ? undefined
-        : [...this.activations].find((entry) => areNavigationParamsEqual(entry.params, params));
+        : [...this.activations].find(
+            (entry) =>
+              areNavigationParamsEqual(entry.params, params) && entry.activation.isPreparedForNavigationReuse(),
+          );
 
     if (existing) {
       return Object.freeze({ activation: existing.activation, created: false });

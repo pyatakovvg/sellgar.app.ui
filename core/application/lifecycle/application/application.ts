@@ -13,15 +13,18 @@ import type { PolicyBoundaryDecision } from '../../../policy/contract/policy-bou
 import type {
   RouterBridgeHistoryEntryInterface,
   RouterBridgeInterface,
+  RouterBridgeLocationAction,
   RouterBridgeLocationInterface,
   RouterBridgeNavigationSource,
   RouterBridgeRestoreContextInterface,
 } from '../../../router/bridge/router-bridge';
+import { getRouteDefinition } from '../../../router/declaration/route';
 import { resolveRouterBridgeLocation } from '../../../router/runtime/router-address-resolver';
 import { NavigationHistory } from '../../../router/runtime/navigation-history';
 import {
   areNavigationQueriesEqual,
   areNavigationStatesEqual,
+  type NavigationRouterState,
   type NavigationState,
 } from '../../../router/runtime/navigation-state';
 import {
@@ -683,6 +686,7 @@ export abstract class Application<
       try {
         await this.routerBridge.commit(mutation.current.navigation, {
           history: this.createBridgeHistoryEntry('pop', mutation.current.id),
+          locationAction: 'preserve',
           signal: linkedSignal.controller.signal,
           source: 'external',
         });
@@ -748,6 +752,7 @@ export abstract class Application<
       try {
         await this.routerBridge.commit(mutation.current.navigation, {
           history: this.createBridgeHistoryEntry('pop', mutation.current.id),
+          locationAction: 'preserve',
           signal: linkedSignal.controller.signal,
           source: 'external',
         });
@@ -872,6 +877,7 @@ export abstract class Application<
     sessionBoundary: ApplicationSessionBoundary | null,
     allowActivationReuse: boolean,
     resetHistory: boolean,
+    locationAction: RouterBridgeLocationAction = source === 'internal' ? 'apply' : 'preserve',
   ): Promise<boolean> {
     if (redirectDepth > MAX_POLICY_REDIRECT_DEPTH) {
       throw new Error('Policy navigation превысила допустимую глубину redirect.');
@@ -899,7 +905,13 @@ export abstract class Application<
       return false;
     }
 
-    this.setPendingNavigation(result.type === 'decision' ? result.navigation : result.transition.navigation);
+    const resolvedNavigation = result.type === 'decision' ? result.navigation : result.transition.navigation;
+    const resolvedLocationAction =
+      resolvedNavigation.boundary === null && !areNavigationAddressesEqual(navigation.root, resolvedNavigation.root)
+        ? 'apply'
+        : locationAction;
+
+    this.setPendingNavigation(resolvedNavigation);
 
     if (result.type === 'decision') {
       return await this.applyNavigationDecision(
@@ -914,6 +926,7 @@ export abstract class Application<
         sessionBoundary,
         allowActivationReuse,
         resetHistory,
+        resolvedLocationAction,
       );
     }
 
@@ -939,6 +952,7 @@ export abstract class Application<
 
           bridgeCommit = this.routerBridge.commit(transition.navigation, {
             history: historyCommit.history,
+            locationAction: resolvedLocationAction,
             signal,
             source,
           });
@@ -1049,6 +1063,7 @@ export abstract class Application<
     sessionBoundary: ApplicationSessionBoundary | null,
     allowActivationReuse: boolean,
     resetHistory: boolean,
+    locationAction: RouterBridgeLocationAction,
   ): Promise<boolean> {
     switch (decision.type) {
       case 'continue':
@@ -1082,6 +1097,7 @@ export abstract class Application<
           sessionBoundary,
           allowActivationReuse,
           resetHistory,
+          'apply',
         );
       }
       case 'redirect-to-saved-location': {
@@ -1109,6 +1125,7 @@ export abstract class Application<
           sessionBoundary,
           allowActivationReuse,
           resetHistory,
+          'apply',
         );
       }
       case 'forbidden':
@@ -1130,6 +1147,7 @@ export abstract class Application<
         try {
           await this.routerBridge.commit(navigation, {
             history: historyCommit.history,
+            locationAction,
             signal,
             source,
           });
@@ -1468,6 +1486,32 @@ const isSameNavigationRequest = (left: ApplicationNavigationRequest, right: Appl
   left.sessionBoundary === right.sessionBoundary &&
   areNavigationStatesEqual(left.navigation, right.navigation) &&
   hasSameNavigationMetadata(left.navigation, right.navigation);
+
+const areNavigationAddressesEqual = (left: NavigationRouterState, right: NavigationRouterState): boolean => {
+  const leftAddress = collectNavigationAddress(left);
+  const rightAddress = collectNavigationAddress(right);
+
+  if (
+    leftAddress.length !== rightAddress.length ||
+    !leftAddress.every((segment, index) => Object.is(segment, rightAddress[index])) ||
+    !areNavigationQueriesEqual(left.query, right.query)
+  ) {
+    return false;
+  }
+
+  if (left.child === null || right.child === null) {
+    return left.child === right.child;
+  }
+
+  return areNavigationAddressesEqual(left.child, right.child);
+};
+
+const collectNavigationAddress = (state: NavigationRouterState): readonly unknown[] =>
+  state.path.flatMap((entry) =>
+    (getRouteDefinition(entry.route).address?.segments ?? []).map((segment) =>
+      typeof segment === 'string' ? segment : entry.params[segment.name],
+    ),
+  );
 
 const hasSameNavigationMetadata = (left: NavigationState, right: NavigationState): boolean =>
   left.replace === right.replace &&

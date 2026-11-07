@@ -961,6 +961,80 @@ describe('Application routing lifecycle', () => {
     await firstAvailableApp.dispose();
   });
 
+  it.each(['release', 'retain'] as const)(
+    'returns from a forbidden section to the first available root with a reused ancestor (%s)',
+    async (runtimeRetention) => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const router = new Router({
+        routes: [
+          new Route({
+            defaultTo: Router.firstAvailable(),
+            token: FirstAvailableParentRoute,
+            routes: [
+              new Route({
+                address: segments('denied'),
+                canMatch: [DenyPolicy],
+                load: loadTestModule,
+                token: DeniedRoute,
+              }),
+              createModuleRoute(AvailableRoute, 'available'),
+            ],
+          }),
+        ],
+      });
+      const app = await createApplication(router, (navigate) => navigate.to(DeniedRoute), runtimeRetention);
+      try {
+        expect(app.activeRoutes.at(-1)!.getSnapshot().phase).toBe('forbidden');
+        await app.navigate.root();
+        expect(error).not.toHaveBeenCalled();
+        expect(getRouteDefinition(app.activeRoutes.at(-1)!.route).token).toBe(AvailableRoute);
+        expect(app.activeRoutes.at(-1)!.getSnapshot().phase).toBe('active');
+      } finally {
+        await app.dispose();
+      }
+    },
+  );
+
+  it.each(['release', 'retain'] as const)(
+    'probes denied candidates without running their onFail after reusing a firstAvailable ancestor (%s)',
+    async (runtimeRetention) => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const rejectedLoad = vi.fn(loadTestModule);
+      const router = new Router({
+        routes: [
+          new Route({
+            defaultTo: Router.firstAvailable(),
+            token: FirstAvailableParentRoute,
+            routes: [
+              new Route({
+                address: segments('other-denied'),
+                token: BoundaryRoute,
+                load: rejectedLoad,
+                canMatch: [DenyPolicy.configure().onFail(Router.error(new Error('Candidate onFail must not execute')))],
+              }),
+              new Route({
+                address: segments('denied'),
+                canMatch: [DenyPolicy],
+                load: loadTestModule,
+                token: DeniedRoute,
+              }),
+              createModuleRoute(AvailableRoute, 'available'),
+            ],
+          }),
+        ],
+      });
+      const app = await createApplication(router, (navigate) => navigate.to(DeniedRoute), runtimeRetention);
+      try {
+        await app.navigate.root();
+        expect(error).not.toHaveBeenCalled();
+        expect(rejectedLoad).not.toHaveBeenCalled();
+        expect(getRouteDefinition(app.activeRoutes.at(-1)!.route).token).toBe(AvailableRoute);
+      } finally {
+        await app.dispose();
+      }
+    },
+  );
+
   it.each(['index', 'default', 'first-available'] as const)(
     'restores the nested Router through %s resolution with independent scope queries',
     async (kind) => {

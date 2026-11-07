@@ -166,6 +166,7 @@ describe('FsmRouterBridge', () => {
     expect(() =>
       bridge.commit({} as never, {
         history: {} as never,
+        locationAction: 'apply',
         signal: new AbortController().signal,
         source: 'internal',
       }),

@@ -6,6 +6,7 @@ export type {
   RouterBridgeHistoryEntryInterface,
   RouterBridgeInitializeContextInterface,
   RouterBridgeInterface,
+  RouterBridgeLocationAction,
   RouterBridgeLocationInterface,
   RouterBridgeNavigationSource,
   RouterBridgeRestoreContextInterface,
