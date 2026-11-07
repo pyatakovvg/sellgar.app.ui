@@ -134,7 +134,7 @@ class WebRouterBridge implements RouterBridgeInterface, RouterBridgeHrefCapabili
       context.signal.addEventListener('abort', this.handleInitializationAbort, { once: true });
       await context.restore(this.readLocation(browser), { blockersConfirmed: false });
     } catch (error) {
-      await this.dispose();
+      this.dispose();
       throw error;
     }
   }
@@ -145,27 +145,26 @@ class WebRouterBridge implements RouterBridgeInterface, RouterBridgeHrefCapabili
     }
 
     const browser = getBrowserWindow();
+    const url =
+      context.locationAction === 'apply'
+        ? createNavigationUrl(navigation, this.basePath)
+        : getCurrentRelativeUrl(browser);
 
     if (context.source === 'external') {
       const metadata = readHistoryMetadata(browser.history.state);
 
       this.currentIndex = metadata?.index ?? this.currentIndex;
-      const resolvedUrl =
-        navigation.boundary === null && navigation.replace
-          ? createExternalResolvedUrl(navigation, this.basePath, browser.location.hash)
-          : getCurrentRelativeUrl(browser);
 
       browser.history.replaceState(
         createHistoryState(navigation.state, this.currentIndex, navigation.revalidation !== null, context.history.id),
         '',
-        resolvedUrl,
+        url,
       );
 
       this.lastCommitted = createBrowserSnapshot(browser, this.currentIndex);
       return;
     }
 
-    const url = createNavigationUrl(navigation, this.basePath);
     const replace = context.history.action !== 'push';
     const index = replace ? this.currentIndex : this.currentIndex + 1;
     const state = createHistoryState(navigation.state, index, navigation.revalidation !== null, context.history.id);
@@ -442,16 +441,6 @@ const parseHashLocation = (
 };
 
 const EMPTY_QUERY = Object.freeze({});
-
-const createExternalResolvedUrl = (navigation: NavigationState, basePath: string, currentHash: string): string => {
-  const resolved = createNavigationUrl(navigation, basePath);
-
-  if (navigation.root.child !== null || currentHash.length === 0 || resolved.includes('#')) {
-    return resolved;
-  }
-
-  return `${resolved}${currentHash}`;
-};
 
 const encodeRouterState = (state: NavigationRouterState): string[] => {
   return state.path.flatMap((entry) => {

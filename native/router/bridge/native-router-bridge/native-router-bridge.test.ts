@@ -206,6 +206,7 @@ const commit = (
 ) =>
   bridge.commit(navigation, {
     history: { action, id, index, length },
+    locationAction: 'apply',
     signal: new AbortController().signal,
     source: 'internal',
   });
