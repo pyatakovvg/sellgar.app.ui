@@ -453,6 +453,16 @@ export class RouteActivationRuntime<TPresentation = unknown> {
     return this.refreshBoundary === null && this.isRefreshable();
   }
 
+  isPreparedForNavigationReuse(): boolean {
+    if (this.refreshBoundary !== null || (this.state.phase !== 'active' && this.state.phase !== 'retained')) {
+      return false;
+    }
+
+    const modulePhase = this.moduleRuntime?.getSnapshot().phase;
+
+    return modulePhase === undefined || modulePhase === 'active' || modulePhase === 'retained';
+  }
+
   async retain(): Promise<void> {
     if (this.state.phase === 'retained') return;
 

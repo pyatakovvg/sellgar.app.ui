@@ -135,6 +135,7 @@ describe('WebRouterBridge', () => {
 
     bridge.commit(navigation(firstRoute), {
       history: historyEntry('replace', 'navigation:1', 0, 1),
+      locationAction: 'apply',
       signal: abortController.signal,
       source: 'internal',
     });
@@ -144,6 +145,80 @@ describe('WebRouterBridge', () => {
     expect(window.location.pathname).toBe('/first');
 
     await bridge.dispose();
+  });
+
+  it.each([false, true])('applies the complete resolved external target independently of replace=%s', (replace) => {
+    window.history.replaceState(null, '', '/first?old=one#stale?old=two');
+    const bridge = createWebRouterBridge({ basePath: '/application' });
+    const nestedRoute = new Route({ address: segments('inspect', param('id')), load: async () => ({}) });
+    const nestedRouter = new Router({ routes: [nestedRoute] });
+    const ownerRoute = new Route({ address: segments('second'), routing: [nestedRouter], token: SecondRoute });
+    const ownerRouter = new Router({ routes: [ownerRoute] });
+    const target = navigation(secondRoute);
+
+    bridge.commit(
+      {
+        ...target,
+        replace,
+        root: {
+          ...target.root,
+          child: {
+            child: null,
+            owner: ownerRoute,
+            path: [{ params: { id: 'item/42' }, route: nestedRoute, token: undefined }],
+            query: { inner: 'two' },
+            router: nestedRouter,
+          },
+          path: [{ params: {}, route: ownerRoute, token: SecondRoute }],
+          query: { outer: 'one' },
+          router: ownerRouter,
+        },
+      },
+      {
+        history: historyEntry('replace', 'navigation:1', 0, 1),
+        locationAction: 'apply',
+        signal: new AbortController().signal,
+        source: 'external',
+      },
+    );
+
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(
+      '/application/second?outer=one#inspect/item%2F42?inner=two',
+    );
+  });
+
+  it('preserves the attempted external URL even if the logical navigation requests replacement', () => {
+    const url = '/first/missing?raw=%2f+one#unknown?inner=two';
+    window.history.replaceState(null, '', url);
+    const bridge = createWebRouterBridge();
+
+    bridge.commit(
+      { ...navigation(firstRoute), replace: true },
+      {
+        history: historyEntry('replace', 'navigation:1', 0, 1),
+        locationAction: 'preserve',
+        signal: new AbortController().signal,
+        source: 'external',
+      },
+    );
+
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(url);
+  });
+
+  it('does not apply an aborted external redirect', () => {
+    window.history.replaceState(null, '', '/first#stale');
+    const bridge = createWebRouterBridge();
+    const controller = new AbortController();
+    controller.abort();
+
+    bridge.commit(navigation(secondRoute), {
+      history: historyEntry('replace', 'navigation:1', 0, 1),
+      locationAction: 'apply',
+      signal: controller.signal,
+      source: 'external',
+    });
+
+    expect(window.location.pathname + window.location.hash).toBe('/first#stale');
   });
 
   it('rolls a cancelled Back traversal forward without replacing its history entry', async () => {
@@ -163,6 +238,7 @@ describe('WebRouterBridge', () => {
     });
     bridge.commit(navigation(secondRoute), {
       history: historyEntry('push', 'navigation:2', 1, 2),
+      locationAction: 'apply',
       signal: abortController.signal,
       source: 'internal',
     });

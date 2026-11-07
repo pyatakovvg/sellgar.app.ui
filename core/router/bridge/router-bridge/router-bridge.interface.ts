@@ -16,6 +16,8 @@ export interface RouterBridgeLocationInterface {
 
 export type RouterBridgeNavigationSource = 'external' | 'internal';
 
+export type RouterBridgeLocationAction = 'apply' | 'preserve';
+
 export type RouterBridgeRuntimeRetention = 'release' | 'retain';
 
 export type RouterBridgeHistoryAction = 'pop' | 'push' | 'replace' | 'reset' | 'update';
@@ -47,6 +49,8 @@ export interface RouterBridgeInitializeContextInterface {
 
 export interface RouterBridgeCommitContextInterface {
   readonly history: RouterBridgeHistoryEntryInterface;
+  /** Preserve the attempted external location, or apply the complete resolved navigation target. */
+  readonly locationAction: RouterBridgeLocationAction;
   readonly signal: AbortSignal;
   readonly source: RouterBridgeNavigationSource;
 }

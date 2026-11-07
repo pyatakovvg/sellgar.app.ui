@@ -1621,6 +1621,22 @@ request -> resolve -> blockers -> policies -> prepare -> commit | abort
   Route-веток и Router scopes. После выбора target graph `canActivate`
   выполняются в том же порядке. Уже committed незатронутые boundaries не
   активируются повторно только из-за изменения дочернего scope.
+- Eligibility policy boundary определяется входом в logical target path,
+  независимо от создания нового runtime. Повторный вход в retained Route
+  выполняет policies, даже если её Module/controller/provider используются
+  повторно. Общий активный префикс при изменении только дочернего scope
+  остаётся незатронутым.
+- Target topology, policy-affected boundaries и candidate-owned allocations
+  являются разными частями transition plan. `Router.firstAvailable()` ищет
+  свою boundary в topology, включая общий или retained ancestor.
+- Отказ policy на повторно используемой Route создаёт отдельную terminal
+  boundary, принадлежащую текущему transition. Сохранённая history activation
+  не меняет snapshot и остаётся доступной для возврата. Candidate allocations
+  после отказавшей boundary не загружаются и освобождаются обычным cleanup.
+- Для повторного использования подходят подготовленные active/retained
+  activations. Прежние forbidden/not-found/failed outcomes не подменяют
+  новую подготовку после успешной policy; исторический Back сохраняет
+  существующий контракт восстановления snapshot.
 - Action повторно проверяет `canMatch` всех активных Router/Route boundaries,
   затем выполняет `canAction` активных Route boundaries root-to-leaf. У Router
   поля `canAction` нет.
@@ -1783,6 +1799,17 @@ RequireAuthenticatedSessionPolicy.configure().onFail(
   ошибкой address. Browser search по-прежнему означает только часть до `#`; hash
   query разбирает и сериализует web router bridge.
 - Route identity, address projection, params и query остаются scoped.
+- Внутренний bridge commit явно разделяет `locationAction: 'preserve' | 'apply'`,
+  происхождение перехода `source` и mutation core history. `preserve` подтверждает
+  уже выбранный внешний URL без пересериализации: это сохраняет attempted URL
+  при `notFound`, неизвестный fragment и исходное кодирование обычного restore.
+  `apply` полностью проецирует принятый target из core navigation state, включая
+  вложенный address и query; старый browser hash к нему не дописывается.
+  Internal navigation, policy/saved redirects и нормализация root/default target
+  используют `apply` независимо от `replace`. External commit обновляет текущую
+  browser entry через `replaceState`, поскольку transport уже выбрал её до core
+  restore; он не добавляет вторую entry. Этот контракт не меняет public navigate
+  API, семантику `replace` и физическую историю external traversal.
 - `state?: unknown` является transient payload navigation transaction текущей
   Route. Он не входит в logical address, не сериализуется в shared link и не
   восстанавливается после direct link/F5.
