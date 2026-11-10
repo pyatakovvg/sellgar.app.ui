@@ -103,6 +103,7 @@ type ApplicationActionRedirectDecision = Extract<
 
 interface ApplicationSessionBoundary {
   readonly allowSaveCurrentLocation: boolean;
+  readonly navigation: NavigationState;
   readonly revision: number;
 }
 
@@ -1204,7 +1205,14 @@ export abstract class Application<
   }
 
   private captureSessionBoundary(change: SessionRuntimeStateChange): void {
-    if (this.navigationSnapshot.navigation === undefined) {
+    const navigation =
+      this.navigationSnapshot.navigation ??
+      (change.cause === 'expiration' || this.navigationRequest?.sessionBoundary
+        ? (this.navigationSnapshot.pending ?? this.navigationRequest?.navigation)
+        : undefined) ??
+      this.pendingSessionBoundary?.navigation;
+
+    if (navigation === undefined) {
       return;
     }
 
@@ -1213,11 +1221,12 @@ export abstract class Application<
 
     this.pendingSessionBoundary = Object.freeze({
       allowSaveCurrentLocation: (this.pendingSessionBoundary?.allowSaveCurrentLocation ?? true) && !explicitSignOut,
+      navigation,
       revision: change.revision,
     });
 
-    // A visible route can change the session before its bridge presentation
-    // completes. Release that navigation before the session refresh waits on it.
+    // Capture the target before abort cleanup clears the first navigation.
+    // Release it before session refresh waits for the navigation to settle.
     this.navigationAbortController?.abort(new Error('Навигация прервана изменением session.'));
 
     if (explicitSignOut) {
@@ -1226,19 +1235,20 @@ export abstract class Application<
   }
 
   private async refreshRuntime(): Promise<void> {
-    await this.navigationPromise?.catch(() => undefined);
+    while (this.navigationPromise) {
+      await this.navigationPromise.catch(() => undefined);
+    }
 
     if (this.state === 'disposed' || this.state === 'disposing') {
       return;
     }
 
-    const navigation = this.navigationSnapshot.navigation;
+    const sessionBoundary = this.pendingSessionBoundary;
+    const navigation = this.navigationSnapshot.navigation ?? sessionBoundary?.navigation;
 
     if (!navigation) {
       return;
     }
-
-    const sessionBoundary = this.pendingSessionBoundary;
 
     if (sessionBoundary !== null) {
       this.pendingSessionBoundary = null;

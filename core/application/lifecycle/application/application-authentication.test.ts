@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createModuleRuntimeDefinition } from '../../../module/contract/module-runtime-definition';
-import type { ModuleExportResolverInterface } from '../../../module/resolution/module-export-resolver';
+import type { ModuleExportResolverInterface, ModuleExports } from '../../../module/resolution/module-export-resolver';
 import { Controller, type ControllerArgs, type WithPayload } from '../../../controller/contract/controller';
 import type { BindingModuleInterface } from '../../../di/binding/binding-module';
 import type { BindingRegistryInterface } from '../../../di/binding/binding-registry';
@@ -17,7 +17,7 @@ import type {
 } from '../../../router/bridge/router-bridge';
 import { param, segments } from '../../../router/declaration/address';
 import { getRouteDefinition, Route } from '../../../router/declaration/route';
-import { Router } from '../../../router/declaration/router';
+import { getRouterDefinition, Router } from '../../../router/declaration/router';
 import { matchesNavigationRoute, type NavigationState } from '../../../router/runtime/navigation-state';
 import { RoutePolicyInterface } from '../../../router/runtime/route-policy';
 import type { RouteRuntimeContextInterface } from '../../../router/runtime/route-runtime-context';
@@ -127,8 +127,11 @@ class DenyPolicy extends RoutePolicyInterface {
 }
 
 class TestModuleExportResolver implements ModuleExportResolverInterface<null> {
-  resolve() {
-    return createModuleRuntimeDefinition({ presentation: null, token: TestModule });
+  resolve(moduleExports: ModuleExports) {
+    return createModuleRuntimeDefinition({
+      presentation: null,
+      token: (moduleExports.default as typeof TestModule | undefined) ?? TestModule,
+    });
   }
 }
 
@@ -248,6 +251,179 @@ class TestApplication extends Application<null> {
 }
 
 describe('Application authentication lifecycle', () => {
+  it.each([
+    ['retain', 'parent'],
+    ['release', 'parent'],
+    ['retain', 'leaf'],
+    ['release', 'leaf'],
+  ] as const)(
+    'redirects an initial protected 401 before commit with %s retention and a %s policy',
+    async (runtimeRetention, policyOwner) => {
+      const request = vi
+        .fn()
+        .mockRejectedValueOnce(new UnauthorizedException({ title: 'Expired' }))
+        .mockResolvedValue({});
+      const moduleExports = createRequestModule((requests) => requests.run(request));
+      const protectedLoad = vi.fn(async () => moduleExports);
+      const signInLoad = vi.fn(async () => ({}));
+      const bridge = new TestRouterBridge(runtimeRetention);
+      const createRouter = policyOwner === 'parent' ? createFirstAvailableAuthRouter : createAuthRouter;
+      const app = new TestApplication(bridge, createRouter(signInLoad, protectedLoad), [AuthenticateInitializer]);
+
+      app.compose();
+      try {
+        await app.initialize();
+        await vi.waitFor(() => expect(matchesNavigationRoute(app.navigation.navigation, SignInRoute)).toBe(true));
+
+        expect(app.sessionState.phase).toBe('anonymous');
+        expect(bridge.commits).toHaveLength(1);
+        expect(bridge.commits.every((navigation) => matchesNavigationRoute(navigation, SignInRoute))).toBe(true);
+        expect(signInLoad).toHaveBeenCalledOnce();
+        expect(protectedLoad).toHaveBeenCalledOnce();
+        expect(request).toHaveBeenCalledOnce();
+
+        await app.action('authenticate');
+
+        expect(matchesNavigationRoute(app.navigation.navigation, ProtectedRoute)).toBe(true);
+        expect(protectedLoad).toHaveBeenCalledTimes(2);
+        expect(request).toHaveBeenCalledTimes(2);
+        expect(bridge.commits).toHaveLength(2);
+        expect(app.runtimeEntryCount).toBe(1);
+      } finally {
+        await app.dispose();
+      }
+    },
+  );
+
+  it('restores the initial nested location after concurrent protected 401 responses and sign-in', async () => {
+    const location = {
+      address: ['ones', 'one-next', 'twise', 'twise-next'],
+      nested: { address: ['inspect', 'inspect-3'], query: { tab: 'details' } },
+      query: { search: 'shop' },
+      state: { from: 'bookmark' },
+    };
+    class InitialLocationBridge extends TestRouterBridge {
+      override async initialize(context: RouterBridgeInitializeContextInterface): Promise<void> {
+        await context.restore(location, { blockersConfirmed: false });
+      }
+    }
+    const unauthorized = new UnauthorizedException({ title: 'Expired' });
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(unauthorized)
+      .mockRejectedValueOnce(unauthorized)
+      .mockResolvedValue({});
+    const moduleExports = createRequestModule((requests) =>
+      Promise.all([requests.run(request), requests.run(request)]),
+    );
+    const bridge = new InitialLocationBridge();
+    const app = new TestApplication(
+      bridge,
+      createNestedAuthRouter(
+        async () => ({}),
+        async () => moduleExports,
+      ),
+      [AuthenticateInitializer],
+    );
+
+    app.compose();
+    try {
+      await app.initialize();
+      await vi.waitFor(() => expect(matchesNavigationRoute(app.navigation.navigation, SignInRoute)).toBe(true));
+      expect(bridge.commits).toHaveLength(1);
+      expect(request).toHaveBeenCalledTimes(2);
+
+      await app.action('authenticate');
+
+      const navigation = app.navigation.navigation!;
+      expect(matchesNavigationRoute(navigation, InspectorRoute, { params: { id: 'inspect-3' } })).toBe(true);
+      expect(matchesNavigationRoute(navigation, NestedProtectedRoute, { params: { id: 'one-next' }, end: false })).toBe(
+        true,
+      );
+      expect(matchesNavigationRoute(navigation, DeepRoute, { params: { id: 'twise-next' }, end: false })).toBe(true);
+      expect(navigation.root.query).toEqual(location.query);
+      expect(navigation.root.child?.query).toEqual(location.nested.query);
+      expect(navigation.state).toEqual(location.state);
+      expect(request).toHaveBeenCalledTimes(4);
+      expect(bridge.commits).toHaveLength(2);
+      expect(app.runtimeEntryCount).toBe(1);
+    } finally {
+      await app.dispose();
+    }
+  });
+
+  it('keeps a newer navigation when the initial protected request expires the session', async () => {
+    const nextModule = createDeferred<ModuleExports>();
+    const publicLoad = vi.fn(() => nextModule.promise);
+    const signInLoad = vi.fn(async () => ({}));
+    const moduleExports = createRequestModule((requests) =>
+      requests.run(() => Promise.reject(new UnauthorizedException({ title: 'Expired' }))),
+    );
+    const bridge = new TestRouterBridge();
+    const app = new TestApplication(
+      bridge,
+      new Router({
+        routes: [
+          ...getRouterDefinition(createFirstAvailableAuthRouter(signInLoad, async () => moduleExports)).routes,
+          new Route({ address: segments('public'), load: publicLoad, token: SessionAgnosticRoute }),
+        ],
+      }),
+      [AuthenticateInitializer],
+    );
+    let replacement: Promise<void> | undefined;
+
+    app.compose();
+    app.sessionState.subscribe((change) => {
+      if (change.cause === 'expiration') replacement = app.navigate.to(SessionAgnosticRoute);
+    });
+    try {
+      await app.initialize();
+      await vi.waitFor(() => expect(publicLoad).toHaveBeenCalledOnce());
+      expect(bridge.commits).toHaveLength(0);
+
+      nextModule.resolve({});
+      await replacement;
+      await vi.waitFor(() => expect(bridge.commits).toHaveLength(2));
+
+      expect(bridge.commits.every((navigation) => matchesNavigationRoute(navigation, SessionAgnosticRoute))).toBe(true);
+      expect(matchesNavigationRoute(app.navigation.navigation, SessionAgnosticRoute)).toBe(true);
+      expect(signInLoad).not.toHaveBeenCalled();
+    } finally {
+      nextModule.resolve({});
+      await app.dispose();
+    }
+  });
+
+  it('does not restart the initial expired navigation after disposal', async () => {
+    const moduleExports = createRequestModule((requests) =>
+      requests.run(() => Promise.reject(new UnauthorizedException({ title: 'Expired' }))),
+    );
+    const bridge = new TestRouterBridge();
+    const signInLoad = vi.fn(async () => ({}));
+    const app = new TestApplication(
+      bridge,
+      createFirstAvailableAuthRouter(signInLoad, async () => moduleExports),
+      [AuthenticateInitializer],
+    );
+    let disposal: Promise<void> | undefined;
+
+    app.compose();
+    app.sessionState.subscribe((change) => {
+      if (change.cause === 'expiration') disposal = app.dispose();
+    });
+    try {
+      await app.initialize();
+      expect(disposal).toBeDefined();
+      await disposal;
+
+      expect(app.lifecycle.phase).toBe('disposed');
+      expect(bridge.commits).toHaveLength(0);
+      expect(signInLoad).not.toHaveBeenCalled();
+    } finally {
+      await app.dispose();
+    }
+  });
+
   it('resolves the initial session before protected route policies and does not schedule a duplicate navigation', async () => {
     const signInLoad = vi.fn(async () => ({}));
     const protectedLoad = vi.fn(async () => ({}));
@@ -366,49 +542,64 @@ describe('Application authentication lifecycle', () => {
     await app.dispose();
   });
 
-  it('resumes authentication before the sign-in presentation acknowledges completion', async () => {
-    const presentation = createDeferred<void>();
-    let presentationSignal: AbortSignal | undefined;
-    class PendingSignInBridge extends TestRouterBridge {
-      override commit(navigation: NavigationState, context: RouterBridgeCommitContextInterface): void | Promise<void> {
-        super.commit(navigation, context);
-        if (!matchesNavigationRoute(navigation, SignInRoute)) return;
+  it.each(['initial', 'committed'] as const)(
+    'resumes authentication before sign-in presentation completes after an %s navigation expires',
+    async (expirationStage) => {
+      const presentation = createDeferred<void>();
+      let presentationSignal: AbortSignal | undefined;
+      class PendingSignInBridge extends TestRouterBridge {
+        override commit(
+          navigation: NavigationState,
+          context: RouterBridgeCommitContextInterface,
+        ): void | Promise<void> {
+          super.commit(navigation, context);
+          if (!matchesNavigationRoute(navigation, SignInRoute)) return;
 
-        presentationSignal = context.signal;
-        context.signal.addEventListener('abort', () => presentation.resolve(), { once: true });
-        return presentation.promise;
+          presentationSignal = context.signal;
+          context.signal.addEventListener('abort', () => presentation.resolve(), { once: true });
+          return presentation.promise;
+        }
       }
-    }
-    const bridge = new PendingSignInBridge();
-    const app = new TestApplication(
-      bridge,
-      createAuthRouter(
-        async () => ({}),
-        async () => ({}),
-      ),
-      [AuthenticateInitializer],
-    );
-    app.compose();
-
-    try {
-      await app.initialize();
-      void app.requests.run(() => Promise.reject(new UnauthorizedException({ title: 'Unauthorized' })));
-      await vi.waitFor(() => expect(presentationSignal).toBeDefined());
-
-      const authentication = app.action('authenticate');
-      await vi.waitFor(() =>
-        expect(bridge.commits.filter((entry) => matchesNavigationRoute(entry, ProtectedRoute))).toHaveLength(2),
+      const request = vi.fn().mockResolvedValue({});
+      if (expirationStage === 'initial') {
+        request.mockRejectedValueOnce(new UnauthorizedException({ title: 'Expired' }));
+      }
+      const moduleExports = createRequestModule((requests) => requests.run(request));
+      const bridge = new PendingSignInBridge();
+      const app = new TestApplication(
+        bridge,
+        createAuthRouter(
+          async () => ({}),
+          async () => moduleExports,
+        ),
+        [AuthenticateInitializer],
       );
-      await authentication;
+      app.compose();
 
-      expect(presentationSignal?.aborted).toBe(true);
-      expect(matchesNavigationRoute(app.navigation.navigation, ProtectedRoute)).toBe(true);
-      expect(app.runtimeEntryCount).toBe(1);
-    } finally {
-      presentation.resolve();
-      await app.dispose();
-    }
-  });
+      try {
+        await app.initialize();
+        if (expirationStage === 'committed') {
+          void app.requests.run(() => Promise.reject(new UnauthorizedException({ title: 'Unauthorized' })));
+        }
+        await vi.waitFor(() => expect(presentationSignal).toBeDefined());
+
+        const authentication = app.action('authenticate');
+        await vi.waitFor(() =>
+          expect(bridge.commits.filter((entry) => matchesNavigationRoute(entry, ProtectedRoute))).toHaveLength(
+            expirationStage === 'initial' ? 1 : 2,
+          ),
+        );
+        await authentication;
+
+        expect(presentationSignal?.aborted).toBe(true);
+        expect(matchesNavigationRoute(app.navigation.navigation, ProtectedRoute)).toBe(true);
+        expect(app.runtimeEntryCount).toBe(1);
+      } finally {
+        presentation.resolve();
+        await app.dispose();
+      }
+    },
+  );
 
   it('executes a protected parent policy before selecting its first available child', async () => {
     const signInLoad = vi.fn(async () => ({}));
@@ -684,6 +875,28 @@ describe('Application authentication lifecycle', () => {
     await app.dispose();
   });
 });
+
+const createRequestModule = (load: (requests: RequestExecutorInterface) => Promise<unknown>): ModuleExports => {
+  @Controller()
+  class RequestController {
+    constructor(@Inject(RequestExecutorInterface) private readonly requests: RequestExecutorInterface) {}
+
+    loader(): Promise<unknown> {
+      return load(this.requests);
+    }
+  }
+
+  class RequestBindings implements BindingModuleInterface {
+    register(registry: BindingRegistryInterface): void {
+      registry.bind(RequestController).toSelf().inTransientScope();
+    }
+  }
+
+  @UseBindings(RequestBindings)
+  class RequestModule {}
+
+  return { default: RequestModule };
+};
 
 const createAuthRouter = (
   signInLoad: () => Promise<Readonly<Record<string, unknown>>>,
