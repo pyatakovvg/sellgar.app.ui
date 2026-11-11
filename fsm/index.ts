@@ -58,3 +58,19 @@ export type { ScreenContext } from './service/screen-service';
 export { FsmTransportInterface } from './transport/contract/fsm-transport';
 export { Feature, type ApplicationFeatureOptions } from '../shared/application/feature/application-feature';
 export { useMetric } from './application/metric/hook/use-metric';
+
+export { Metadata, type MetadataValues } from '../core/metadata/declaration/metadata';
+export {
+  MetadataServiceInterface,
+  type MetadataGetters,
+  type MetadataSetters,
+  type MetadataResets,
+} from '../core/metadata/service/metadata-service';
+export {
+  composeMetadata,
+  formatMetadataTitle,
+  type MetadataComposition,
+  type MetadataCompositionOptions,
+} from '../core/metadata/composition/metadata-composition';
+
+export { useMetadata } from './metadata/hook/use-metadata';

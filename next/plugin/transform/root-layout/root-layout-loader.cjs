@@ -53,34 +53,11 @@ module.exports = function rootLayoutLoader(source) {
       continue;
     }
 
-    if (
-      ts.isFunctionDeclaration(statement) &&
-      statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)
-    ) {
+    const transformed = transformRootExport(statement, factory, wrap);
+    if (transformed) {
       found = true;
-      const name = statement.name ?? factory.createIdentifier('__SellgarOriginalRootLayout');
-      const modifiers = statement.modifiers.filter(
-        (modifier) => modifier.kind !== ts.SyntaxKind.DefaultKeyword && modifier.kind !== ts.SyntaxKind.ExportKeyword,
-      );
-      statements.push(
-        factory.updateFunctionDeclaration(
-          statement,
-          modifiers,
-          statement.asteriskToken,
-          name,
-          statement.typeParameters,
-          statement.parameters,
-          statement.type,
-          statement.body,
-        ),
-        factory.createExportAssignment(undefined, false, wrap(name)),
-      );
-    } else if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
-      found = true;
-      statements.push(factory.updateExportAssignment(statement, statement.modifiers, wrap(statement.expression)));
-    } else {
-      statements.push(statement);
-    }
+      statements.push(...transformed);
+    } else statements.push(statement);
   }
 
   if (!found) {
@@ -112,9 +89,64 @@ module.exports = function rootLayoutLoader(source) {
     factory.createStringLiteral('sellgar-next-root-layout'),
   );
 
+  const hasMetadata = file.statements.some(
+    (statement) =>
+      (statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) &&
+        ((ts.isFunctionDeclaration(statement) && statement.name?.text === 'generateMetadata') ||
+          (ts.isVariableStatement(statement) &&
+            statement.declarationList.declarations.some(
+              (declaration) =>
+                ts.isIdentifier(declaration.name) && ['metadata', 'generateMetadata'].includes(declaration.name.text),
+            )))) ||
+      (ts.isExportDeclaration(statement) &&
+        statement.exportClause &&
+        ts.isNamedExports(statement.exportClause) &&
+        statement.exportClause.elements.some((entry) => ['metadata', 'generateMetadata'].includes(entry.name.text))),
+  );
+  if (!hasMetadata)
+    statements.push(
+      factory.createExportDeclaration(
+        undefined,
+        false,
+        factory.createNamedExports([
+          factory.createExportSpecifier(false, 'generateApplicationMetadata', 'generateMetadata'),
+        ]),
+        factory.createStringLiteral('sellgar-next-root-layout'),
+      ),
+    );
+
   try {
     return ts.createPrinter().printFile(factory.updateSourceFile(file, [...directives, imported, ...statements]));
   } finally {
     document.dispose();
   }
 };
+
+function transformRootExport(statement, factory, wrap) {
+  if (
+    ts.isFunctionDeclaration(statement) &&
+    statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)
+  ) {
+    const name = statement.name ?? factory.createIdentifier('__SellgarOriginalRootLayout');
+    const modifiers = statement.modifiers.filter(
+      (modifier) => modifier.kind !== ts.SyntaxKind.DefaultKeyword && modifier.kind !== ts.SyntaxKind.ExportKeyword,
+    );
+    return [
+      factory.updateFunctionDeclaration(
+        statement,
+        modifiers,
+        statement.asteriskToken,
+        name,
+        statement.typeParameters,
+        statement.parameters,
+        statement.type,
+        statement.body,
+      ),
+      factory.createExportAssignment(undefined, false, wrap(name)),
+    ];
+  }
+  if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
+    return [factory.updateExportAssignment(statement, statement.modifiers, wrap(statement.expression))];
+  }
+  return null;
+}

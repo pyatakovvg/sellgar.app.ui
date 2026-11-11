@@ -20,7 +20,7 @@ export const removeEntity = <TEntity extends object>(
   const identity = Reflect.get(identityData, identityProperty) as unknown;
 
   if (typeof identity !== 'string' && typeof identity !== 'number') {
-    throw new Error(`Данные удаления не содержат identity: ${String(identityProperty)}.`);
+    throw new TypeError(`Данные удаления не содержат identity: ${String(identityProperty)}.`);
   }
 
   const updates = entityCollectionRegistry
@@ -29,7 +29,7 @@ export const removeEntity = <TEntity extends object>(
       const items = Reflect.get(collection, property) as unknown;
 
       if (!Array.isArray(items)) {
-        throw new Error(`Поле reactive entity collection не является массивом: ${property}.`);
+        throw new TypeError(`Поле reactive entity collection не является массивом: ${property}.`);
       }
 
       const retainedItems = items.filter((item) => getEntityIdentity(item as TEntity) !== identity);

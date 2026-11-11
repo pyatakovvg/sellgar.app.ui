@@ -15,3 +15,17 @@ export { Layout } from '../react/layout/declaration/layout';
 export type { LayoutConstructor, LayoutMetadata, LayoutViewProps } from '../react/layout/declaration/layout';
 export { withLayout, type LayoutSegmentProps } from './layout/rendering/segment-layout';
 export { useModuleReady as useLayoutReady } from './module/hook/use-module-ready';
+
+export { Metadata, type MetadataValues } from '../core/metadata/declaration/metadata';
+export {
+  MetadataServiceInterface,
+  type MetadataGetters,
+  type MetadataSetters,
+  type MetadataResets,
+} from '../core/metadata/service/metadata-service';
+export {
+  composeMetadata,
+  formatMetadataTitle,
+  type MetadataComposition,
+  type MetadataCompositionOptions,
+} from '../core/metadata/composition/metadata-composition';

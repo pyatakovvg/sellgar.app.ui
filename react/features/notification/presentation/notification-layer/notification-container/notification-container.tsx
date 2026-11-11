@@ -1,7 +1,10 @@
 import React from 'react';
 
-import type { NotificationRuntimeInterface } from '../../../../../../core/features/notification/runtime/notification-runtime';
-import type { NotificationRequest as CoreNotificationRequest } from '../../../../../../core/features/notification/runtime/notification-runtime';
+import {
+  type NotificationRuntimeInterface,
+  type NotificationRequest as CoreNotificationRequest,
+} from '../../../../../../core/features/notification/runtime/notification-runtime';
+
 import type { NotificationPresentation } from '../../../declaration/notification-presentation';
 import {
   NOTIFICATION_PLACEMENTS,

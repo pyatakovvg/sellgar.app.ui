@@ -145,7 +145,7 @@ const mergePresentations = (
 };
 
 const refreshPresentation = (current: ScreenPresentation | undefined, next: ScreenPresentation): ScreenPresentation => {
-  if (!current || current.transition === undefined) return next;
+  if (current?.transition === undefined) return next;
 
   return Object.freeze({ ...next, transition: current.transition });
 };

@@ -1,3 +1,5 @@
+import { Metadata } from '../../../../core/metadata/declaration/metadata';
+import { MetadataServiceInterface } from '../../../../core/metadata/service/metadata-service';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Controller } from '../../../../core/controller/contract/controller';
@@ -30,12 +32,17 @@ function fixture(hanging = false) {
   @Controller()
   class TestController extends ControllerToken {
     #private = 1;
-    constructor(@Inject(CounterToken) private readonly counter: CounterToken) {
+    constructor(
+      @Inject(CounterToken) private readonly counter: CounterToken,
+      @Inject(MetadataServiceInterface) private readonly metadata: MetadataServiceInterface,
+    ) {
       super();
     }
     async loader(args: { readonly signal: AbortSignal }) {
       events.push('loader');
       calls.loaders++;
+      this.metadata.set.title('Loaded title');
+      this.metadata.set.description('Loaded description');
       if (hanging)
         await new Promise((_resolve, reject) => {
           args.signal.addEventListener('abort', () => reject(new Error('loader aborted')), { once: true });
@@ -80,6 +87,7 @@ function fixture(hanging = false) {
       events.push('provider.dispose');
     }
   }
+  @Metadata({ title: 'Default title' })
   @UseBindings(Bindings)
   @Module({ view: () => null, providers: [TestProvider] })
   class TestModule {}
@@ -104,6 +112,7 @@ test('server load uses module bindings and transports data without tokens or ins
   assert.equal(session.runtime.invoke(value.token, 'increment', []), 1);
   assert.deepEqual(JSON.parse(JSON.stringify(snapshot)).controllers[0].data, { initial: 1 });
   assert.equal(snapshot.params.id, '42');
+  assert.deepEqual(snapshot.metadata, { title: 'Loaded title', description: 'Loaded description' });
   await app.dispose();
   await session.dispose();
   assert.equal(value.calls.disposed, 1);
@@ -116,6 +125,10 @@ test('hydration replays loader data once, keeps core lifecycle and private contr
   const session = createModuleRuntime(browser, async () => value.exports, snapshot.id);
   await hydrateModuleSession(session, snapshot, new AbortController().signal);
   assert.equal(value.calls.loaders, 1);
+  const metadata = session.runtime.getActiveModule().scope.get(MetadataServiceInterface);
+  assert.equal(metadata.get.title(), 'Loaded title');
+  metadata.reset.title();
+  assert.equal(metadata.get.title(), 'Default title');
   assert.deepEqual(session.runtime.getLoaderData(value.token), { initial: 1 });
   assert.equal(session.runtime.invoke(value.token, 'increment', []), 1);
   await session.runtime.revalidate();

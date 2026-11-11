@@ -17,7 +17,9 @@ export class Application extends CoreApplication<never> {
     });
   }
 
-  protected configure(_app: ApplicationConfiguratorInterface): void {}
+  protected configure(_app: ApplicationConfiguratorInterface): void {
+    // Subclasses may register features; Next itself owns the route tree.
+  }
 
   getDependency<TValue>(token: DependencyToken<TValue>): TValue {
     return this.getApplicationScope().get(token);
@@ -43,7 +45,8 @@ export class Application extends CoreApplication<never> {
   }
 
   override dispose(): Promise<void> {
-    return (this.disposal ??= Promise.resolve().then(() => this.disposeNextApplication()));
+    this.disposal ??= Promise.resolve().then(() => this.disposeNextApplication());
+    return this.disposal;
   }
 
   private async disposeNextApplication(): Promise<void> {

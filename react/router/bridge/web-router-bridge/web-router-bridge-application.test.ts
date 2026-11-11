@@ -174,7 +174,7 @@ describe('WebRouterBridge Application location commits', () => {
 
       expect(app.activeToken).toBe(CatalogRoute);
       expect(currentUrl()).toBe('/catalog');
-      expect(window.history.length).toBe(length);
+      expect(window.history).toHaveLength(length);
       expect(push).not.toHaveBeenCalled();
       expect(commit).toHaveBeenLastCalledWith(
         expect.anything(),
@@ -326,7 +326,7 @@ describe('WebRouterBridge Application location commits', () => {
 
     expect(app.activeToken).toBe(OtherRoute);
     expect(currentUrl()).toBe('/other');
-    expect(window.history.length).toBe(length);
+    expect(window.history).toHaveLength(length);
     expect(commit).not.toHaveBeenCalled();
   });
 });

@@ -109,29 +109,9 @@ const matchNestedAddress = (
       let partial: NestedAddressMatch | null = null;
 
       for (const match of matches) {
-        let child: NavigationRouterState | null = null;
-        let boundary: NavigationNotFoundBoundary | null = null;
-        let consumed = match.consumed;
+        const candidate = createNestedAddressCandidate(owner, router, match, address);
 
-        if (consumed < address.length) {
-          const nested = matchNestedAddress(match.path, address.slice(consumed));
-
-          if (nested) {
-            child = nested.state;
-            boundary = nested.boundary;
-            consumed += nested.consumed;
-          } else {
-            boundary = createNotFoundBoundary(router, match.path.at(-1)?.route ?? null);
-          }
-        }
-
-        const candidate = Object.freeze({
-          boundary,
-          consumed,
-          state: createRouterState(router, owner.route, match.path, EMPTY_QUERY, child),
-        });
-
-        if (consumed === address.length) {
+        if (candidate.consumed === address.length) {
           return candidate;
         }
 
@@ -150,19 +130,18 @@ const matchNestedAddress = (
 const matchRouterPaths = (router: RouterDeclaration, address: readonly string[]): readonly AddressPathMatch[] => {
   const matches = matchRoutes(getRouterDefinition(router).routes, address, 0, EMPTY_PATH, 0);
 
-  return Object.freeze(
-    matches.sort((left, right) => {
-      if (left.consumed !== right.consumed) {
-        return right.consumed - left.consumed;
-      }
+  matches.sort((left, right) => {
+    if (left.consumed !== right.consumed) {
+      return right.consumed - left.consumed;
+    }
 
-      if (left.staticSegments !== right.staticSegments) {
-        return right.staticSegments - left.staticSegments;
-      }
+    if (left.staticSegments !== right.staticSegments) {
+      return right.staticSegments - left.staticSegments;
+    }
 
-      return right.path.length - left.path.length;
-    }),
-  );
+    return right.path.length - left.path.length;
+  });
+  return Object.freeze(matches);
 };
 
 const matchRoutes = (
@@ -193,8 +172,10 @@ const matchRoutes = (
     const consumed = offset + addressMatch.consumed;
     const staticSegments = inheritedStaticSegments + addressMatch.staticSegments;
 
-    matches.push(Object.freeze({ consumed, path, staticSegments }));
-    matches.push(...matchRoutes(definition.routes, address, consumed, path, staticSegments));
+    matches.push(
+      Object.freeze({ consumed, path, staticSegments }),
+      ...matchRoutes(definition.routes, address, consumed, path, staticSegments),
+    );
   }
 
   return matches;
@@ -259,3 +240,34 @@ const createNotFoundBoundary = (
 const EMPTY_ADDRESS = Object.freeze([]) as readonly string[];
 const EMPTY_PATH = Object.freeze([]) as readonly NavigationRouteEntry[];
 const EMPTY_QUERY = Object.freeze({});
+
+const createNestedAddressCandidate = (
+  owner: NavigationRouteEntry,
+  router: RouterDeclaration,
+  match: AddressPathMatch,
+  address: readonly string[],
+): NestedAddressMatch => {
+  let child: NavigationRouterState | null = null;
+  let boundary: NavigationNotFoundBoundary | null = null;
+  let consumed = match.consumed;
+
+  if (consumed < address.length) {
+    const nested = matchNestedAddress(match.path, address.slice(consumed));
+
+    if (nested) {
+      child = nested.state;
+      boundary = nested.boundary;
+      consumed += nested.consumed;
+    } else {
+      boundary = createNotFoundBoundary(router, match.path.at(-1)?.route ?? null);
+    }
+  }
+
+  const candidate = Object.freeze({
+    boundary,
+    consumed,
+    state: createRouterState(router, owner.route, match.path, EMPTY_QUERY, child),
+  });
+
+  return candidate;
+};

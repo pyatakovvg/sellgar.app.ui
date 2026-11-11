@@ -1,4 +1,5 @@
 import type { NavigateServiceInterface } from '../../service/navigate-service';
+import type { NavigationRequest } from '../../service/navigation-request';
 import type { RouterDeclaration } from '../../declaration/router';
 import type { NavigationState } from '../../runtime/navigation-state';
 
@@ -38,6 +39,8 @@ export interface RouterBridgeInitializeContextInterface {
   readonly cancelNavigation: () => boolean;
   readonly confirm: (location: RouterBridgeLocationInterface, signal: AbortSignal) => Promise<boolean>;
   readonly navigate: NavigateServiceInterface;
+  /** Execute a token-based request as external navigation through the core lifecycle. */
+  readonly navigateRequest: (request: NavigationRequest) => Promise<boolean>;
   readonly restore: (
     location: RouterBridgeLocationInterface,
     context: RouterBridgeRestoreContextInterface,

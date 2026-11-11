@@ -1,3 +1,4 @@
+import { getMetadataDefaults } from '../../../metadata/declaration/metadata';
 import type {
   ControllerArgs,
   RuntimeController,
@@ -35,6 +36,8 @@ export const createLoadedModuleRuntime = async <TPresentation>(
 ): Promise<LoadedModuleRuntime<TPresentation>> => {
   const controllers = new Map<DependencyToken<unknown>, RuntimeController>();
   const reporter = scope.get(ApplicationReportDispatcherInterface);
+
+  scope.bindMetadata(getMetadataDefaults(definition.token));
 
   try {
     scope.activate(definition.token, { collectControllerBindings: true });

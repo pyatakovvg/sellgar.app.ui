@@ -1,15 +1,10 @@
 import type React from 'react';
 
-import {
-  WidgetDefinition,
-  configureWidgetRuntimeDefinition,
-  type WidgetConstructor,
-  type WidgetProps,
-} from '../../../../core/widget/declaration/widget';
+import { configureWidgetRuntimeDefinition, type WidgetConstructor } from '../../../../core/widget/declaration/widget';
 import type { ProviderToken } from '../../../../core/runtime/provider/provider-token';
 import type { RenderableView } from '../../../view/renderable-view';
 
-const WIDGET_METADATA_KEY = Symbol('@tiyn/app:native:widget:metadata');
+const WIDGET_METADATA_KEY = Symbol('@sellgar/app:native:widget:metadata');
 
 export interface WidgetMetadata<TProps extends object = object> {
   readonly exception?: React.ReactNode;
@@ -47,5 +42,5 @@ export const isWidgetConstructor = (value: unknown): value is WidgetConstructor 
   return typeof value === 'function' && Reflect.hasMetadata(WIDGET_METADATA_KEY, value);
 };
 
-export { WidgetDefinition };
-export type { WidgetConstructor, WidgetProps };
+export { WidgetDefinition } from '../../../../core/widget/declaration/widget';
+export type { WidgetConstructor, WidgetProps } from '../../../../core/widget/declaration/widget';

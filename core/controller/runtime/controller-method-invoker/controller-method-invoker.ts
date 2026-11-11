@@ -29,7 +29,7 @@ export const invokeControllerMethod = <TValue>({
       const member = (controller as Record<string | symbol, unknown>)[method];
 
       if (typeof member !== 'function') {
-        throw new Error(`Метод контроллера ${String(method)} недоступен.`);
+        throw new TypeError(`Метод контроллера ${String(method)} недоступен.`);
       }
 
       return member.apply(controller, args) as TValue;

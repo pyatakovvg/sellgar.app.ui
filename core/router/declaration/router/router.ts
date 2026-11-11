@@ -104,7 +104,7 @@ export class Router implements RouterDeclaration {
     };
 
     return {
-      params: Object.freeze({ ...(options.params ?? {}) }),
+      params: Object.freeze({ ...options.params }),
       replace: options.replace ?? false,
       saveCurrentLocation: options.saveCurrentLocation ?? false,
       to: token,
@@ -127,7 +127,7 @@ export const getRouterDefinition = (router: RouterDeclaration): RouterDefinition
   const definition = routerDefinitions.get(router);
 
   if (!definition) {
-    throw new Error('Router declaration не принадлежит @tiyn/app.');
+    throw new Error('Router declaration не принадлежит @sellgar/app.');
   }
 
   return definition;

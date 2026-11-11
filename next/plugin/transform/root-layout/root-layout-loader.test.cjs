@@ -57,3 +57,16 @@ test('rejects unsupported root exports and client roots with an actionable error
   assert.throws(() => executeLayout("'use client'; export default () => null;"), /серверный корневой layout/);
   assert.throws(() => executeLayout("export { default } from './other';"), /локальный default export/);
 });
+
+test('supplies application metadata for ordinary routes unless the root explicitly defines Next metadata', () => {
+  const output = loader.call(
+    { resourcePath: '/fixture/app/layout.tsx' },
+    'export default function Root() { return null; }',
+  );
+  assert.match(output, /generateApplicationMetadata as generateMetadata/);
+  const manual = loader.call(
+    { resourcePath: '/fixture/app/layout.tsx' },
+    'export { metadata } from "./manual"; export default function Root() { return null; }',
+  );
+  assert.doesNotMatch(manual, /generateApplicationMetadata/);
+});

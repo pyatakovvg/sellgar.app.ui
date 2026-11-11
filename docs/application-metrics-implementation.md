@@ -102,7 +102,7 @@ workspace documentation/inventory checks и `git diff --check` framework repo.
 | Проверка                                                                               | Результат                                                                                          |
 | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `yarn workspaces list --json`                                                          | `@sellgar/app` зарегистрирован                                                                     |
-| `./node_modules/.bin/tsc -p library/tiyn-app/tsconfig.core.json`                       | PASS, включая metric compile-time fixture                                                          |
+| `./node_modules/.bin/tsc -p library/sellgar.app.ui/tsconfig.core.json`                 | PASS, включая metric compile-time fixture                                                          |
 | Web/FSM facade и новые test files через временные tsconfig, наследующие package config | PASS; source/manifest/config проекта не подменялись                                                |
 | `yarn build:management_panel_ui`                                                       | PASS; стандартное предупреждение о размере vendor chunk                                            |
 | ESLint и Prettier по всем task-scoped TS/TSX/docs/config files                         | PASS                                                                                               |
@@ -114,12 +114,12 @@ workspace documentation/inventory checks и `git diff --check` framework repo.
 
 ```sh
 ./node_modules/.bin/vitest run \
-  library/tiyn-app/core/application \
-  library/tiyn-app/react/application \
-  library/tiyn-app/fsm/application \
-  library/tiyn-app/shared/application/feature \
-  library/tiyn-app/native/application/metric \
-  library/tiyn-app/native/application/reporting
+  library/sellgar.app.ui/core/application \
+  library/sellgar.app.ui/react/application \
+  library/sellgar.app.ui/fsm/application \
+  library/sellgar.app.ui/shared/application/feature \
+  library/sellgar.app.ui/native/application/metric \
+  library/sellgar.app.ui/native/application/reporting
 ```
 
 Дополнительная проверка renderer-independent core без DOM — **3 файла,
@@ -127,8 +127,8 @@ workspace documentation/inventory checks и `git diff --check` framework repo.
 
 ```sh
 ./node_modules/.bin/vitest run \
-  library/tiyn-app/core/application/metric \
-  library/tiyn-app/core/application/lifecycle/application/application-metric.test.ts \
+  library/sellgar.app.ui/core/application/metric \
+  library/sellgar.app.ui/core/application/lifecycle/application/application-metric.test.ts \
   --environment node
 ```
 

@@ -4,13 +4,13 @@ import { fileURLToPath } from 'node:url';
 
 const CONFIGURED = Symbol.for('@sellgar/app/next:configured');
 const normalize = (value) => value.split(path.sep).join('/');
-const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 
 /** Register bootstrap and rendering integration; never create an application while evaluating next.config. */
 export function withApp(config = {}, options = {}) {
   if (config[CONFIGURED]) return config;
   if (typeof config === 'function' || typeof config?.then === 'function') {
-    throw new Error('В текущем прототипе withApp() принимает объект NextConfig.');
+    throw new TypeError('В текущем прототипе withApp() принимает объект NextConfig.');
   }
 
   const projectDir = path.resolve(options.projectDir ?? process.cwd());
@@ -42,7 +42,8 @@ export function withApp(config = {}, options = {}) {
   const nodeEntry = resolve('../../../entry/node/index.mjs');
   const existingRules = config.turbopack?.rules ?? {};
   const wildcardRules = existingRules['*'];
-  const rules = wildcardRules ? (Array.isArray(wildcardRules) ? [...wildcardRules] : [wildcardRules]) : [];
+  const configuredRules = Array.isArray(wildcardRules) ? [...wildcardRules] : [wildcardRules];
+  const rules = wildcardRules ? configuredRules : [];
   const matches = (file) => ({ path: new RegExp('(^|/)' + escapeRegExp(normalize(path.relative(root, file))) + '$') });
 
   rules.push(

@@ -24,6 +24,8 @@ describe('ApplicationHost', () => {
     class BrokenLayout {}
 
     const routerRuntime = {
+      getActiveLocalRouteRuntimes: () => [],
+      getActiveChildRouterRuntimeOrNull: () => null,
       getBranchSnapshot: () => ({
         child: null,
         childPending: false,

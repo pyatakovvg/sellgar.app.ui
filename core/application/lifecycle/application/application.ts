@@ -1,3 +1,5 @@
+import type { MetadataCompositionOptions } from '../../../metadata/composition/metadata-composition';
+import { getMetadataDefaults } from '../../../metadata/declaration/metadata';
 import type { DependencyConstructor } from '../../../di/binding/binding-builder';
 import {
   ApplicationReportDispatcherInterface,
@@ -20,7 +22,7 @@ import type {
 } from '../../../router/bridge/router-bridge';
 import { getRouteDefinition } from '../../../router/declaration/route';
 import { resolveRouterBridgeLocation } from '../../../router/runtime/router-address-resolver';
-import { NavigationHistory } from '../../../router/runtime/navigation-history';
+import { NavigationHistory, type NavigationHistoryMutation } from '../../../router/runtime/navigation-history';
 import {
   areNavigationQueriesEqual,
   areNavigationStatesEqual,
@@ -38,8 +40,10 @@ import {
   createCoreNavigate,
   resolveCoreNavigation,
   resolveCoreRootNavigation,
+  resolveNavigateRequest,
 } from '../../../router/service/navigate-service';
 import type { NavigateServiceInterface } from '../../../router/service/navigate-service';
+import type { NavigationRequest } from '../../../router/service/navigation-request';
 import { BackBindings } from '../../../router/binding/back-bindings';
 import { BackRuntimeInterface } from '../../../router/runtime/back-runtime';
 import { RuntimeOperationCoordinator } from '../../../runtime/operation/runtime-operation-coordinator';
@@ -193,6 +197,10 @@ export abstract class Application<
     super();
   }
 
+  get metadataOptions(): MetadataCompositionOptions {
+    return this.config.metadataValue;
+  }
+
   get lifecycle(): ApplicationLifecycleSnapshot {
     return this.lifecycleSnapshot;
   }
@@ -245,6 +253,7 @@ export abstract class Application<
     this.setState('composing');
 
     try {
+      this.scope.bindMetadata(getMetadataDefaults(this.constructor));
       this.scope.bindSession(this.session);
       this.detachSessionState = this.session.subscribe((change) => this.captureSessionBoundary(change));
       this.scope.bindDisposables(this.disposables);
@@ -260,7 +269,15 @@ export abstract class Application<
         },
         current: () => this.navigationSnapshot.navigation,
         execute: async (navigation, options) => {
-          await this.executeNavigation(navigation, 'internal', false, null, false, null, true, options?.resetHistory);
+          await this.executeNavigation(navigation, {
+            source: 'internal',
+            blockersConfirmed: false,
+            historyTargetId: null,
+            replaceCurrent: false,
+            sessionBoundary: null,
+            allowActivationReuse: true,
+            resetHistory: options?.resetHistory,
+          });
         },
         router: this.config.routerValue,
       });
@@ -502,6 +519,7 @@ export abstract class Application<
         cancelNavigation: () => this.cancelPendingNavigation(),
         confirm: (location, confirmationSignal) => this.confirmBridgeLocation(location, confirmationSignal),
         navigate: this.requireNavigateService(),
+        navigateRequest: (request) => this.navigateBridgeRequest(request),
         restore: (location, restoreContext) => this.restoreBridgeLocation(location, restoreContext),
         router: this.config.routerValue,
         shouldBlockUnload: () => this.shouldBlockUnload(),
@@ -605,6 +623,16 @@ export abstract class Application<
     return this.scope.get(initializerToken);
   }
 
+  private async navigateBridgeRequest(request: NavigationRequest): Promise<boolean> {
+    const navigation = resolveNavigateRequest(this.requireNavigateService(), request);
+
+    return this.executeNavigation(navigation, {
+      source: 'external',
+      blockersConfirmed: false,
+      resetHistory: request.history === 'reset',
+    });
+  }
+
   private async restoreBridgeLocation(
     location: RouterBridgeLocationInterface,
     context: RouterBridgeRestoreContextInterface,
@@ -620,7 +648,7 @@ export abstract class Application<
       return this.restoreHistoryEntry(entry.id, navigation, context.blockersConfirmed);
     }
 
-    return this.executeNavigation(navigation, 'external', context.blockersConfirmed);
+    return this.executeNavigation(navigation, { source: 'external', blockersConfirmed: context.blockersConfirmed });
   }
 
   private async confirmBridgeLocation(location: RouterBridgeLocationInterface, signal: AbortSignal): Promise<boolean> {
@@ -666,7 +694,11 @@ export abstract class Application<
       if (!target) return false;
 
       if (target.activation === null) {
-        return this.executeNavigation(target.navigation, 'external', false, target.id);
+        return this.executeNavigation(target.navigation, {
+          source: 'external',
+          blockersConfirmed: false,
+          historyTargetId: target.id,
+        });
       }
 
       if (!(await this.getRouterRuntime().confirmActivation(target.activation, linkedSignal.controller.signal))) {
@@ -717,7 +749,12 @@ export abstract class Application<
     const previous = this.navigationHistory.previous();
     const ownerEntryId = previous && areNavigationStatesEqual(previous.navigation, navigation) ? previous.id : null;
 
-    await this.executeNavigation(navigation, 'internal', false, ownerEntryId, ownerEntryId === null);
+    await this.executeNavigation(navigation, {
+      source: 'internal',
+      blockersConfirmed: false,
+      historyTargetId: ownerEntryId,
+      replaceCurrent: ownerEntryId === null,
+    });
   }
 
   private async restoreHistoryEntry(
@@ -731,7 +768,7 @@ export abstract class Application<
     if (this.navigationHistory.current?.id === entry.id) return true;
 
     if (entry.activation === null) {
-      return this.executeNavigation(navigation, 'external', blockersConfirmed, entry.id);
+      return this.executeNavigation(navigation, { source: 'external', blockersConfirmed, historyTargetId: entry.id });
     }
 
     const linkedSignal = createLinkedAbortController(this.applicationAbortController.signal);
@@ -768,13 +805,23 @@ export abstract class Application<
 
   private executeNavigation(
     navigation: NavigationState,
-    source: RouterBridgeNavigationSource = 'internal',
-    blockersConfirmed = false,
-    historyTargetId: string | null = null,
-    replaceCurrent = false,
-    sessionBoundary: ApplicationSessionBoundary | null = null,
-    allowActivationReuse = true,
-    resetHistory = false,
+    {
+      source = 'internal',
+      blockersConfirmed = false,
+      historyTargetId = null,
+      replaceCurrent = false,
+      sessionBoundary = null,
+      allowActivationReuse = true,
+      resetHistory = false,
+    }: {
+      readonly source?: RouterBridgeNavigationSource;
+      readonly blockersConfirmed?: boolean;
+      readonly historyTargetId?: string | null;
+      readonly replaceCurrent?: boolean;
+      readonly sessionBoundary?: ApplicationSessionBoundary | null;
+      readonly allowActivationReuse?: boolean;
+      readonly resetHistory?: boolean;
+    } = {},
   ): Promise<boolean> {
     const request: ApplicationNavigationRequest = Object.freeze({
       blockersConfirmed,
@@ -813,10 +860,7 @@ export abstract class Application<
         return false;
       }
 
-      return await this.runNavigation(
-        navigation,
-        abortController.signal,
-        0,
+      return await this.runNavigation(navigation, abortController.signal, 0, {
         source,
         blockersConfirmed,
         historyTargetId,
@@ -824,7 +868,7 @@ export abstract class Application<
         sessionBoundary,
         allowActivationReuse,
         resetHistory,
-      );
+      });
     })().finally(() => {
       if (this.scope.has(NavigationBlockerRuntimeInterface)) {
         this.scope.get(NavigationBlockerRuntimeInterface).complete();
@@ -871,14 +915,25 @@ export abstract class Application<
     navigation: NavigationState,
     signal: AbortSignal,
     redirectDepth: number,
-    source: RouterBridgeNavigationSource,
-    blockersConfirmed: boolean,
-    historyTargetId: string | null,
-    replaceCurrent: boolean,
-    sessionBoundary: ApplicationSessionBoundary | null,
-    allowActivationReuse: boolean,
-    resetHistory: boolean,
-    locationAction: RouterBridgeLocationAction = source === 'internal' ? 'apply' : 'preserve',
+    {
+      source,
+      blockersConfirmed,
+      historyTargetId,
+      replaceCurrent,
+      sessionBoundary,
+      allowActivationReuse,
+      resetHistory,
+      locationAction = source === 'internal' ? 'apply' : 'preserve',
+    }: {
+      readonly source: RouterBridgeNavigationSource;
+      readonly blockersConfirmed: boolean;
+      readonly historyTargetId: string | null;
+      readonly replaceCurrent: boolean;
+      readonly sessionBoundary: ApplicationSessionBoundary | null;
+      readonly allowActivationReuse: boolean;
+      readonly resetHistory: boolean;
+      readonly locationAction?: RouterBridgeLocationAction;
+    },
   ): Promise<boolean> {
     if (redirectDepth > MAX_POLICY_REDIRECT_DEPTH) {
       throw new Error('Policy navigation превысила допустимую глубину redirect.');
@@ -915,11 +970,7 @@ export abstract class Application<
     this.setPendingNavigation(resolvedNavigation);
 
     if (result.type === 'decision') {
-      return await this.applyNavigationDecision(
-        result.decision,
-        result.navigation,
-        signal,
-        redirectDepth,
+      return await this.applyNavigationDecision(result.decision, result.navigation, signal, redirectDepth, {
         source,
         blockersConfirmed,
         historyTargetId,
@@ -927,8 +978,8 @@ export abstract class Application<
         sessionBoundary,
         allowActivationReuse,
         resetHistory,
-        resolvedLocationAction,
-      );
+        locationAction: resolvedLocationAction,
+      });
     }
 
     const { transition } = result;
@@ -992,29 +1043,14 @@ export abstract class Application<
     replaceCurrent = false,
     resetHistory = false,
   ): ApplicationNavigationHistoryCommit<TPresentation> {
-    const current = this.navigationHistory.current;
-    const action = resetHistory
-      ? 'reset'
-      : historyTargetId
-        ? 'pop'
-        : current === null
-          ? 'replace'
-          : replaceCurrent || navigation.replace
-            ? 'replace'
-            : current.activation === activation
-              ? 'update'
-              : 'push';
-    const mutation = resetHistory
-      ? this.navigationHistory.reset(navigation, activation)
-      : historyTargetId
-        ? this.navigationHistory.restore(historyTargetId, navigation, activation)
-        : action === 'push'
-          ? this.navigationHistory.push(navigation, activation)
-          : action === 'reset'
-            ? this.navigationHistory.reset(navigation, activation)
-            : action === 'replace'
-              ? this.navigationHistory.replace(navigation, activation)
-              : this.navigationHistory.updateCurrent(navigation);
+    const action = this.resolveNavigationHistoryAction(
+      navigation,
+      activation,
+      historyTargetId,
+      replaceCurrent,
+      resetHistory,
+    );
+    const mutation = this.mutateNavigationHistory(navigation, activation, action, historyTargetId);
 
     if (!mutation) {
       throw new Error('Navigation history target отсутствует во время restore commit.');
@@ -1032,6 +1068,33 @@ export abstract class Application<
       history: this.createBridgeHistoryEntry(action, mutation.current.id),
       released: Object.freeze([...released]),
     });
+  }
+
+  private resolveNavigationHistoryAction(
+    navigation: NavigationState,
+    activation: RouterRuntimeActivation<TPresentation>,
+    historyTargetId: string | null,
+    replaceCurrent: boolean,
+    resetHistory: boolean,
+  ): RouterBridgeHistoryEntryInterface['action'] {
+    if (resetHistory) return 'reset';
+    if (historyTargetId) return 'pop';
+    const current = this.navigationHistory.current;
+    if (current === null || replaceCurrent || navigation.replace) return 'replace';
+    return current.activation === activation ? 'update' : 'push';
+  }
+
+  private mutateNavigationHistory(
+    navigation: NavigationState,
+    activation: RouterRuntimeActivation<TPresentation>,
+    action: RouterBridgeHistoryEntryInterface['action'],
+    historyTargetId: string | null,
+  ): NavigationHistoryMutation<RouterRuntimeActivation<TPresentation>> | null {
+    if (action === 'reset') return this.navigationHistory.reset(navigation, activation);
+    if (historyTargetId) return this.navigationHistory.restore(historyTargetId, navigation, activation);
+    if (action === 'push') return this.navigationHistory.push(navigation, activation);
+    if (action === 'replace') return this.navigationHistory.replace(navigation, activation);
+    return this.navigationHistory.updateCurrent(navigation);
   }
 
   private async releaseRouterActivations(
@@ -1057,14 +1120,25 @@ export abstract class Application<
     navigation: NavigationState,
     signal: AbortSignal,
     redirectDepth: number,
-    source: RouterBridgeNavigationSource,
-    blockersConfirmed: boolean,
-    historyTargetId: string | null,
-    replaceCurrent: boolean,
-    sessionBoundary: ApplicationSessionBoundary | null,
-    allowActivationReuse: boolean,
-    resetHistory: boolean,
-    locationAction: RouterBridgeLocationAction,
+    {
+      source,
+      blockersConfirmed,
+      historyTargetId,
+      replaceCurrent,
+      sessionBoundary,
+      allowActivationReuse,
+      resetHistory,
+      locationAction,
+    }: {
+      readonly source: RouterBridgeNavigationSource;
+      readonly blockersConfirmed: boolean;
+      readonly historyTargetId: string | null;
+      readonly replaceCurrent: boolean;
+      readonly sessionBoundary: ApplicationSessionBoundary | null;
+      readonly allowActivationReuse: boolean;
+      readonly resetHistory: boolean;
+      readonly locationAction: RouterBridgeLocationAction;
+    },
   ): Promise<boolean> {
     switch (decision.type) {
       case 'continue':
@@ -1087,19 +1161,16 @@ export abstract class Application<
         );
 
         this.setPendingNavigation(target);
-        return await this.runNavigation(
-          target,
-          signal,
-          redirectDepth + 1,
+        return await this.runNavigation(target, signal, redirectDepth + 1, {
           source,
           blockersConfirmed,
-          null,
+          historyTargetId: null,
           replaceCurrent,
           sessionBoundary,
           allowActivationReuse,
           resetHistory,
-          'apply',
-        );
+          locationAction: 'apply',
+        });
       }
       case 'redirect-to-saved-location': {
         const saved = this.savedNavigationState;
@@ -1115,19 +1186,16 @@ export abstract class Application<
             );
 
         this.setPendingNavigation(target);
-        return await this.runNavigation(
-          target,
-          signal,
-          redirectDepth + 1,
+        return await this.runNavigation(target, signal, redirectDepth + 1, {
           source,
           blockersConfirmed,
-          null,
+          historyTargetId: null,
           replaceCurrent,
           sessionBoundary,
           allowActivationReuse,
           resetHistory,
-          'apply',
-        );
+          locationAction: 'apply',
+        });
       }
       case 'forbidden':
       case 'not-found': {
@@ -1260,11 +1328,7 @@ export abstract class Application<
           replace: true,
           revalidation: null,
         }),
-        'internal',
-        false,
-        null,
-        false,
-        sessionBoundary,
+        { source: 'internal', blockersConfirmed: false, historyTargetId: null, replaceCurrent: false, sessionBoundary },
       );
       return;
     }
@@ -1343,12 +1407,14 @@ export abstract class Application<
         replace: true,
         revalidation: null,
       }),
-      'internal',
-      false,
-      null,
-      true,
-      null,
-      false,
+      {
+        source: 'internal',
+        blockersConfirmed: false,
+        historyTargetId: null,
+        replaceCurrent: true,
+        sessionBoundary: null,
+        allowActivationReuse: false,
+      },
     );
   }
 
@@ -1547,9 +1613,8 @@ const isSameNestedAddress = (
   right: NavigationState['pendingNestedAddress'],
 ): boolean =>
   left === right ||
-  (left !== null &&
-    right !== null &&
-    left.address.length === right.address.length &&
+  (right !== null &&
+    left?.address.length === right.address.length &&
     left.address.every((segment, index) => segment === right.address[index]) &&
     areNavigationQueriesEqual(left.query, right.query));
 

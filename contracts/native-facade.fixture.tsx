@@ -2,6 +2,8 @@ import React from 'react';
 
 import {
   Application,
+  createNativeLinkingTransport,
+  createNativeRouterBridge,
   type ApplicationConfiguratorInterface,
   Layout,
   type LayoutViewProps,
@@ -11,6 +13,10 @@ import {
   NavigationBlockerPresentation,
   NotificationFeature,
   NotificationPresentation,
+  NativeLinkingTransport,
+  type NativeRouterTransportInterface,
+  type NativeRouterTransportListener,
+  type NativeRouterTransportTarget,
   Route,
   Router,
   Shell,
@@ -91,3 +97,47 @@ void (null as NativeFacadeMustCoverReactFacade | null);
 
 const layoutKind: LayoutContentKind = null;
 void layoutKind;
+
+// A URL resolver has the same typed navigation builder as NavItem/NavLink.
+const linkingTransport = createNativeLinkingTransport({
+  resolve: (url) =>
+    url.endsWith('/fixture')
+      ? (navigate) => navigate.to(FixtureRoute, { state: { openedByLink: true }, replace: false })
+      : null,
+});
+const linkingBridge = createNativeRouterBridge({ transport: linkingTransport });
+const legacyTransport: NativeRouterTransportInterface = {
+  getInitialLocation: async () => ({ address: [], nested: null, query: {}, state: undefined }),
+  subscribe: (_listener: NativeRouterTransportListener) => () => undefined,
+};
+const legacyBridge = createNativeRouterBridge({ transport: legacyTransport });
+const defaultLinkingTransport: NativeRouterTransportInterface = createNativeLinkingTransport();
+const addressLinkingTransport: NativeRouterTransportInterface = createNativeLinkingTransport({
+  prefixes: ['fixture://'],
+});
+const constructedLinkingTransport = new NativeLinkingTransport({
+  resolve: (_url) => (navigate) => {
+    // @ts-expect-error A static target does not accept params; the resolver builder is fully typed.
+    navigate.to(FixtureRoute, { params: { id: 'unexpected' } });
+    return navigate.to(FixtureRoute);
+  },
+});
+const defaultConstructedTransport: NativeRouterTransportInterface = new NativeLinkingTransport();
+const addressConstructedTransport: NativeRouterTransportInterface = new NativeLinkingTransport({
+  prefixes: ['fixture://'],
+});
+const requestTransport: NativeRouterTransportInterface<NativeRouterTransportTarget> = {
+  getInitialLocation: async () => (navigate) => navigate.resetTo(FixtureRoute),
+  subscribe: (listener) => {
+    listener((navigate) => navigate.to(FixtureRoute));
+    return () => undefined;
+  },
+};
+void linkingBridge;
+void legacyBridge;
+void requestTransport;
+void defaultLinkingTransport;
+void addressLinkingTransport;
+void constructedLinkingTransport;
+void defaultConstructedTransport;
+void addressConstructedTransport;

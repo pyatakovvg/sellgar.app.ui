@@ -54,26 +54,20 @@ export class RuntimeOperationCoordinator {
   run<TValue>(operation: () => TValue): TValue {
     const initialRevision = this.invalidationRevision;
 
-    try {
-      const value = operation();
-
-      if (isPromiseLike(value)) {
-        return value.then(
-          async (result) => {
-            await this.waitForOperationInvalidations(initialRevision);
-            return result;
-          },
-          async (error) => {
-            await this.waitForOperationInvalidations(initialRevision);
-            throw error;
-          },
-        ) as TValue;
-      }
-
-      return value;
-    } catch (error) {
-      throw error;
+    const value = operation();
+    if (isPromiseLike(value)) {
+      return value.then(
+        async (result) => {
+          await this.waitForOperationInvalidations(initialRevision);
+          return result;
+        },
+        async (error) => {
+          await this.waitForOperationInvalidations(initialRevision);
+          throw error;
+        },
+      ) as TValue;
     }
+    return value;
   }
 
   dispose(): void {

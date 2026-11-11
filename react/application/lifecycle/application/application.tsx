@@ -42,6 +42,7 @@ export abstract class Application extends CoreApplication<ModuleMetadata, Applic
       features: this.reactConfig.featuresValue,
       getLifecycle: () => this.lifecycle,
       getNavigation: () => this.getNavigationSnapshot(),
+      metadataOptions: this.reactConfig.metadataValue,
       layouts: this.reactConfig.layoutsValue,
       routing: this.reactConfig.routingValue,
       routerRuntime: this.getRouterRuntime(),

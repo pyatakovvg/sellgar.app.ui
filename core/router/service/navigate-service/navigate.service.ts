@@ -46,7 +46,7 @@ export const createScopedNavigate = (
   router: RouterDeclaration,
 ): NavigateServiceInterface => {
   if (!(navigate instanceof CoreNavigate)) {
-    throw new Error('Scoped navigation можно создать только из core NavigateService.');
+    throw new TypeError('Scoped navigation можно создать только из core NavigateService.');
   }
 
   return new CoreNavigate(navigate.options, [], router, navigate.initiator);
@@ -57,7 +57,7 @@ export const createRouteScopedNavigate = (
   runtimeId: string,
 ): NavigateServiceInterface => {
   if (!(navigate instanceof CoreNavigate)) {
-    throw new Error('Route-scoped navigation можно создать только из core NavigateService.');
+    throw new TypeError('Route-scoped navigation можно создать только из core NavigateService.');
   }
 
   return new CoreNavigate(navigate.options, [], navigate.scopeRouter, Object.freeze({ kind: 'route', runtimeId }));
@@ -503,7 +503,7 @@ const REMOVED_QUERY_VALUE = Symbol('removed-query-value');
 
 const getCoreNavigate = (navigate: NavigateServiceInterface): CoreNavigate => {
   if (!(navigate instanceof CoreNavigate)) {
-    throw new Error('Navigation request можно использовать только с core NavigateService.');
+    throw new TypeError('Navigation request можно использовать только с core NavigateService.');
   }
 
   return navigate;

@@ -91,7 +91,7 @@ const selectQueryFields = (
   const result: Record<string, unknown> = {};
 
   for (const key of keys) {
-    if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    if (!Object.hasOwn(source, key)) continue;
 
     const value = source[key];
 

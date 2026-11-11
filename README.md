@@ -3,6 +3,13 @@
 - Статус пакета: development
 - Статус реализации: in-progress
 
+## Метаданные приложения и модулей
+
+[Метаданные](core/metadata/README.md): `@Metadata` задаёт defaults,
+`MetadataServiceInterface` предоставляет `set.*`, `get.*`, `reset.*` в scope
+владельца. Заголовок документа компонуется из приложения, страницы и фреймов:
+`Личный кабинет: Заказы (Настройка фильтров)`.
+
 ## Метрики приложения
 
 [Подсистема метрик](core/application/metric/README.md) предоставляет классы событий
@@ -83,6 +90,46 @@ fallback после принятия навигации. Возврат к по�
 loader. Явное обновление и изменение query остаются отдельной ревалидацией. Back во время
 `preparing` отменяет transition и мгновенно возвращает committed presentation.
 Query не меняет identity screen; Route path и params меняют её.
+
+Native deep links могут использовать те же запросы по Route token, что и
+`NavItem`/`NavLink`. Стандартный Linking transport принимает `resolve(url)`:
+приложение сопоставляет URL с целью, а framework выполняет весь переход,
+включая policies, blockers, сохранение цели перед входом и core history.
+
+```ts
+const routerBridge = createNativeRouterBridge({
+  transport: createNativeLinkingTransport({
+    resolve: (url) => {
+      if (url === 'https://example.com/wallets/wallet/top-up/bankcard') {
+        return (navigate) =>
+          navigate.to(DashboardRoute, {
+            state: { open: 'top-up-bank-card' },
+          });
+      }
+
+      return null;
+    },
+  }),
+});
+```
+
+`DashboardRoute` может оставаться index Route без собственного адреса: запрос
+содержит token и не превращается в выбор доступной корневой ветки. Начальная
+ссылка и последующие OS URL events используют один обработчик. `to()` по
+умолчанию добавляет позицию при переходе на другую activation;
+`to(..., { replace: true })` заменяет текущую, а `resetTo()` сбрасывает историю.
+`through`, params, query, state и revalidation сохраняют обычную типизацию и
+семантику навигации. Запрос от bridge поступает в core с `source: 'external'`.
+
+Resolver также может вернуть адресный `RouterBridgeLocationInterface` или
+`null`. `null` игнорирует входящее событие; при старте без принятой ссылки
+framework открывает обычный корень. Без `resolve` сохраняется стандартное
+декодирование URL с учётом `prefixes`. Существующие адресные реализации
+`NativeRouterTransportInterface` совместимы; transport с запросами может явно
+использовать `NativeRouterTransportInterface<NavigationRequestFactory>` или
+`NativeRouterTransportInterface<NativeRouterTransportTarget>` для обоих видов
+целей. Его `getInitialLocation()` и `subscribe()` возвращают одну и ту же модель
+цели. Runtime и логическая история остаются во владении core.
 
 `navigate.resetTo(Token, options)` начинает новую логическую историю с одной
 позицией целевого Route. Target может принадлежать любому Router, включая

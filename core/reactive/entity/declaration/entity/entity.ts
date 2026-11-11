@@ -56,7 +56,7 @@ export const getEntityIdentity = <TEntity extends object>(entity: TEntity): Enti
   const identity = Reflect.get(entity, identityProperty) as unknown;
 
   if (typeof identity !== 'string' && typeof identity !== 'number') {
-    throw new Error(`Identity реактивной сущности должен быть строкой или числом: ${String(identityProperty)}.`);
+    throw new TypeError(`Identity реактивной сущности должен быть строкой или числом: ${String(identityProperty)}.`);
   }
 
   return identity;
@@ -73,7 +73,7 @@ export function Entity<TIdentityProperty extends PropertyKey>(
     identity: options?.identity ?? 'id',
   });
 
-  return ((constructor: Function) => {
+  return ((constructor: EntityConstructor) => {
     const EntityTarget = constructor as unknown as new (...args: never[]) => object;
 
     class ObservableEntity extends EntityTarget {

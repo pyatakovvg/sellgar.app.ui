@@ -178,6 +178,9 @@ describe('WidgetRuntimeRegistry', () => {
     await flushMicrotasks();
     presentation.dispose();
     await waitFor(() => lease.runtime.getSnapshot().phase === 'disposed');
+
+    expect(lease.runtime.getSnapshot().phase).toBe('disposed');
+    expect(registry.get({ ownerScope: owner, token: RegistryWidget })).toBeNull();
   });
 
   it('releases a lease whose scene was removed before React cleaned up the host', async () => {
@@ -195,6 +198,9 @@ describe('WidgetRuntimeRegistry', () => {
     presentation.dispose();
     lease.release();
     await waitFor(() => lease.runtime.getSnapshot().phase === 'disposed');
+
+    expect(lease.runtime.getSnapshot().phase).toBe('disposed');
+    expect(registry.get({ ownerScope: owner, token: RegistryWidget })).toBeNull();
   });
 
   it('removes a hidden widget omitted from the visible presentation', async () => {
@@ -214,6 +220,9 @@ describe('WidgetRuntimeRegistry', () => {
     presentation.focus();
     registry.reconcilePresentation(presentation);
     await waitFor(() => lease.runtime.getSnapshot().phase === 'disposed');
+
+    expect(lease.runtime.getSnapshot().phase).toBe('disposed');
+    expect(registry.get({ ownerScope: owner, token: RegistryWidget })).toBeNull();
   });
 
   it('keeps a retained surface lease when another surface releases the last active lease', async () => {

@@ -369,9 +369,7 @@ export class RouterRuntime<TPresentation = unknown> {
     this.definition = getRouterDefinition(router);
     this.environment = environment ?? createEnvironment(router, exportResolver, execution);
 
-    if (this.environment.rootRuntime === null) {
-      this.environment.rootRuntime = this;
-    }
+    this.environment.rootRuntime ??= this;
     this.owner = { id: runtimeId, kind: 'router' };
     const navigate = ownerScope.has(NavigateServiceInterface)
       ? createScopedNavigate(ownerScope.get(NavigateServiceInterface), router)
@@ -534,8 +532,7 @@ export class RouterRuntime<TPresentation = unknown> {
 
     return Object.freeze({
       child: committedChild ?? pendingChild,
-      childPending:
-        pendingChild !== null && (committedChild === null || committedChild.runtime !== pendingChild.runtime),
+      childPending: pendingChild !== null && committedChild?.runtime !== pendingChild.runtime,
       pending: true,
       pendingLocalChange: null,
       routes,
@@ -1107,22 +1104,13 @@ export class RouterRuntime<TPresentation = unknown> {
     try {
       const candidates = resolveNavigationCandidates(this.environment.rootRouter, navigation, this.committedNavigation);
 
-      for (const candidate of candidates) {
-        const activation = allowActivationReuse ? this.findActivation(candidate.navigation) : null;
-
-        if (!activation || activation === this.focusedActivation) continue;
-
-        const retained = await this.prepareRetainedActivation(
-          candidate,
-          activation,
-          context,
-          abortController,
-          linkedSignal.dispose,
-          revision,
-        );
-
-        if (retained !== null) return retained;
-      }
+      const retained = await this.tryRetainedActivations(candidates, context, {
+        allowActivationReuse,
+        abortController,
+        disposeLinkedSignal: linkedSignal.dispose,
+        revision,
+      });
+      if (retained !== null) return retained;
 
       this.setSnapshot({ exception: null, phase: 'preparing' });
       const acceptedFirstAvailableBoundaries = new Set<RouteDeclaration>();
@@ -1135,8 +1123,7 @@ export class RouterRuntime<TPresentation = unknown> {
           abortController,
           revision,
           linkedSignal.dispose,
-          allowActivationReuse,
-          acceptedFirstAvailableBoundaries,
+          { allowActivationReuse, acceptedFirstAvailableBoundaries },
         );
 
         if (result !== null) {
@@ -1286,6 +1273,41 @@ export class RouterRuntime<TPresentation = unknown> {
       : CONTINUE_POLICY_DECISION;
   }
 
+  private async tryRetainedActivations(
+    candidates: readonly ResolvedNavigationCandidate[],
+    context: RouterRuntimePrepareContext,
+    {
+      allowActivationReuse,
+      abortController,
+      disposeLinkedSignal,
+      revision,
+    }: {
+      readonly allowActivationReuse: boolean;
+      readonly abortController: AbortController;
+      readonly disposeLinkedSignal: () => void;
+      readonly revision: number;
+    },
+  ): Promise<RouterRuntimePrepareResult<TPresentation> | null> {
+    for (const candidate of candidates) {
+      const activation = allowActivationReuse ? this.findActivation(candidate.navigation) : null;
+
+      if (!activation || activation === this.focusedActivation) continue;
+
+      const retained = await this.prepareRetainedActivation(
+        candidate,
+        activation,
+        context,
+        abortController,
+        disposeLinkedSignal,
+        revision,
+      );
+
+      if (retained !== null) return retained;
+    }
+
+    return null;
+  }
+
   private async prepareCandidate(
     requestedNavigation: NavigationState,
     candidate: ResolvedNavigationCandidate,
@@ -1293,8 +1315,10 @@ export class RouterRuntime<TPresentation = unknown> {
     abortController: AbortController,
     revision: number,
     disposeLinkedSignal: () => void,
-    allowActivationReuse: boolean,
-    acceptedFirstAvailableBoundaries: Set<RouteDeclaration>,
+    {
+      allowActivationReuse,
+      acceptedFirstAvailableBoundaries,
+    }: { readonly allowActivationReuse: boolean; readonly acceptedFirstAvailableBoundaries: Set<RouteDeclaration> },
   ): Promise<RouterRuntimePrepareResult<TPresentation> | null> {
     const plan = this.createPlan(candidate.target, allowActivationReuse);
     const firstAvailableBoundary = candidate.probeCanMatch ? findFirstAvailablePolicyBoundary(plan) : null;
@@ -1303,48 +1327,15 @@ export class RouterRuntime<TPresentation = unknown> {
       stagePlanLocations(plan, candidate.navigation);
       throwIfAborted(abortController.signal);
 
-      if (
-        firstAvailableBoundary &&
-        !acceptedFirstAvailableBoundaries.has(firstAvailableBoundary.entry.resolved.node.route)
-      ) {
-        const canMatchResult = await this.executePlanPoliciesThroughBoundary(
-          plan,
-          firstAvailableBoundary,
-          context,
-          abortController.signal,
-        );
-
-        throwIfAborted(abortController.signal);
-
-        if (canMatchResult) {
-          return await this.preparePolicyBoundaryResult(
-            requestedNavigation,
-            plan,
-            canMatchResult,
-            'canMatch',
-            context,
-            abortController,
-            revision,
-            disposeLinkedSignal,
-            allowActivationReuse,
-          );
-        }
-
-        acceptedFirstAvailableBoundaries.add(firstAvailableBoundary.entry.resolved.node.route);
-      }
-
-      if (candidate.probeCanMatch) {
-        const matches = firstAvailableBoundary
-          ? await this.testPlanCanMatchAfterBoundary(plan, firstAvailableBoundary, context, abortController.signal)
-          : await this.testPlanCanMatch(plan, context, abortController.signal);
-
-        throwIfAborted(abortController.signal);
-
-        if (!matches) {
-          await this.discardPlan(plan);
-          return null;
-        }
-      }
+      const matchResult = await this.checkCandidateMatch(requestedNavigation, candidate, plan, context, {
+        abortController,
+        revision,
+        disposeLinkedSignal,
+        allowActivationReuse,
+        acceptedFirstAvailableBoundaries,
+        firstAvailableBoundary,
+      });
+      if (matchResult !== true) return matchResult === false ? null : matchResult;
 
       const navigationConfirmed =
         context.blockersConfirmed || (await this.confirmNavigation(plan, abortController.signal));
@@ -1373,9 +1364,7 @@ export class RouterRuntime<TPresentation = unknown> {
           'canMatch',
           context,
           abortController,
-          revision,
-          disposeLinkedSignal,
-          allowActivationReuse,
+          { revision, disposeLinkedSignal, allowActivationReuse },
         );
       }
 
@@ -1391,9 +1380,7 @@ export class RouterRuntime<TPresentation = unknown> {
           'canActivate',
           context,
           abortController,
-          revision,
-          disposeLinkedSignal,
-          allowActivationReuse,
+          { revision, disposeLinkedSignal, allowActivationReuse },
         );
       }
 
@@ -1438,6 +1425,71 @@ export class RouterRuntime<TPresentation = unknown> {
     }
   }
 
+  private async checkCandidateMatch(
+    requestedNavigation: NavigationState,
+    candidate: ResolvedNavigationCandidate,
+    plan: RouterTransitionPlan<TPresentation>,
+    context: RouterRuntimePrepareContext,
+    {
+      abortController,
+      revision,
+      disposeLinkedSignal,
+      allowActivationReuse,
+      acceptedFirstAvailableBoundaries,
+      firstAvailableBoundary,
+    }: {
+      readonly abortController: AbortController;
+      readonly revision: number;
+      readonly disposeLinkedSignal: () => void;
+      readonly allowActivationReuse: boolean;
+      readonly acceptedFirstAvailableBoundaries: Set<RouteDeclaration>;
+      readonly firstAvailableBoundary: FirstAvailablePolicyBoundary<TPresentation> | null;
+    },
+  ): Promise<boolean | RouterRuntimePrepareResult<TPresentation>> {
+    if (
+      firstAvailableBoundary &&
+      !acceptedFirstAvailableBoundaries.has(firstAvailableBoundary.entry.resolved.node.route)
+    ) {
+      const canMatchResult = await this.executePlanPoliciesThroughBoundary(
+        plan,
+        firstAvailableBoundary,
+        context,
+        abortController.signal,
+      );
+
+      throwIfAborted(abortController.signal);
+
+      if (canMatchResult) {
+        return await this.preparePolicyBoundaryResult(
+          requestedNavigation,
+          plan,
+          canMatchResult,
+          'canMatch',
+          context,
+          abortController,
+          { revision, disposeLinkedSignal, allowActivationReuse },
+        );
+      }
+
+      acceptedFirstAvailableBoundaries.add(firstAvailableBoundary.entry.resolved.node.route);
+    }
+
+    if (candidate.probeCanMatch) {
+      const matches = firstAvailableBoundary
+        ? await this.testPlanCanMatchAfterBoundary(plan, firstAvailableBoundary, context, abortController.signal)
+        : await this.testPlanCanMatch(plan, context, abortController.signal);
+
+      throwIfAborted(abortController.signal);
+
+      if (!matches) {
+        await this.discardPlan(plan);
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   private async preparePolicyBoundaryResult(
     navigation: NavigationState,
     plan: RouterTransitionPlan<TPresentation>,
@@ -1445,9 +1497,11 @@ export class RouterRuntime<TPresentation = unknown> {
     policyBoundary: 'canActivate' | 'canMatch',
     context: RouterRuntimePrepareContext,
     abortController: AbortController,
-    revision: number,
-    disposeLinkedSignal: () => void,
-    allowActivationReuse: boolean,
+    {
+      revision,
+      disposeLinkedSignal,
+      allowActivationReuse,
+    }: { readonly revision: number; readonly disposeLinkedSignal: () => void; readonly allowActivationReuse: boolean },
   ): Promise<RouterRuntimePrepareResult<TPresentation>> {
     let terminalResult = result;
     const plans = collectPlanPath(plan);
@@ -1458,34 +1512,8 @@ export class RouterRuntime<TPresentation = unknown> {
     }
 
     if (policyBoundary === 'canMatch') {
-      for (const ancestorPlan of plans.slice(0, boundaryIndex)) {
-        const canActivateResult = await this.executeLocalPlanPolicies(
-          ancestorPlan,
-          'canActivate',
-          context,
-          abortController.signal,
-        );
-
-        if (canActivateResult) {
-          terminalResult = canActivateResult;
-          boundaryIndex = plans.indexOf(terminalResult.plan);
-          break;
-        }
-      }
-
-      if (terminalResult === result && terminalResult.owner.kind === 'route') {
-        const canActivateResult = await this.executeRouteAncestorCanActivatePolicies(
-          terminalResult.plan,
-          terminalResult.owner.entry,
-          context,
-          abortController.signal,
-        );
-
-        if (canActivateResult) {
-          terminalResult = canActivateResult;
-          boundaryIndex = plans.indexOf(terminalResult.plan);
-        }
-      }
+      terminalResult = await this.resolveAncestorPolicyBoundary(plans, result, context, abortController.signal);
+      boundaryIndex = plans.indexOf(terminalResult.plan);
     }
 
     if (terminalResult.decision.type === 'redirect' || terminalResult.decision.type === 'redirect-to-saved-location') {
@@ -1505,29 +1533,7 @@ export class RouterRuntime<TPresentation = unknown> {
       terminalResult = { ...terminalResult, owner: { entry, kind: 'route' } };
     }
 
-    const boundary: RuntimeBoundaryTransition<TPresentation> =
-      terminalResult.owner.kind === 'route'
-        ? {
-            entry: terminalResult.owner.entry,
-            exception:
-              error === null ? null : terminalResult.owner.entry.runtime.createBoundaryException(error, 'policy'),
-            kind: 'route',
-            origin: 'policy',
-            phase,
-            plan: terminalResult.plan,
-          }
-        : {
-            exception:
-              error === null
-                ? null
-                : terminalResult.plan.runtime.createException(
-                    captureRuntimeFailure(error, terminalResult.plan.runtime.createRuntimeSource('policy')),
-                    'router.activation-failed',
-                  ),
-            kind: 'router',
-            phase,
-            plan: terminalResult.plan,
-          };
+    const boundary = this.createPolicyBoundary(terminalResult, error, phase);
     const preparations =
       boundary.kind === 'route'
         ? createPreparationsBeforeRouteBoundary(plans, boundary)
@@ -1560,6 +1566,37 @@ export class RouterRuntime<TPresentation = unknown> {
       allowActivationReuse,
       revision,
     );
+  }
+
+  private createPolicyBoundary(
+    terminalResult: RouterPlanPolicyResult<TPresentation>,
+    error: unknown,
+    phase: RuntimeBoundaryTransition<TPresentation>['phase'],
+  ): RuntimeBoundaryTransition<TPresentation> {
+    const boundary: RuntimeBoundaryTransition<TPresentation> =
+      terminalResult.owner.kind === 'route'
+        ? {
+            entry: terminalResult.owner.entry,
+            exception:
+              error === null ? null : terminalResult.owner.entry.runtime.createBoundaryException(error, 'policy'),
+            kind: 'route',
+            origin: 'policy',
+            phase,
+            plan: terminalResult.plan,
+          }
+        : {
+            exception:
+              error === null
+                ? null
+                : terminalResult.plan.runtime.createException(
+                    captureRuntimeFailure(error, terminalResult.plan.runtime.createRuntimeSource('policy')),
+                    'router.activation-failed',
+                  ),
+            kind: 'router',
+            phase,
+            plan: terminalResult.plan,
+          };
+    return boundary;
   }
 
   private materializePolicyBoundaryEntry(
@@ -1973,7 +2010,7 @@ export class RouterRuntime<TPresentation = unknown> {
     const previousRoutes = previousBranch?.routes ?? [];
     const policyCommonRouteCount = allowActivationReuse ? getCommonRouteCount(previousRoutes, target.routes) : 0;
     const commonRouteCount = this.isReusableBranch() ? policyCommonRouteCount : 0;
-    const nextRoutes: RuntimeRouteEntry<TPresentation>[] = [...previousRoutes.slice(0, commonRouteCount)];
+    const nextRoutes: RuntimeRouteEntry<TPresentation>[] = previousRoutes.slice(0, commonRouteCount);
     const createdRoutes: RuntimeRouteEntry<TPresentation>[] = [];
     let parentScope: RuntimeScope =
       commonRouteCount > 0 ? nextRoutes[commonRouteCount - 1]!.runtime.getRouteScope() : this.routerScope;
@@ -2005,9 +2042,7 @@ export class RouterRuntime<TPresentation = unknown> {
       const childOwner = nextRoutes[childOwnerIndex]!;
       nextChildOwner = childOwner.runtime;
       const canReuseChild =
-        previousBranch?.child !== null &&
-        previousBranch?.child !== undefined &&
-        previousBranch.child.runtime.router === target.child.router &&
+        previousBranch?.child?.runtime.router === target.child.router &&
         previousBranch.child.runtime.isReusableBranch() &&
         childOwnerIndex < commonRouteCount;
 
@@ -2297,39 +2332,63 @@ export class RouterRuntime<TPresentation = unknown> {
     }
   }
 
+  private async resolveAncestorPolicyBoundary(
+    plans: readonly RouterTransitionPlan<TPresentation>[],
+    result: RouterPlanPolicyResult<TPresentation>,
+    context: RouterRuntimePrepareContext,
+    signal: AbortSignal,
+  ): Promise<RouterPlanPolicyResult<TPresentation>> {
+    let terminalResult = result;
+    const boundaryIndex = plans.indexOf(result.plan);
+
+    for (const ancestorPlan of plans.slice(0, boundaryIndex)) {
+      const canActivateResult = await this.executeLocalPlanPolicies(ancestorPlan, 'canActivate', context, signal);
+
+      if (canActivateResult) {
+        terminalResult = canActivateResult;
+        break;
+      }
+    }
+
+    if (terminalResult === result && terminalResult.owner.kind === 'route') {
+      const canActivateResult = await this.executeRouteAncestorCanActivatePolicies(
+        terminalResult.plan,
+        terminalResult.owner.entry,
+        context,
+        signal,
+      );
+
+      if (canActivateResult) {
+        terminalResult = canActivateResult;
+      }
+    }
+
+    return terminalResult;
+  }
+
   private commitPlanRouteRuntimesBeforeBoundary(
     plan: RouterTransitionPlan<TPresentation>,
     boundary: RuntimeBoundaryTransition<TPresentation>,
   ): void {
-    if (plan === boundary.plan) {
-      if (boundary.kind === 'route') {
-        for (const entry of plan.createdRoutes) {
-          if (entry === boundary.entry) {
-            if (boundary.origin === 'policy') {
-              entry.runtime.commitBoundary(boundary.phase, boundary.exception, entry.resolved.params);
-            } else {
-              entry.runtime.commit();
-            }
-
-            return;
-          }
-
-          entry.runtime.commit();
-        }
-
-        throw new Error('Route boundary отсутствует в created Route runtimes transition plan.');
-      }
-
+    if (plan !== boundary.plan) {
+      for (const entry of plan.createdRoutes) entry.runtime.commit();
+      if (plan.childPlan) this.commitPlanRouteRuntimesBeforeBoundary(plan.childPlan, boundary);
       return;
     }
-
+    if (boundary.kind !== 'route') return;
     for (const entry of plan.createdRoutes) {
-      entry.runtime.commit();
+      if (entry !== boundary.entry) {
+        entry.runtime.commit();
+        continue;
+      }
+      if (boundary.origin === 'policy') {
+        entry.runtime.commitBoundary(boundary.phase, boundary.exception, entry.resolved.params);
+      } else {
+        entry.runtime.commit();
+      }
+      return;
     }
-
-    if (plan.childPlan) {
-      this.commitPlanRouteRuntimesBeforeBoundary(plan.childPlan, boundary);
-    }
+    throw new Error('Route boundary отсутствует в created Route runtimes transition plan.');
   }
 
   private applyPlan(plan: RouterTransitionPlan<TPresentation>): void {
@@ -2434,10 +2493,8 @@ export class RouterRuntime<TPresentation = unknown> {
         return;
       }
 
-      if (plan.previousBranch?.child) {
-        if (!this.environment.routerReferences.has(plan.previousBranch.child.runtime)) {
-          await plan.previousBranch.child.runtime.dispose();
-        }
+      if (plan.previousBranch?.child && !this.environment.routerReferences.has(plan.previousBranch.child.runtime)) {
+        await plan.previousBranch.child.runtime.dispose();
       }
 
       const replacedRoutes = plan.previousBranch?.routes.slice(plan.commonRouteCount).reverse() ?? [];
@@ -2501,7 +2558,7 @@ export class RouterRuntime<TPresentation = unknown> {
       throw new Error('Route boundary отсутствует в created Route runtimes transition plan.');
     }
 
-    for (const entry of [...plan.createdRoutes.slice(boundaryIndex + 1)].reverse()) {
+    for (const entry of plan.createdRoutes.slice(boundaryIndex + 1).reverse()) {
       entry.runtime.discardPending();
       await this.disposeRouteEntry(entry, 'route.discard');
     }
@@ -2897,7 +2954,7 @@ const collectChangedQueryRouters = (
   let left: NavigationRouterState | null = previous;
   let right: NavigationRouterState | null = current;
 
-  while (left && right && left.router === right.router) {
+  while (right && left?.router === right.router) {
     if (!areNavigationQueriesEqual(left.query, right.query)) routers.push(right.router);
     left = left.child;
     right = right.child;

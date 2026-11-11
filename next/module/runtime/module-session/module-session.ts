@@ -1,3 +1,4 @@
+import { MetadataServiceInterface } from '../../../../core/metadata/service/metadata-service';
 import 'reflect-metadata';
 
 import type { DependencyToken } from '../../../../core/di/token/dependency-token';
@@ -53,7 +54,7 @@ export function createModuleRuntime(
     },
     dispose() {
       abort.abort();
-      return (disposal ??= Promise.resolve().then(async () => {
+      disposal ??= Promise.resolve().then(async () => {
         try {
           const results = await Promise.allSettled([...children].map((child) => child.dispose()));
           children.clear();
@@ -64,7 +65,8 @@ export function createModuleRuntime(
           unregisterParent();
           unregister();
         }
-      }));
+      });
+      return disposal;
     },
   };
   unregisterParent = options.parent?.retainChild(session) ?? (() => {});
@@ -84,6 +86,7 @@ export function captureModuleSnapshot(
   const module = runtime.getActiveModule();
   return {
     ...input,
+    metadata: module.scope.get(MetadataServiceInterface).getSnapshot(),
     controllers: [...module.controllers].map(([token, controller]) => ({
       methods: controllerMethods(controller),
       data: runtime.getLoaderData(token),
@@ -153,6 +156,11 @@ export async function hydrateModuleSession(session: ModuleSession, snapshot: Mod
     for (const [token, controller] of entries) module.controllers.set(token, controller);
   }
   if (signal.aborted) throw new Error('Активация модуля Next прервана.');
+  if (snapshot.metadata) {
+    const metadata = module.scope.get(MetadataServiceInterface);
+    metadata.set.title(snapshot.metadata.title);
+    metadata.set.description(snapshot.metadata.description);
+  }
   session.runtime.commit();
   return session.runtime.getActiveModule();
 }

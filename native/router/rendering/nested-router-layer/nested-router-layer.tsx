@@ -60,12 +60,12 @@ export const NestedRouterLayer: React.FC<IProps> = (props) => {
   const pending = props.pending ?? null;
   const pendingChild = pending?.child ?? null;
   const childPending = 'childPending' in branch && branch.childPending;
-  const target =
-    childPending && pending && pendingChild
-      ? createPendingNestedRouterTarget(props, pending, pendingChild)
-      : activeChild
-        ? createNestedRouterTarget(props, branch.routes, activeChild, childPending)
-        : null;
+  let target: NestedRouterTarget | null = null;
+  if (childPending && pending && pendingChild) {
+    target = createPendingNestedRouterTarget(props, pending, pendingChild);
+  } else if (activeChild) {
+    target = createNestedRouterTarget(props, branch.routes, activeChild, childPending);
+  }
   const retainedChild = props.retainedTree?.child ?? null;
   const retainedTarget = retainedChild
     ? createNestedRouterTarget(props, props.retainedTree?.routes ?? [], retainedChild, false)
@@ -115,6 +115,15 @@ interface FramePresentationState {
   readonly target: NestedRouterTarget | null;
 }
 
+const getInitialFramePhase = (
+  transition: NativeFrameTransition | null,
+  target: NestedRouterTarget | null,
+): FramePresentationState['phase'] => {
+  if (transition?.operation === 'present') return 'presenting';
+  if (transition?.operation === 'dismiss' || transition?.operation === 'replace') return 'dismissing';
+  return target ? 'visible' : 'hidden';
+};
+
 interface AnimatedFramePresentationState extends FramePresentationState {
   readonly animationId: number;
 }
@@ -126,14 +135,7 @@ const FramePresentation: React.FC<FramePresentationProps> = (props) => {
     completedRevision: null,
     next: null,
     operation: localTransition?.operation ?? null,
-    phase:
-      localTransition?.operation === 'present'
-        ? 'presenting'
-        : localTransition?.operation === 'dismiss' || localTransition?.operation === 'replace'
-          ? 'dismissing'
-          : props.target
-            ? 'visible'
-            : 'hidden',
+    phase: getInitialFramePhase(localTransition, props.target),
     revision: localTransition?.revision ?? null,
     target:
       localTransition?.operation === 'dismiss' || localTransition?.operation === 'replace'
@@ -259,16 +261,7 @@ const FramePresentation: React.FC<FramePresentationProps> = (props) => {
   if (!content) return null;
 
   return (
-    <View
-      pointerEvents={
-        state.phase === 'hidden'
-          ? 'none'
-          : state.phase === 'presenting' || state.phase === 'visible'
-            ? 'box-none'
-            : 'box-only'
-      }
-      style={StyleSheet.absoluteFill}
-    >
+    <View pointerEvents={getFramePointerEvents(state.phase)} style={StyleSheet.absoluteFill}>
       <ScreenLayerHost depth={props.depth} kind="frame">
         <View style={StyleSheet.absoluteFill}>{content}</View>
       </ScreenLayerHost>
@@ -309,33 +302,27 @@ const reconcileFramePresentation = (
         revision: transition.revision,
         target,
       };
-    case 'replace':
-      return current.target
-        ? {
-            completedRevision: null,
-            next: target,
-            operation: transition.operation,
-            phase: 'dismissing',
-            revision: transition.revision,
-            target: current.target,
-          }
-        : retainedTarget
-          ? {
-              completedRevision: null,
-              next: target,
-              operation: transition.operation,
-              phase: 'dismissing',
-              revision: transition.revision,
-              target: retainedTarget,
-            }
-          : {
-              completedRevision: null,
-              next: null,
-              operation: transition.operation,
-              phase: 'presenting',
-              revision: transition.revision,
-              target,
-            };
+    case 'replace': {
+      const previousTarget = current.target ?? retainedTarget;
+      if (previousTarget) {
+        return {
+          completedRevision: null,
+          next: target,
+          operation: transition.operation,
+          phase: 'dismissing',
+          revision: transition.revision,
+          target: previousTarget,
+        };
+      }
+      return {
+        completedRevision: null,
+        next: null,
+        operation: transition.operation,
+        phase: 'presenting',
+        revision: transition.revision,
+        target,
+      };
+    }
   }
 };
 
@@ -348,18 +335,12 @@ const reconcileStableFramePresentation = (
   }
 
   if (current.phase === 'hidden') {
-    return target
-      ? {
-          completedRevision: null,
-          next: null,
-          operation: null,
-          phase: 'presenting',
-          revision: null,
-          target,
-        }
-      : current.target
-        ? { ...current, completedRevision: null, operation: null, revision: null, target: null }
-        : current;
+    if (target) {
+      return { completedRevision: null, next: null, operation: null, phase: 'presenting', revision: null, target };
+    }
+    return current.target
+      ? { ...current, completedRevision: null, operation: null, revision: null, target: null }
+      : current;
   }
 
   if (current.phase !== 'visible') return current;
@@ -655,4 +636,11 @@ const resolveOwnerComponents = (
   }
 
   return null;
+};
+
+const getFramePointerEvents = (
+  phase: 'hidden' | 'presenting' | 'visible' | 'dismissing',
+): 'none' | 'box-none' | 'box-only' => {
+  if (phase === 'hidden') return 'none';
+  return phase === 'presenting' || phase === 'visible' ? 'box-none' : 'box-only';
 };

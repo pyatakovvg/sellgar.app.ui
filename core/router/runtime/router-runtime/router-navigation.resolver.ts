@@ -146,7 +146,7 @@ const validateRouterState = (
   const path = state.path.map((entry, index) => {
     const node = context.nodesByRoute.get(entry.route);
 
-    if (!node || node.router !== state.router) {
+    if (node?.router !== state.router) {
       throw new Error('Navigation Router path содержит Route другого Router scope.');
     }
 
@@ -293,7 +293,7 @@ const expandRoutePath = (
   probeCanMatch: boolean,
   replace: boolean,
 ): readonly RoutePathExpansion[] => {
-  const terminal = path[path.length - 1]!;
+  const terminal = path.at(-1)!;
   const definition = getRouteDefinition(terminal.node.route);
 
   if (definition.load !== undefined || definition.routes.length === 0) {
@@ -312,7 +312,7 @@ const expandRoutePath = (
 
   if (definition.defaultTo && !isFirstAvailableRouteDefaultValue(definition.defaultTo)) {
     const defaultPath = getRoutePath(context.rootRouter, definition.defaultTo);
-    const terminalIndex = defaultPath.findIndex((node) => node === terminal.node);
+    const terminalIndex = defaultPath.indexOf(terminal.node);
 
     if (terminalIndex < 0) {
       throw new Error('Route.defaultTo не принадлежит текущей Route branch.');
@@ -360,10 +360,10 @@ const appendDirectChild = (
   route: RouteDeclaration,
   context: ResolverContext,
 ): readonly ResolvedRouteEntry[] => {
-  const parent = path[path.length - 1]!.node;
+  const parent = path.at(-1)!.node;
   const child = context.nodesByRoute.get(route);
 
-  if (!child || child.parent !== parent || child.router !== parent.router) {
+  if (child?.parent !== parent || child.router !== parent.router) {
     throw new Error('Route child не принадлежит текущей локальной Route branch.');
   }
 

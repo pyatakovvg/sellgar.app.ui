@@ -7,8 +7,8 @@ import {
 } from './session-runtime-state.interface.ts';
 
 export class SessionRuntimeState implements SessionRuntimeStateInterface {
-  private interruptionListeners = new Set<SessionRuntimeInterruptionListener>();
-  private listeners = new Set<SessionRuntimeStateListener>();
+  private readonly interruptionListeners = new Set<SessionRuntimeInterruptionListener>();
+  private readonly listeners = new Set<SessionRuntimeStateListener>();
   private currentRevision = 0;
   private value: SessionRuntimePhase = 'unknown';
 

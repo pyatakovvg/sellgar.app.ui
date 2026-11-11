@@ -8,15 +8,19 @@ import type {
 } from '../../../../core/router/bridge/router-bridge';
 import { getRouteDefinition } from '../../../../core/router/declaration/route';
 import type { NavigationRouterState, NavigationState } from '../../../../core/router/runtime/navigation-state';
+import { createNavigationRequest } from '../../../../core/router/service/navigation-request';
 import { createNativeLinkingTransport } from '../../transport/native-linking-transport';
-import type { NativeRouterTransportInterface } from '../../transport/native-router-transport';
+import type {
+  NativeRouterTransportInterface,
+  NativeRouterTransportTarget,
+} from '../../transport/native-router-transport';
 
 export interface NativeNavigationDriver {
   rootBack(): void | Promise<void>;
 }
 
 export interface NativeRouterBridgeOptions {
-  readonly transport?: NativeRouterTransportInterface;
+  readonly transport?: NativeRouterTransportInterface<NativeRouterTransportTarget>;
 }
 
 export interface NativeNavigationEntry {
@@ -57,7 +61,9 @@ export class NativeRouterBridge implements RouterBridgeInterface {
   private presentedNavigation: NavigationState | undefined;
   private presentationRevision = 0;
   private snapshot = EMPTY_SNAPSHOT;
-  private readonly transport: NativeRouterTransportInterface;
+  private readonly transport: NativeRouterTransportInterface<NativeRouterTransportTarget>;
+  private transportEventRevision = 0;
+  private transportEventTask: Promise<void> = Promise.resolve();
   private unsubscribeTransport: (() => void) | null = null;
 
   constructor(options: NativeRouterBridgeOptions) {
@@ -70,19 +76,29 @@ export class NativeRouterBridge implements RouterBridgeInterface {
     }
 
     this.context = context;
+    const initialRevision = this.transportEventRevision;
     this.unsubscribeTransport = this.transport.subscribe(this.handleExternalLocation);
     context.signal.addEventListener('abort', this.handleInitializationAbort, { once: true });
 
     try {
       const initialLocation = await this.transport.getInitialLocation(context.signal);
 
-      if (context.signal.aborted) return;
+      if (context.signal.aborted || this.context !== context) return;
 
-      if (initialLocation) {
-        await context.restore(initialLocation, { blockersConfirmed: false });
-      } else {
-        await context.navigate.root();
+      // A URL event received while getInitialURL is pending is newer than its result.
+      if (this.transportEventRevision === initialRevision) {
+        if (initialLocation) {
+          await this.applyTransportTarget(initialLocation);
+        } else {
+          await context.navigate.root();
+        }
       }
+
+      let eventTask: Promise<void>;
+      do {
+        eventTask = this.transportEventTask;
+        await eventTask;
+      } while (this.transportEventTask !== eventTask && !context.signal.aborted && this.context === context);
     } catch (error) {
       this.dispose();
       throw error;
@@ -198,9 +214,21 @@ export class NativeRouterBridge implements RouterBridgeInterface {
     this.snapshot = EMPTY_SNAPSHOT;
   }
 
-  private readonly handleExternalLocation = (location: RouterBridgeLocationInterface): void => {
-    void this.restore(location).catch(() => undefined);
+  private readonly handleExternalLocation = (target: NativeRouterTransportTarget): void => {
+    this.transportEventRevision += 1;
+    this.transportEventTask = this.applyTransportTarget(target).then(
+      () => undefined,
+      () => undefined,
+    );
   };
+
+  private async applyTransportTarget(target: NativeRouterTransportTarget): Promise<boolean> {
+    if (typeof target === 'function') {
+      return this.requireContext().navigateRequest(createNavigationRequest(target));
+    }
+
+    return this.restore(target);
+  }
 
   private readonly handleInitializationAbort = (): void => {
     this.dispose();

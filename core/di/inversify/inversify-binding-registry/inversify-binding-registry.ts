@@ -1,5 +1,4 @@
-import { type Bind, type BindInWhenOnFluentSyntax, type BindToFluentSyntax } from 'inversify';
-import type { ServiceIdentifier } from 'inversify';
+import { type Bind, type BindInWhenOnFluentSyntax, type BindToFluentSyntax, type ServiceIdentifier } from 'inversify';
 
 import {
   BindingBuilderInterface,

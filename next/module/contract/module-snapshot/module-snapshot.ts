@@ -1,3 +1,4 @@
+import type { MetadataValues } from '../../../../core/metadata/declaration/metadata';
 import type { ModuleExports } from '../../../../core/module/resolution/module-export-resolver';
 import type { RuntimeEntryKind } from '../../../runtime/contract/runtime-entry';
 
@@ -15,6 +16,10 @@ export interface ModuleControllerSnapshot {
 
 /** Tokens and live instances never cross the RSC boundary. Registration order identifies controllers. */
 export interface ModuleSnapshot {
+  readonly managedMetadata?: boolean;
+  readonly resolvedMetadata?: MetadataValues;
+  readonly metadata?: MetadataValues;
+  readonly applicationMetadata?: MetadataValues;
   readonly kind?: RuntimeEntryKind;
   readonly id: string;
   readonly params: Record<string, unknown>;

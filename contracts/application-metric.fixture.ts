@@ -14,11 +14,15 @@ class ContractEvent {
 
 @Metric()
 class Adapter implements MetricInterface {
-  track(_name: string, _payload: Readonly<Record<string, unknown>>): void {}
+  track(_name: string, _payload: Readonly<Record<string, unknown>>): void {
+    // Compile-only receiver used to verify the public metric contract.
+  }
   static configure(): MetricToken {
     @Metric({ token: Adapter })
     class Configured implements MetricInterface {
-      track(): void {}
+      track(): void {
+        // Compile-only configured receiver: delivery is not exercised here.
+      }
     }
     return Configured;
   }

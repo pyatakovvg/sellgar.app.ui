@@ -316,3 +316,17 @@ export type {
   NavigationRequestBuilder,
   NavigationRequestFactory,
 } from './router/service/navigation-request';
+
+export { Metadata, type MetadataValues } from './metadata/declaration/metadata';
+export {
+  MetadataServiceInterface,
+  type MetadataGetters,
+  type MetadataSetters,
+  type MetadataResets,
+} from './metadata/service/metadata-service';
+export {
+  composeMetadata,
+  formatMetadataTitle,
+  type MetadataComposition,
+  type MetadataCompositionOptions,
+} from './metadata/composition/metadata-composition';

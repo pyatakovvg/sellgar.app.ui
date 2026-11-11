@@ -1,3 +1,5 @@
+import { composeMetadata } from '../../../../core/metadata/composition/metadata-composition';
+import { MetadataServiceInterface } from '../../../../core/metadata/service/metadata-service';
 import 'server-only';
 
 import React from 'react';
@@ -16,7 +18,17 @@ export function withRootLayout<TProps extends { readonly children: React.ReactNo
     return hasBodyBoundary ? (
       <RootLayout {...props} />
     ) : (
-      <RootLayout {...props} children={<ApplicationHost>{props.children}</ApplicationHost>} />
+      <RootLayout {...props}>
+        <ApplicationHost>{props.children}</ApplicationHost>
+      </RootLayout>
     );
   };
+}
+
+export async function generateApplicationMetadata() {
+  const app = await getApplication();
+  return composeMetadata(
+    { application: app.getDependency(MetadataServiceInterface).getSnapshot(), page: {}, frames: [] },
+    app.metadataOptions,
+  );
 }

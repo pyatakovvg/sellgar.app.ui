@@ -27,7 +27,7 @@ export class ApplicationStore implements ApplicationStoreInterface {
   get<TValue>(key: ApplicationStoreClassKey<TValue>): TValue | undefined {
     const entry = this.entries.get(key);
 
-    if (!entry || entry.kind !== 'single') {
+    if (entry?.kind !== 'single') {
       return void 0;
     }
 
@@ -37,7 +37,7 @@ export class ApplicationStore implements ApplicationStoreInterface {
   getMany<TValue>(key: ApplicationStoreClassKey<TValue>): TValue[] | undefined {
     const entry = this.entries.get(key);
 
-    if (!entry || entry.kind !== 'many') {
+    if (entry?.kind !== 'many') {
       return void 0;
     }
 

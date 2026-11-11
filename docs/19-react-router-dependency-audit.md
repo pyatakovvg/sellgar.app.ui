@@ -3,7 +3,7 @@
 - Статус документа: historical
 - Результат: выводы реализованы 2026-08-13
 - Дата аудита: 2026-08-05
-- Область: `library/tiyn-app` и его production-потребители в management panel
+- Область: `library/sellgar.app.ui` и его production-потребители в management panel
 - Изменения runtime/API: отсутствуют
 
 Документ фиксирует текущее проникновение пакетов `react-router` и

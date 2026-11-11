@@ -4,7 +4,9 @@ import type { RouterBridgeInterface } from '../../../../core/router/bridge/route
 export class ContextRouterBridge implements RouterBridgeInterface {
   readonly runtimeRetention = 'release' as const;
 
-  initialize(): void {}
+  initialize(): void {
+    // Next owns navigation; this bridge does not acquire subscriptions.
+  }
 
   commit(): never {
     throw new Error('В приложении Next используйте навигацию Next.js.');
@@ -14,5 +16,7 @@ export class ContextRouterBridge implements RouterBridgeInterface {
     throw new Error('В приложении Next используйте навигацию Next.js.');
   }
 
-  dispose(): void {}
+  dispose(): void {
+    // No subscriptions or navigation resources are owned by this bridge.
+  }
 }

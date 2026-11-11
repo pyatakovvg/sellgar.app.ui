@@ -133,7 +133,7 @@ const createFsmLocation = <TSnapshot extends object>(
   const address: unknown = snapshot[routingKey];
 
   if (typeof address !== 'string') {
-    throw new Error(`FSM snapshot не содержит строковый routing key: ${routingKey}.`);
+    throw new TypeError(`FSM snapshot не содержит строковый routing key: ${routingKey}.`);
   }
 
   return Object.freeze({

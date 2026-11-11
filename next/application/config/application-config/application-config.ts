@@ -5,7 +5,7 @@ import { Router } from '../../../../core/router/declaration/router';
 
 export type ApplicationConfiguratorInterface = Pick<
   CoreApplicationConfigurator,
-  'features' | 'initializers' | 'metrics'
+  'features' | 'initializers' | 'metrics' | 'metadata'
 >;
 
 export class ApplicationConfig extends CoreApplicationConfig {

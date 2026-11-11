@@ -26,16 +26,9 @@ import {
   Collection,
   Refreshable,
   ViewportSlot,
-  type CollectionEmptyProps,
-  type CollectionItemProps,
-  type CollectionLoadMoreProps,
-  type CollectionSectionProps,
-  type ViewportCollectionProps,
   type ViewportCollectionComponent,
-  type ViewportFloatingSlotProps,
   type ViewportRefreshableProps,
   type ViewportSlotComponent,
-  type ViewportSlotProps,
 } from './viewport-primitives.tsx';
 import {
   resolveViewportStructure,
@@ -199,69 +192,78 @@ const ViewportContent: React.FC<ViewportContentProps> = (props) => {
     [props.onScrollEndDrag],
   );
 
+  let flow: React.ReactNode;
+  if (props.structure.collection) {
+    flow = (
+      <VirtualizedList
+        onTouchStart={props.onTouchStart}
+        contentContainerStyle={styles.content}
+        data={props.structure.flow}
+        getItem={getFlowItem}
+        getItemCount={getFlowItemCount}
+        keyExtractor={getFlowItemKey}
+        onEndReached={loadMore.onEndReached}
+        onEndReachedThreshold={LOAD_MORE_THRESHOLD}
+        onMomentumScrollEnd={handleMomentumScrollEnd}
+        onScrollBeginDrag={handleScrollBeginDrag}
+        onScrollEndDrag={handleScrollEndDrag}
+        ref={(value) => {
+          collectionRef.current = value;
+        }}
+        refreshControl={props.refreshControl}
+        renderItem={renderFlowItem}
+        renderScrollComponent={renderScrollComponent}
+        scrollEventThrottle={16}
+        stickyHeaderIndices={stickyHeaderIndices}
+        style={scrollStyle}
+        showsVerticalScrollIndicator={false}
+      />
+    );
+  } else if (shell) {
+    flow = (
+      <ShellScrollView
+        onTouchStart={props.onTouchStart}
+        bottomOffset={keyboardBottomOffset}
+        contentContainerStyle={styles.content}
+        ref={scrollRef}
+        enabled={false}
+        refreshControl={props.refreshControl}
+        onMomentumScrollEnd={handleMomentumScrollEnd}
+        onScrollBeginDrag={handleScrollBeginDrag}
+        onScrollEndDrag={handleScrollEndDrag}
+        stickyHeaderIndices={stickyHeaderIndices}
+        showsVerticalScrollIndicator={false}
+        style={scrollStyle}
+      >
+        {props.structure.flow.map(renderFlowEntry)}
+      </ShellScrollView>
+    );
+  } else {
+    flow = (
+      <KeyboardScrollView
+        onTouchStart={props.onTouchStart}
+        bottomOffset={keyboardBottomOffset}
+        contentContainerStyle={styles.content}
+        ref={scrollRef}
+        enabled={screenActive}
+        refreshControl={props.refreshControl}
+        onMomentumScrollEnd={handleMomentumScrollEnd}
+        onScrollBeginDrag={handleScrollBeginDrag}
+        onScrollEndDrag={handleScrollEndDrag}
+        stickyHeaderIndices={stickyHeaderIndices}
+        showsVerticalScrollIndicator={false}
+        style={scrollStyle}
+      >
+        {props.structure.flow.map(renderFlowEntry)}
+      </KeyboardScrollView>
+    );
+  }
+
   return (
     <ViewportContext.Provider value={controller}>
       <View style={shell ? styles.shellRoot : styles.root}>
         {props.structure.upperFixed}
-        {props.structure.collection ? (
-          <VirtualizedList
-            onTouchStart={props.onTouchStart}
-            contentContainerStyle={styles.content}
-            data={props.structure.flow}
-            getItem={getFlowItem}
-            getItemCount={getFlowItemCount}
-            keyExtractor={getFlowItemKey}
-            onEndReached={loadMore.onEndReached}
-            onEndReachedThreshold={LOAD_MORE_THRESHOLD}
-            onMomentumScrollEnd={handleMomentumScrollEnd}
-            onScrollBeginDrag={handleScrollBeginDrag}
-            onScrollEndDrag={handleScrollEndDrag}
-            ref={(value) => {
-              collectionRef.current = value;
-            }}
-            refreshControl={props.refreshControl}
-            renderItem={renderFlowItem}
-            renderScrollComponent={renderScrollComponent}
-            scrollEventThrottle={16}
-            stickyHeaderIndices={stickyHeaderIndices}
-            style={scrollStyle}
-            showsVerticalScrollIndicator={false}
-          />
-        ) : shell ? (
-          <ShellScrollView
-            onTouchStart={props.onTouchStart}
-            bottomOffset={keyboardBottomOffset}
-            contentContainerStyle={styles.content}
-            ref={scrollRef}
-            enabled={false}
-            refreshControl={props.refreshControl}
-            onMomentumScrollEnd={handleMomentumScrollEnd}
-            onScrollBeginDrag={handleScrollBeginDrag}
-            onScrollEndDrag={handleScrollEndDrag}
-            stickyHeaderIndices={stickyHeaderIndices}
-            showsVerticalScrollIndicator={false}
-            style={scrollStyle}
-          >
-            {props.structure.flow.map(renderFlowEntry)}
-          </ShellScrollView>
-        ) : (
-          <KeyboardScrollView
-            onTouchStart={props.onTouchStart}
-            bottomOffset={keyboardBottomOffset}
-            contentContainerStyle={styles.content}
-            ref={scrollRef}
-            enabled={screenActive}
-            refreshControl={props.refreshControl}
-            onMomentumScrollEnd={handleMomentumScrollEnd}
-            onScrollBeginDrag={handleScrollBeginDrag}
-            onScrollEndDrag={handleScrollEndDrag}
-            stickyHeaderIndices={stickyHeaderIndices}
-            showsVerticalScrollIndicator={false}
-            style={scrollStyle}
-          >
-            {props.structure.flow.map(renderFlowEntry)}
-          </KeyboardScrollView>
-        )}
+        {flow}
         {props.structure.collection ? (
           <CollectionLoadMoreAccessory bottom={lowerFixedHeight} loadMore={props.structure.loadMore} />
         ) : null}
@@ -493,4 +495,4 @@ export {
   type ViewportFloatingSlotProps,
   type ViewportRefreshableProps,
   type ViewportSlotProps,
-};
+} from './viewport-primitives.tsx';

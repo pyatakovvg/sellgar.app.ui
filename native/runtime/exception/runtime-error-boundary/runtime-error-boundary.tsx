@@ -12,7 +12,7 @@ interface IProps {
 }
 
 interface IState {
-  readonly error: unknown | null;
+  readonly error: unknown;
   readonly resetKeys: readonly unknown[];
 }
 

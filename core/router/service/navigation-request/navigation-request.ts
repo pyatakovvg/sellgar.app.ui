@@ -62,7 +62,7 @@ export const createNavigationRequestBinding = (
   options?: { readonly params?: Readonly<Record<string, unknown>> },
 ): NavigationRequestBinding => {
   return Object.freeze({
-    params: Object.freeze({ ...(options?.params ?? {}) }),
+    params: Object.freeze({ ...options?.params }),
     token,
   });
 };

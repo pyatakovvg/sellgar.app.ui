@@ -67,7 +67,7 @@ const setQueryValue = (
     return;
   }
 
-  const indexed = key.match(/^(.+)\[(\d+)]$/);
+  const indexed = /^(.+)\[(\d+)]$/.exec(key);
 
   if (indexed && options.parseArrays) {
     const arrayKey = indexed[1]!;

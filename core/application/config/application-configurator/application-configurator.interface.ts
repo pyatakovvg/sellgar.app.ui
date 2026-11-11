@@ -1,3 +1,4 @@
+import type { MetadataCompositionOptions } from '../../../metadata/composition/metadata-composition';
 import type { Router } from '../../../router/declaration/router';
 import type { ApplicationFeatureToken } from '../../feature/application-feature';
 import type { ApplicationInitializerToken } from '../../initializer/application-initializer';
@@ -7,6 +8,8 @@ import type { MetricToken } from '../../metric/declaration/metric';
 export type ApplicationInitializerDeclaration = ApplicationInitializerToken | ApplicationInitializerGroup;
 
 export abstract class ApplicationConfiguratorInterface {
+  abstract metadata(options: MetadataCompositionOptions): void;
+
   abstract metrics(metrics: readonly MetricToken[]): void;
 
   abstract features(features: readonly ApplicationFeatureToken[]): void;

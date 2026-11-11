@@ -9,10 +9,10 @@
     "typecheck": "tsc -p tsconfig.json",
     "typecheck:core": "tsc -p tsconfig.core.json",
     "typecheck:next": "tsc -p next/tsconfig.json",
-    "test:next": "node --import ./next/module/runtime/module-session/register-test-loader.mjs --test next/plugin/config/next-plugin/next-plugin.test.mjs next/plugin/transform/root-layout/root-layout-loader.test.cjs next/plugin/transform/module-page/module-page-loader.test.cjs next/plugin/transform/module-page/client-registry-loader.test.cjs next/module/runtime/module-session/module-session.test.ts next/layout/runtime/layout-scope-registry/layout-scope-registry.test.ts next/plugin/transform/module-page/server-registry-loader.test.cjs next/application/rendering/root-layout/root-layout.test.cjs"
+    "test:next": "node --import ./next/module/runtime/module-session/register-test-loader.mjs --test next/plugin/config/next-plugin/next-plugin.test.mjs next/plugin/transform/root-layout/root-layout-loader.test.cjs next/plugin/transform/module-page/module-page-loader.test.cjs next/plugin/transform/module-page/client-registry-loader.test.cjs next/module/runtime/module-session/module-session.test.ts next/layout/runtime/layout-scope-registry/layout-scope-registry.test.ts next/plugin/transform/module-page/server-registry-loader.test.cjs next/application/rendering/root-layout/root-layout.test.cjs next/module/rendering/module-page/module-page.test.cjs"
   },
   "dependencies": {
-    "inversify": "8.2.4",
+    "inversify": "8.3.0",
     "mobx": "6.16.1",
     "mobx-react": "9.2.2",
     "react-error-boundary": "6.1.6"

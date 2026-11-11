@@ -143,7 +143,7 @@ const validateRouteDefaults = (
 
     const target = tokens.get(defaultTo);
 
-    if (!target || target.router !== node.router || !isStrictDescendant(target, node)) {
+    if (target?.router !== node.router || !isStrictDescendant(target, node)) {
       throw new Error(
         `Route.defaultTo должен указывать на строгого потомка в том же Router scope: ${defaultTo.name || '<anonymous>'}.`,
       );

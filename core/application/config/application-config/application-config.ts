@@ -1,9 +1,20 @@
+import type { MetadataCompositionOptions } from '../../../metadata/composition/metadata-composition';
 import type { Router } from '../../../router/declaration/router';
 import type { ApplicationFeatureToken } from '../../feature/application-feature';
 import type { MetricToken } from '../../metric/declaration/metric';
 import { ApplicationConfiguratorInterface, type ApplicationInitializerDeclaration } from '../application-configurator';
 
 export class ApplicationConfig extends ApplicationConfiguratorInterface {
+  private metadataOptions: MetadataCompositionOptions = {};
+
+  get metadataValue(): MetadataCompositionOptions {
+    return this.metadataOptions;
+  }
+
+  metadata(options: MetadataCompositionOptions): void {
+    this.metadataOptions = Object.freeze({ ...options });
+  }
+
   private metricsList: readonly MetricToken[] = [];
   private featuresList: ApplicationFeatureToken[] = [];
   private initializersList: ApplicationInitializerDeclaration[] = [];

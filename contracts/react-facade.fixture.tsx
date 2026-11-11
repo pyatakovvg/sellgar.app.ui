@@ -17,6 +17,7 @@ import {
   Widget,
   WidgetDefinition,
   WidgetHost,
+  useMetadata,
 } from '@sellgar/app/react';
 
 class FixtureRoute {}
@@ -71,3 +72,9 @@ void fixtureView;
 
 const layoutKind: LayoutContentKind = null;
 void layoutKind;
+
+function MetadataView() {
+  const metadata = useMetadata();
+  return <button onClick={() => metadata.set.title('Архив заказов')}>{metadata.get.title()}</button>;
+}
+void MetadataView;

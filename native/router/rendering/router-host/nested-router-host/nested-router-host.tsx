@@ -1,3 +1,4 @@
+import { useRouterMetadata } from '../../../../../shared/metadata/hook/use-router-metadata';
 import React from 'react';
 
 import type { RouterDeclaration } from '../../../../../core/router/declaration/router';
@@ -25,6 +26,7 @@ interface IProps {
 }
 
 export const NestedRouterHost: React.FC<IProps> = (props) => {
+  const metadata = useRouterMetadata(props.runtime).page;
   const parentScope = useRuntimeScope();
   const definition = getRouterPresentationDefinition(props.router);
   const shellConstructor = resolveNestedShell(definition.shell, props.routing?.shell);
@@ -49,6 +51,7 @@ export const NestedRouterHost: React.FC<IProps> = (props) => {
     >
       <RuntimeScopeProvider scope={scope}>
         <ShellHost
+          contentMetadata={metadata}
           dismiss={dismiss}
           metadata={shell}
           onPresentationComplete={props.onPresentationComplete}

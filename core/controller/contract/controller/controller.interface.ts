@@ -15,11 +15,11 @@ export type WithProps<TProps extends object, TNext extends object = object> = TN
 };
 
 interface ControllerRuntimeContract {
-  action?(args: ControllerArgs<WithPayload<unknown>>): unknown | Promise<unknown>;
+  action?(args: ControllerArgs<WithPayload<unknown>>): unknown;
 
   dispose?(): void | Promise<void>;
 
-  loader?(args: ControllerArgs): unknown | Promise<unknown>;
+  loader?(args: ControllerArgs): unknown;
 }
 
 export type RuntimeController = ControllerRuntimeContract;

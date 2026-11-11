@@ -23,10 +23,6 @@ const secondRoute = new Route({ address: segments('second'), load: async () => (
 const router = new Router({ routes: [firstRoute, secondRoute] });
 
 describe('WebRouterBridge', () => {
-  it('selects release mode for web ModuleRuntime lifecycle', () => {
-    expect(createWebRouterBridge().runtimeRetention).toBe('release');
-  });
-
   beforeEach(() => {
     window.history.replaceState(null, '', '/first');
   });
@@ -34,6 +30,10 @@ describe('WebRouterBridge', () => {
   afterEach(() => {
     restoreNavigationApi();
     window.history.replaceState(null, '', '/');
+  });
+
+  it('selects release mode for web ModuleRuntime lifecycle', () => {
+    expect(createWebRouterBridge().runtimeRetention).toBe('release');
   });
 
   it('creates a shareable href from logical navigation state', () => {
@@ -56,6 +56,7 @@ describe('WebRouterBridge', () => {
       cancelNavigation: vi.fn().mockReturnValue(false),
       confirm: vi.fn().mockResolvedValue(true),
       navigate: {} as NavigateServiceInterface,
+      navigateRequest: async () => true,
       restore,
       router,
       shouldBlockUnload: () => false,
@@ -124,6 +125,7 @@ describe('WebRouterBridge', () => {
       cancelNavigation: vi.fn().mockReturnValue(false),
       confirm: vi.fn().mockResolvedValue(true),
       navigate: {} as NavigateServiceInterface,
+      navigateRequest: async () => true,
       restore: vi.fn().mockResolvedValue(true),
       router,
       shouldBlockUnload: () => false,
@@ -231,6 +233,7 @@ describe('WebRouterBridge', () => {
       cancelNavigation: vi.fn().mockReturnValue(false),
       confirm: vi.fn().mockResolvedValue(true),
       navigate: {} as NavigateServiceInterface,
+      navigateRequest: async () => true,
       restore,
       router,
       shouldBlockUnload: () => false,
@@ -269,6 +272,7 @@ describe('WebRouterBridge', () => {
       cancelNavigation: vi.fn().mockReturnValue(false),
       confirm,
       navigate: {} as NavigateServiceInterface,
+      navigateRequest: async () => true,
       restore,
       router,
       shouldBlockUnload: () => false,
@@ -301,6 +305,7 @@ describe('WebRouterBridge', () => {
       cancelNavigation: vi.fn().mockReturnValue(false),
       confirm: vi.fn().mockResolvedValue(true),
       navigate: {} as NavigateServiceInterface,
+      navigateRequest: async () => true,
       restore,
       router,
       shouldBlockUnload: () => false,
@@ -334,6 +339,7 @@ describe('WebRouterBridge', () => {
       cancelNavigation: vi.fn().mockReturnValue(false),
       confirm: vi.fn().mockResolvedValue(true),
       navigate: {} as NavigateServiceInterface,
+      navigateRequest: async () => true,
       restore: vi.fn().mockResolvedValue(true),
       router,
       shouldBlockUnload,

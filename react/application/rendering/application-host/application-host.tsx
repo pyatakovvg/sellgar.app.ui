@@ -1,4 +1,6 @@
 import React from 'react';
+import { DocumentMetadataHost } from '../../../../shared/metadata/rendering/document-metadata-host';
+import type { MetadataCompositionOptions } from '../../../../core/metadata/composition/metadata-composition';
 import { getRouterContentKind } from '../../../router/rendering/router-content-kind';
 import type { ApplicationFeaturesRuntime } from '../../../../core/application/feature/application-features-runtime';
 import { ApplicationFeaturesHost } from '../../../../shared/application/feature/application-features-host';
@@ -43,6 +45,7 @@ export interface ApplicationViewSource {
   readonly failRender: (error: unknown) => void | Promise<void>;
   readonly getLifecycle: () => ApplicationLifecycleSnapshot;
   readonly getNavigation: () => ApplicationNavigationSnapshot;
+  readonly metadataOptions?: MetadataCompositionOptions;
   readonly layouts: readonly LayoutConstructor[];
   readonly routing: ResolvedApplicationRouting | null;
   readonly routerRuntime: RouterRuntime<ModuleMetadata>;
@@ -118,6 +121,12 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
             resolveException={props.source.createRenderException}
             resetKeys={[props.source]}
           >
+            <DocumentMetadataHost
+              runtime={props.source.routerRuntime}
+              scope={props.source.scope}
+              options={props.source.metadataOptions}
+              enabled={lifecycle.phase === 'ready' && navigation.decision === null}
+            />
             <ApplicationFeaturesHost runtime={props.source.featuresRuntime} fallback={content}>
               {wrapApplicationFeatures(
                 props.source.features,

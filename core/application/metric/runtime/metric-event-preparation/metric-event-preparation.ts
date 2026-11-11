@@ -71,18 +71,7 @@ const projectMetricFields = (
       return value.map((item) => projectMetricFields(item, schemas, preservePrototype, ancestors));
     }
     const prototype = Object.getPrototypeOf(value);
-    const constructor = prototype && Object.getOwnPropertyDescriptor(prototype, 'constructor')?.value;
-    const isDeclaration = prototype !== null && prototype !== Object.prototype;
-    let keys = Object.keys(value);
-    if (isDeclaration) {
-      if (typeof constructor !== 'function') throw new Error('Unsupported metric payload value.');
-      let declared = schemas.get(constructor);
-      if (!declared) {
-        declared = getDeclaredKeys(new constructor());
-        schemas.set(constructor, declared);
-      }
-      keys = keys.filter((key) => declared.includes(key));
-    }
+    const keys = getMetricKeys(value, prototype, schemas);
     const projected = Object.create(preservePrototype ? prototype : Object.prototype);
     for (const key of keys) {
       const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
@@ -104,11 +93,11 @@ const projectMetricFields = (
 /** Copies data without sharing references with callers or other receivers. */
 export const cloneMetricValue = (value: unknown, ancestors = new Set<object>()): unknown => {
   if (typeof value === 'function' || typeof value === 'symbol') {
-    throw new Error('Metric payload must contain data, not functions or symbols.');
+    throw new TypeError('Metric payload must contain data, not functions or symbols.');
   }
   if (value === null || typeof value !== 'object') return value;
   if (ancestors.has(value)) throw new Error('Metric payload must not contain cycles.');
-  if (value instanceof Date) return new Date(value.getTime());
+  if (value instanceof Date) return new Date(value);
   if (!Array.isArray(value) && Object.prototype.toString.call(value) !== '[object Object]') {
     throw new Error('Unsupported metric payload value.');
   }
@@ -121,4 +110,24 @@ export const cloneMetricValue = (value: unknown, ancestors = new Set<object>()):
   } finally {
     ancestors.delete(value);
   }
+};
+
+const getMetricKeys = (
+  value: object,
+  prototype: object | null,
+  schemas: Map<MetricEventConstructor, readonly string[]>,
+): string[] => {
+  const constructor = prototype && Object.getOwnPropertyDescriptor(prototype, 'constructor')?.value;
+  const isDeclaration = prototype !== null && prototype !== Object.prototype;
+  let keys = Object.keys(value);
+  if (isDeclaration) {
+    if (typeof constructor !== 'function') throw new Error('Unsupported metric payload value.');
+    let declared = schemas.get(constructor);
+    if (!declared) {
+      declared = getDeclaredKeys(new constructor());
+      schemas.set(constructor, declared);
+    }
+    keys = keys.filter((key) => declared.includes(key));
+  }
+  return keys;
 };

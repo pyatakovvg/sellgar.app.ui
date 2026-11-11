@@ -58,28 +58,14 @@ const renderRoutePath = (
     notFound: definition.notFound ?? inheritedComponents.notFound,
   };
 
-  const child =
-    index + 1 >= endIndex ? (
-      outlet ? (
-        outlet(components)
-      ) : (
-        <RouteModuleHost components={components} runtime={runtime} />
-      )
-    ) : (
-      renderRoutePath(components, routes, pendingAfterRouteCount, index + 1, endIndex, outlet, outletKind)
-    );
-
-  let kind: LayoutContentKind;
+  let child: React.ReactNode;
   if (index + 1 >= endIndex) {
-    kind = outlet ? outletKind : getRouteDefinition(runtime.route).load ? 'module' : null;
+    child = outlet ? outlet(components) : <RouteModuleHost components={components} runtime={runtime} />;
   } else {
-    kind = getRouteContentKind(routes, {
-      startIndex: index + 1,
-      endIndex,
-      pendingAfterRouteCount,
-      ...(outlet ? { outletKind } : {}),
-    });
+    child = renderRoutePath(components, routes, pendingAfterRouteCount, index + 1, endIndex, outlet, outletKind);
   }
+
+  const kind = resolveRoutePathKind(runtime, routes, { index, endIndex, pendingAfterRouteCount, outlet, outletKind });
 
   return (
     <RouteHost
@@ -103,4 +89,36 @@ const getRouteRuntimeKey = (runtime: RouteActivationRuntime<ModuleMetadata>): st
 
   routeRuntimeKeys.set(runtime, key);
   return key;
+};
+
+const resolveRoutePathKind = (
+  runtime: RouteActivationRuntime<ModuleMetadata>,
+  routes: readonly RouteActivationRuntime<ModuleMetadata>[],
+  {
+    index,
+    endIndex,
+    pendingAfterRouteCount,
+    outlet,
+    outletKind,
+  }: {
+    readonly index: number;
+    readonly endIndex: number;
+    readonly pendingAfterRouteCount: number | null;
+    readonly outlet: RoutePathHostProps['outlet'];
+    readonly outletKind: LayoutContentKind;
+  },
+): LayoutContentKind => {
+  let kind: LayoutContentKind;
+  if (index + 1 >= endIndex) {
+    if (outlet) kind = outletKind;
+    else kind = getRouteDefinition(runtime.route).load ? 'module' : null;
+  } else {
+    kind = getRouteContentKind(routes, {
+      startIndex: index + 1,
+      endIndex,
+      pendingAfterRouteCount,
+      ...(outlet ? { outletKind } : {}),
+    });
+  }
+  return kind;
 };

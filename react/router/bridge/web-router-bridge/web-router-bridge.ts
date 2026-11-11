@@ -409,12 +409,10 @@ const createNavigationUrl = (navigation: NavigationState, basePath: string): str
   const search = serializeWebQuery(navigation.root.query);
   const nestedQuery = getDeepestRouterState(navigation.root.child)?.query ?? EMPTY_QUERY;
   const serializedNestedQuery = serializeWebQuery(nestedQuery);
-  const hash =
-    nestedAddress.length > 0
-      ? `#${nestedAddress.join('/')}${serializedNestedQuery.length > 0 ? `?${serializedNestedQuery}` : ''}`
-      : '';
-
-  return `${pathname}${search.length > 0 ? `?${search}` : ''}${hash}`;
+  const nestedSearch = serializedNestedQuery.length > 0 ? `?${serializedNestedQuery}` : '';
+  const hash = nestedAddress.length > 0 ? `#${nestedAddress.join('/')}${nestedSearch}` : '';
+  const rootSearch = search.length > 0 ? `?${search}` : '';
+  return `${pathname}${rootSearch}${hash}`;
 };
 
 const getDeepestRouterState = (state: NavigationRouterState | null): NavigationRouterState | null => {
@@ -459,7 +457,11 @@ const encodeRouterState = (state: NavigationRouterState): string[] => {
 };
 
 const decodeAddress = (value: string): readonly string[] => {
-  const normalized = value.replace(/^\/+/, '').replace(/\/+$/, '');
+  let start = 0;
+  let end = value.length;
+  while (value[start] === '/') start++;
+  while (end > start && value[end - 1] === '/') end--;
+  const normalized = value.slice(start, end);
 
   if (normalized.length === 0) {
     return Object.freeze([]);
@@ -557,7 +559,7 @@ const getBrowserWindow = (): Window => {
 };
 
 const getOptionalBrowserWindow = (): Window | null => {
-  return typeof globalThis.window === 'undefined' ? null : globalThis.window;
+  return globalThis.window ?? null;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {

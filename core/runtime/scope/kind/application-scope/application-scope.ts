@@ -1,3 +1,6 @@
+import type { MetadataValues } from '../../../../metadata/declaration/metadata';
+import { MetadataService } from '../../../../metadata/runtime/metadata-service';
+import { MetadataServiceInterface } from '../../../../metadata/service/metadata-service';
 import { SessionRuntimeStateInterface } from '../../../../application/session/session-runtime-state';
 import {
   type ApplicationFeatureInterface,
@@ -209,5 +212,10 @@ export class ApplicationScope extends RuntimeScope {
   syncLocation(navigation: NavigationState): void {
     this.location.sync(navigation);
     this.query.sync(navigation);
+  }
+  bindMetadata(defaults: MetadataValues): void {
+    const metadata = new MetadataService(defaults);
+    this.register((registry) => registry.bind(MetadataServiceInterface).toConstantValue(metadata));
+    this.onDispose(() => metadata.dispose());
   }
 }

@@ -57,3 +57,39 @@ test('leaves ordinary pages intact and rejects a client page or a nonstatic load
     /статический загрузчик/,
   );
 });
+
+test('exports generated metadata from the same prepared page and keeps explicit Next metadata authoritative', () => {
+  const source = `import { withModule } from '@sellgar/app/next';
+    const __sellgarMetadataPage = 'existing identifier';
+    export default withModule(() => import('@module/home'));`;
+  const transformed = loader.call({ resourcePath: '/fixture/app/page.tsx' }, source);
+  const compiled = ts.transpileModule(transformed, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+  const exports = {};
+  let calls = 0;
+  const generate = () => ({ title: 'generated' });
+  vm.runInNewContext(compiled, {
+    exports,
+    require: () => ({
+      withModule: () => {
+        calls++;
+        return { generateMetadata: generate };
+      },
+    }),
+  });
+  assert.equal(calls, 1);
+  assert.equal(exports.generateMetadata, generate);
+  assert.equal(exports.default.generateMetadata, exports.generateMetadata);
+
+  for (const declaration of [
+    'export const metadata = { title: "manual" };',
+    'export async function generateMetadata() { return { title: "manual" }; }',
+    'export { metadata } from "./manual";',
+  ]) {
+    const output = loader.call(
+      { resourcePath: '/fixture/app/page.tsx' },
+      declaration + source.replace("const __sellgarMetadataPage = 'existing identifier';", ''),
+    );
+    assert.match(output, /withModule\([\s\S]*false\)/);
+    assert.doesNotMatch(output, /\.generateMetadata/);
+  }
+});

@@ -29,7 +29,7 @@ export const useRuntimeRevalidate = (
 
       revision = nextRevision;
 
-      if (!snapshot || snapshot.inProcess !== state.inProcess || !Object.is(snapshot.error, state.error)) {
+      if (snapshot?.inProcess !== state.inProcess || !Object.is(snapshot.error, state.error)) {
         snapshot = Object.freeze({ error: state.error, inProcess: state.inProcess });
       }
 

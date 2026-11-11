@@ -29,7 +29,7 @@ export interface ViewportLoadMore {
   readonly inProcess: boolean;
   readonly key: string;
   readonly node: React.ReactNode;
-  readonly onLoad: () => unknown | Promise<unknown>;
+  readonly onLoad: () => unknown;
 }
 
 export interface ViewportRefreshable {

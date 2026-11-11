@@ -101,7 +101,7 @@ export const getRouteDefinition = (route: RouteDeclaration): RouteDefinition => 
   const definition = routeDefinitions.get(route);
 
   if (!definition) {
-    throw new Error('Route declaration не принадлежит @tiyn/app.');
+    throw new Error('Route declaration не принадлежит @sellgar/app.');
   }
 
   return definition;
@@ -152,11 +152,11 @@ const validateRouteOptions = (options: RouteOptions): void => {
   const routes = options.routes;
   const routing = options.routing;
 
-  if (routes && routes.length === 0) {
+  if (routes?.length === 0) {
     throw new Error('Route.routes не может быть пустым.');
   }
 
-  if (routing && routing.length === 0) {
+  if (routing?.length === 0) {
     throw new Error('Route.routing не может быть пустым.');
   }
 

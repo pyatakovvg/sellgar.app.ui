@@ -1,9 +1,15 @@
 import type { RouterBridgeLocationInterface } from '../../../../core/router/bridge/router-bridge';
+import type { NavigationRequestFactory } from '../../../../core/router/service/navigation-request';
 
-export type NativeRouterTransportListener = (location: RouterBridgeLocationInterface) => void;
+export type NativeRouterTransportTarget = RouterBridgeLocationInterface | NavigationRequestFactory;
 
-export interface NativeRouterTransportInterface {
-  getInitialLocation(signal: AbortSignal): Promise<RouterBridgeLocationInterface | null>;
+export type NativeRouterTransportListener<TTarget extends NativeRouterTransportTarget = RouterBridgeLocationInterface> =
+  (target: TTarget) => void;
 
-  subscribe(listener: NativeRouterTransportListener): () => void;
+export interface NativeRouterTransportInterface<
+  TTarget extends NativeRouterTransportTarget = RouterBridgeLocationInterface,
+> {
+  getInitialLocation(signal: AbortSignal): Promise<TTarget | null>;
+
+  subscribe(listener: NativeRouterTransportListener<TTarget>): () => void;
 }

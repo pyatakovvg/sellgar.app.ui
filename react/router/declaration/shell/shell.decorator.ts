@@ -1,8 +1,10 @@
+import type { MetadataValues } from '../../../../core/metadata/declaration/metadata';
 import type React from 'react';
 
 import { Injectable } from '../../../../core/di/injection/decorators';
 
 export interface ShellContextInterface {
+  readonly metadata: MetadataValues;
   readonly close: () => void | Promise<void>;
   readonly content: React.ReactNode;
   readonly open: boolean;

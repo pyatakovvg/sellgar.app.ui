@@ -184,7 +184,7 @@ export class UserRequestRuntime extends UserRequestRuntimeInterface {
   private takeCurrent(requestId: string): PendingUserRequest | null {
     const request = this.requests[0];
 
-    if (!request || request.request.id !== requestId) {
+    if (request?.request.id !== requestId) {
       return null;
     }
 

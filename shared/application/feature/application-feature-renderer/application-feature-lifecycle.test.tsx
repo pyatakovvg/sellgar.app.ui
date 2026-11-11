@@ -114,6 +114,8 @@ const createSource = (features: readonly ApplicationFeatureToken[]) => {
   const branch = { child: null, childPending: false, pending: false, pendingLocalChange: null, routes: [] };
   const runtimeState = { exception: null, phase: 'active' as const };
   const routerRuntime = {
+    getActiveLocalRouteRuntimes: () => [],
+    getActiveChildRouterRuntimeOrNull: () => null,
     getBranchSnapshot: () => branch,
     getSnapshot: () => runtimeState,
     router: { routes: [] },

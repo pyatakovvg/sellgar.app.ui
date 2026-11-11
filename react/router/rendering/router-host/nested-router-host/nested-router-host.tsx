@@ -1,3 +1,5 @@
+import { useRouterMetadata } from '../../../../../shared/metadata/hook/use-router-metadata';
+import type { MetadataValues } from '../../../../../core/metadata/declaration/metadata';
 import React from 'react';
 
 import type { DependencyConstructor } from '../../../../../core/di/binding/binding-builder';
@@ -20,6 +22,7 @@ interface IProps {
 const shellInstances = new WeakMap<RouterRuntime<ModuleMetadata>, ShellInterface>();
 
 export const NestedRouterHost: React.FC<IProps> = (props) => {
+  const metadata = useRouterMetadata(props.runtime).page;
   const definition = getRouterPresentationDefinition(props.runtime.router);
   const shellConstructor = definition.shell ?? props.routing?.shell;
 
@@ -39,20 +42,23 @@ export const NestedRouterHost: React.FC<IProps> = (props) => {
       resetKeys={[props.runtime]}
     >
       <RuntimeScopeProvider scope={scope}>
-        <ShellPresentation close={() => navigate.close()} content={props.children} shell={shell} />
+        <ShellPresentation metadata={metadata} close={() => navigate.close()} content={props.children} shell={shell} />
       </RuntimeScopeProvider>
     </RuntimeErrorBoundary>
   );
 };
 
 interface ShellPresentationProps {
+  readonly metadata: MetadataValues;
   readonly close: () => void | Promise<void>;
   readonly content: React.ReactNode;
   readonly shell: ShellInterface;
 }
 
 const ShellPresentation: React.FC<ShellPresentationProps> = (props) => {
-  return <>{props.shell.render({ close: props.close, content: props.content, open: true })}</>;
+  return (
+    <>{props.shell.render({ metadata: props.metadata, close: props.close, content: props.content, open: true })}</>
+  );
 };
 
 const resolveShell = (
@@ -63,7 +69,7 @@ const resolveShell = (
 
   if (current) {
     if (!(current instanceof constructor)) {
-      throw new Error('Shell declaration активного Router изменилась после создания runtime.');
+      throw new TypeError('Shell declaration активного Router изменилась после создания runtime.');
     }
 
     return current;

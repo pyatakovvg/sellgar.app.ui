@@ -102,5 +102,5 @@ const decodeQuery = (source: string): Readonly<Record<string, unknown>> => {
 };
 
 const decodeQueryValue = (value: string): string => {
-  return decodeURIComponent(value.replace(/\+/gu, ' '));
+  return decodeURIComponent(value.replaceAll('+', ' '));
 };

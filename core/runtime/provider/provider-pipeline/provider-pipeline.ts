@@ -296,7 +296,7 @@ export class ProviderPipeline<TProps extends object = object> {
     await this.deactivateCommitted();
     await Promise.allSettled(this.applicationProviders.map(({ lease }) => lease.dispose()));
     await this.disposeResults(this.preparedCleanups.splice(0));
-    await Promise.allSettled([...this.cleanupTasks]);
+    await Promise.allSettled(this.cleanupTasks);
     await this.disposeResults(this.initializationCleanups.splice(0));
 
     for (const { instance, token } of [...this.runtimeProviders].reverse()) {
@@ -446,8 +446,10 @@ const resolveProviders = <TProps extends object>(
       }
     }
   } catch (error) {
-    for (const { instance } of runtimeProviders.reverse()) void instance.dispose().catch(() => undefined);
-    for (const { lease } of applicationProviders.reverse()) void lease.dispose().catch(() => undefined);
+    runtimeProviders.reverse();
+    for (const { instance } of runtimeProviders) void instance.dispose().catch(() => undefined);
+    applicationProviders.reverse();
+    for (const { lease } of applicationProviders) void lease.dispose().catch(() => undefined);
     throw error;
   }
 
@@ -466,7 +468,7 @@ const validateProviderToken = (token: ProviderToken, lifetime: 'application' | '
 
   for (const hook of ['prepare', 'revalidate'] as const) {
     if (typeof prototype[hook] === 'function') {
-      throw new Error(`Provider "${name}" с lifetime "application" не может реализовывать ${hook}().`);
+      throw new TypeError(`Provider "${name}" с lifetime "application" не может реализовывать ${hook}().`);
     }
   }
 };

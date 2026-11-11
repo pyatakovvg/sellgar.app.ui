@@ -98,7 +98,7 @@ export class NativeRouteProjectionRuntime {
     const current = focusedEntry?.activation.navigation ?? input.current;
     const currentPath = current?.root.path ?? EMPTY_PATH;
 
-    if (input.pending && input.pending.root.path.length === 0) {
+    if (input.pending?.root.path.length === 0) {
       this.completionPending = this.root.project(
         createFallbackPresentation(ROOT_FALLBACK_KEY, input.components.fallback),
       ).awaitsCompletion;
@@ -169,6 +169,56 @@ export class NativeRouteProjectionRuntime {
     return runtime;
   }
 
+  private createRoutePresentation(
+    projection: OutletProjection,
+    path: readonly NavigationRouteEntry[],
+    tree: RouterRuntimeActivationTree<ModuleMetadata>,
+    entry: NavigationRouteEntry,
+    routeRuntime: RouteActivationRuntime<ModuleMetadata>,
+  ): ScreenPresentation {
+    if (entry.route !== routeRuntime.route) {
+      throw new Error(
+        `Core navigation path и runtime tree расходятся на depth=${projection.depth}: ` +
+          `${describeRoute(entry.route)} !== ${describeRoute(routeRuntime.route)}.`,
+      );
+    }
+    const key = resolveNativeRoutePresentationKey(entry, projection.depth);
+    const definition = getRoutePresentationDefinition(routeRuntime.route);
+    const resolvedComponents = inheritRouteComponents(projection.components, definition);
+    const previous = this.content.get(key);
+    const components = sameComponents(previous?.components, resolvedComponents)
+      ? previous.components
+      : resolvedComponents;
+    const route = getRouteDefinition(routeRuntime.route);
+    const childRuntime =
+      route.routes.length > 0
+        ? this.projectOutlet(createChildOutletKey(key), {
+            ...projection,
+            components,
+            currentPath: path,
+            depth: projection.depth + 1,
+            retained: projection.retained.children.get(key) ?? EMPTY_RETAINED_ROUTES,
+            tree,
+          })
+        : null;
+    const kind = route.routes.length > 0 ? 'route' : 'module';
+    const outletKind = route.load ? 'module' : null;
+    const content = this.resolveContent(key, {
+      childRuntime,
+      childKind: childRuntime
+        ? getRouteContentKind(tree.routes, {
+            startIndex: projection.depth + 1,
+            pendingAfterRouteCount: projection.pending?.changeDepth,
+            ...(projection.depth + 1 >= tree.routes.length ? { outletKind } : {}),
+          })
+        : outletKind,
+      components,
+      kind,
+      routeRuntime,
+    });
+    return Object.freeze({ content, key });
+  }
+
   private createCommittedPresentation(
     projection: OutletProjection,
     path: readonly NavigationRouteEntry[],
@@ -178,57 +228,14 @@ export class NativeRouteProjectionRuntime {
     const routeRuntime = tree?.routes[projection.depth] ?? null;
 
     if (entry && routeRuntime && tree) {
-      if (entry.route !== routeRuntime.route) {
-        throw new Error(
-          `Core navigation path и runtime tree расходятся на depth=${projection.depth}: ` +
-            `${describeRoute(entry.route)} !== ${describeRoute(routeRuntime.route)}.`,
-        );
-      }
-
-      const key = resolveNativeRoutePresentationKey(entry, projection.depth);
-      const definition = getRoutePresentationDefinition(routeRuntime.route);
-      const resolvedComponents = inheritRouteComponents(projection.components, definition);
-      const previous = this.content.get(key);
-      const components = sameComponents(previous?.components, resolvedComponents)
-        ? previous.components
-        : resolvedComponents;
-      const route = getRouteDefinition(routeRuntime.route);
-      const childRuntime =
-        route.routes.length > 0
-          ? this.projectOutlet(createChildOutletKey(key), {
-              ...projection,
-              components,
-              currentPath: path,
-              depth: projection.depth + 1,
-              retained: projection.retained.children.get(key) ?? EMPTY_RETAINED_ROUTES,
-              tree,
-            })
-          : null;
-      const kind = route.routes.length > 0 ? 'route' : 'module';
-      const content = this.resolveContent(key, {
-        childRuntime,
-        childKind: childRuntime
-          ? getRouteContentKind(tree.routes, {
-              startIndex: projection.depth + 1,
-              pendingAfterRouteCount: projection.pending?.changeDepth,
-              ...(projection.depth + 1 >= tree.routes.length ? { outletKind: route.load ? 'module' : null } : {}),
-            })
-          : route.load
-            ? 'module'
-            : null,
-        components,
-        kind,
-        routeRuntime,
-      });
-
-      return Object.freeze({ content, key });
+      return this.createRoutePresentation(projection, path, tree, entry, routeRuntime);
     }
 
     if (!entry && !routeRuntime && tree && projection.depth > 0) {
       const ownerEntry = path[projection.depth - 1];
       const ownerRuntime = tree.routes[projection.depth - 1];
 
-      if (!ownerEntry || !ownerRuntime || ownerEntry.route !== ownerRuntime.route) {
+      if (!ownerRuntime || ownerEntry?.route !== ownerRuntime.route) {
         throw new Error('Index screen не имеет согласованного Route owner.');
       }
 
@@ -260,7 +267,7 @@ export class NativeRouteProjectionRuntime {
       const owner = pending.path[depth - 1];
       const ownerRuntime = tree?.routes[depth - 1];
 
-      if (!owner || !ownerRuntime || owner.route !== ownerRuntime.route) {
+      if (!ownerRuntime || owner?.route !== ownerRuntime.route) {
         throw new Error('Pending index screen не имеет согласованного Route owner.');
       }
 
@@ -316,8 +323,7 @@ export class NativeRouteProjectionRuntime {
     const current = this.content.get(key);
 
     if (
-      current &&
-      current.childRuntime === input.childRuntime &&
+      current?.childRuntime === input.childRuntime &&
       current.childKind === input.childKind &&
       current.components === input.components &&
       current.kind === input.kind &&

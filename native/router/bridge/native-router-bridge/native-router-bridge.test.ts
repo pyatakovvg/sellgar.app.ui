@@ -187,6 +187,7 @@ const context = (
   navigate: {
     root: options.navigateRoot ?? (async () => undefined),
   } as RouterBridgeInitializeContextInterface['navigate'],
+  navigateRequest: async () => true,
   restore: options.restore ?? (async () => true),
   router,
   shouldBlockUnload: () => false,

@@ -1,3 +1,5 @@
+import { MetadataServiceInterface } from '../../../../core/metadata/service/metadata-service';
+import { getMetadataDefaults } from '../../../../core/metadata/declaration/metadata';
 import type { DependencyToken } from '../../../../core/di/token/dependency-token';
 import type {
   ModuleRuntimeActionState,
@@ -40,6 +42,11 @@ export class ClientModule implements ControllerRuntimeContextValue {
       throw new Error('Привязки контроллеров модуля Next различаются на сервере и в браузере.');
   }
 
+  getMetadataSnapshot = () =>
+    this.live?.runtime.getActiveModuleOrNull()?.scope.get(MetadataServiceInterface).getSnapshot() ??
+    this.snapshot.metadata ??
+    getMetadataDefaults(this.declaration.definition.token);
+
   get definition() {
     return this.declaration.definition;
   }
@@ -67,12 +74,26 @@ export class ClientModule implements ControllerRuntimeContextValue {
         if (this.live === session && session.runtime.getSnapshot().phase === 'empty') this.live = null;
         this.emit();
       });
-      const entry = { session, abort, unsubscribe, leases: 0, ready: Promise.resolve() };
+      let unsubscribeMetadata = () => {};
+      const entry = {
+        session,
+        abort,
+        unsubscribe: () => {
+          unsubscribe();
+          unsubscribeMetadata();
+        },
+        leases: 0,
+        ready: Promise.resolve(),
+      };
       this.entry = entry;
       entry.ready = hydrateModuleSession(session, this.snapshot, abort.signal)
         .then(() => {
           if (this.entry === entry && !abort.signal.aborted) {
             this.live = session;
+            unsubscribeMetadata = session.runtime
+              .getActiveModule()
+              .scope.get(MetadataServiceInterface)
+              .subscribe(this.emit);
             this.emit();
           }
         })
@@ -115,7 +136,7 @@ export class ClientModule implements ControllerRuntimeContextValue {
       this.listeners.delete(listener);
     };
   };
-  private emit = () => {
+  private readonly emit = () => {
     for (const listener of this.listeners) listener();
   };
 

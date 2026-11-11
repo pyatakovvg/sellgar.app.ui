@@ -4,17 +4,7 @@ const { createHash } = require('node:crypto');
 const entryId = (file) => createHash('sha256').update(file).digest('hex').slice(0, 16);
 
 function entryDeclarations(file) {
-  const imports = new Map();
-  for (const statement of file.statements) {
-    if (!ts.isImportDeclaration(statement) || statement.moduleSpecifier.text !== '@sellgar/app/next') continue;
-    const bindings = statement.importClause?.namedBindings;
-    if (bindings && ts.isNamedImports(bindings))
-      for (const entry of bindings.elements) {
-        const name = (entry.propertyName ?? entry.name).text;
-        if (name === 'withModule' || name === 'withLayout')
-          imports.set(entry.name.text, name === 'withModule' ? 'module' : 'layout');
-      }
-  }
+  const imports = collectEntryImports(file);
   const entries = [];
   const visit = (node) => {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && imports.has(node.expression.text)) {
@@ -51,3 +41,24 @@ function entryDeclarations(file) {
 }
 
 module.exports = { entryId, entryDeclarations };
+
+function collectEntryImports(file) {
+  const imports = new Map();
+  for (const statement of file.statements) {
+    if (!ts.isImportDeclaration(statement) || statement.moduleSpecifier.text !== '@sellgar/app/next') continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const entry of bindings.elements) {
+      const name = (entry.propertyName ?? entry.name).text;
+      switch (name) {
+        case 'withModule':
+          imports.set(entry.name.text, 'module');
+          break;
+        case 'withLayout':
+          imports.set(entry.name.text, 'layout');
+          break;
+      }
+    }
+  }
+  return imports;
+}

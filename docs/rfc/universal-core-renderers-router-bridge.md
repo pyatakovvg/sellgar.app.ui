@@ -607,7 +607,16 @@ app.routing({
   активным потомкам. Runtime и scope Router принадлежат Route, где он объявлен.
   Router неактивного Route недоступен; при пересекающихся address candidates
   приоритет имеет ближайший активный владелец, как в текущем frame routing.
-- При внешнем переходе bridge декодирует transport в scoped logical location.
+- При внешнем переходе bridge передаёт в core scoped logical location либо
+  `NavigationRequest` с конкретным target token. Native Linking transport может
+  сопоставить URL с `NavigationRequestFactory` через `resolve(url)`; начало
+  приложения и входящие URL events используют один путь исполнения. Запрос
+  разрешается общим token resolver и выполняется с `source: 'external'` через
+  обычные policies, blockers, отмену и core history. Сохранение цели перед
+  входом включает params, query и state; native bridge не хранит отдельную
+  отложенную цель. `to`, `replace` и `resetTo` сохраняют существующую семантику
+  независимо от наличия адреса у target Route.
+- При адресном внешнем переходе bridge декодирует transport в scoped logical location.
   Core сначала разрешает Route-ветку root Router, затем сопоставляет address
   дочернего scope только с `routing` candidates активной Route-ветки его
   владельца. Валидный candidate должен разрешить свой address целиком с учётом

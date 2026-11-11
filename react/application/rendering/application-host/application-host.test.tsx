@@ -54,6 +54,8 @@ describe('ApplicationHost', () => {
     } as unknown as RouteActivationRuntime<ModuleMetadata>;
     const routerSnapshot = Object.freeze({ exception: null, phase: 'active' });
     const routerRuntime = {
+      getActiveLocalRouteRuntimes: () => [],
+      getActiveChildRouterRuntimeOrNull: () => null,
       router: new Router({ layouts: [RouterLayout], routes: [route] }),
       getBranchSnapshot: () => ({ routes: [routeRuntime], pendingLocalChange: null }),
       getSnapshot: () => routerSnapshot,
@@ -97,6 +99,8 @@ describe('ApplicationHost', () => {
     class BrokenLayout {}
 
     const routerRuntime = {
+      getActiveLocalRouteRuntimes: () => [],
+      getActiveChildRouterRuntimeOrNull: () => null,
       getBranchSnapshot: () => ({
         child: null,
         childPending: false,
@@ -146,6 +150,8 @@ describe('ApplicationHost', () => {
     class FixtureFeature implements ApplicationFeatureInterface {}
 
     const routerRuntime = {
+      getActiveLocalRouteRuntimes: () => [],
+      getActiveChildRouterRuntimeOrNull: () => null,
       getBranchSnapshot: () => ({
         child: null,
         childPending: false,

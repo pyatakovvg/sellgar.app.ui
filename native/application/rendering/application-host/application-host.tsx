@@ -18,7 +18,7 @@ import {
   renderApplicationFeatures,
   wrapApplicationFeatures,
 } from '../../../../shared/application/feature/application-feature-renderer';
-import type { ApplicationComponents } from '../../config/application-configurator';
+import { type ApplicationComponents, type ResolvedApplicationRouting } from '../../config/application-configurator';
 import { renderLayouts } from '../../../layout/rendering/layout-renderer';
 import type { LayoutConstructor } from '../../../layout/declaration/layout';
 import type { ModuleMetadata } from '../../../module/declaration/module';
@@ -30,7 +30,7 @@ import { NavigationStateProvider } from '../../../router/runtime/navigation-stat
 import { ExceptionProvider } from '../../../runtime/exception/exception-context';
 import { RuntimeErrorBoundary } from '../../../runtime/exception/runtime-error-boundary';
 import { RuntimeScopeProvider } from '../../../runtime/scope/runtime-scope-context';
-import type { ResolvedApplicationRouting } from '../../config/application-configurator';
+
 import { ApplicationComponentsProvider } from '../application-components-context';
 import { OverlayHost } from '../overlay-host';
 import { PresentationLayer } from '../../../../shared/application/rendering/presentation-layer';

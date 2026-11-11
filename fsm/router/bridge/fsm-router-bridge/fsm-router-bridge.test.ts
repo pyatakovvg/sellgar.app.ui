@@ -199,6 +199,7 @@ const createContext = (
     cancelNavigation: () => false,
     confirm: async () => true,
     navigate: {} as never,
+    navigateRequest: async () => true,
     restore,
     router: {} as never,
     shouldBlockUnload: () => false,

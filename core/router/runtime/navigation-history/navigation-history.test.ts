@@ -69,7 +69,7 @@ describe('NavigationHistory', () => {
     history.push(navigation('products'), activation);
     history.updateCurrent(navigation('products', { search: 'dress' }));
 
-    expect(history.length).toBe(1);
+    expect(history).toHaveLength(1);
     expect(history.current?.activation).toBe(activation);
     expect(history.current?.navigation.root.query).toEqual({ search: 'dress' });
   });

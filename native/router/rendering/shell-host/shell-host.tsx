@@ -1,4 +1,5 @@
 import React from 'react';
+import type { MetadataValues } from '../../../../core/metadata/declaration/metadata';
 import { Keyboard, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 import { GestureDetector, GestureStateManager, usePanGesture } from 'react-native-gesture-handler';
 import { KeyboardAvoidingView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
@@ -26,6 +27,7 @@ import { shouldCommitShellDismiss } from './shell-dismiss.ts';
 import { isTouchWithinShellScrollBounds, resolveShellPanIntent } from './shell-pan-intent.ts';
 
 interface ShellHostProps {
+  readonly contentMetadata?: MetadataValues;
   readonly children: React.ReactNode;
   readonly dismiss: () => void | Promise<void>;
   readonly metadata: ShellMetadata;
@@ -203,7 +205,10 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
     opacity: frameMeasured.value,
     transform: [{ translateY: translationY.value }],
   }));
-  const context: ShellContextInterface = React.useMemo(() => ({ children: props.children }), [props.children]);
+  const context: ShellContextInterface = React.useMemo(
+    () => ({ children: props.children, metadata: props.contentMetadata ?? {} }),
+    [props.children, props.contentMetadata],
+  );
   const runtime: ShellRuntimeContextValue = React.useMemo(
     () => ({ controller: { close }, dismissGesture: gesture, scrollBounds, scrollOffset }),
     [close, gesture, scrollBounds, scrollOffset],
@@ -232,13 +237,7 @@ export const ShellHost: React.FC<ShellHostProps> = (props) => {
         accessibilityElementsHidden={props.phase === 'hidden'}
         accessibilityViewIsModal={props.phase !== 'hidden'}
         importantForAccessibility={props.phase === 'hidden' ? 'no-hide-descendants' : 'auto'}
-        pointerEvents={
-          props.phase === 'hidden'
-            ? 'none'
-            : props.phase === 'presenting' || props.phase === 'visible'
-              ? 'auto'
-              : 'box-only'
-        }
+        pointerEvents={getFramePointerEvents(props.phase)}
         style={[StyleSheet.absoluteFill, styles.overlay]}
       >
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, backdropStyle]}>
@@ -283,3 +282,10 @@ const createReturnAnimation = (velocity = 0) => {
 };
 
 const dismissKeyboard = () => Keyboard.dismiss();
+
+const getFramePointerEvents = (
+  phase: 'hidden' | 'presenting' | 'visible' | 'dismissing',
+): 'none' | 'box-none' | 'box-only' => {
+  if (phase === 'hidden') return 'none';
+  return phase === 'presenting' || phase === 'visible' ? 'box-none' : 'box-only';
+};

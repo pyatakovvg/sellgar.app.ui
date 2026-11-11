@@ -20,7 +20,7 @@ export const updateEntity = <TEntity extends object>(
   const identity = Reflect.get(data, identityProperty) as unknown;
 
   if (typeof identity !== 'string' && typeof identity !== 'number') {
-    throw new Error(`Данные обновления не содержат identity: ${String(identityProperty)}.`);
+    throw new TypeError(`Данные обновления не содержат identity: ${String(identityProperty)}.`);
   }
 
   const entities = entityRegistry.find(resolveEntityConstructor(constructor), identity);

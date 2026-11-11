@@ -29,31 +29,7 @@ function collectEntries(context) {
         ts.ScriptKind.TSX,
       );
       for (const declaration of entryDeclarations(file)) {
-        const expected = declaration.kind === 'layout' ? 'layout.' : 'page.';
-        if (!item.name.startsWith(expected))
-          throw new Error(`Декларация ${declaration.kind} должна находиться в файле ${expected}tsx.`);
-        let resolved;
-        try {
-          resolved = createRequire(filePath).resolve(declaration.specifier);
-        } catch {
-          const configPath = ts.findConfigFile(projectDir, ts.sys.fileExists, 'tsconfig.json');
-          const config = configPath && ts.readConfigFile(configPath, ts.sys.readFile);
-          const options =
-            config && ts.parseJsonConfigFileContent(config.config, ts.sys, path.dirname(configPath)).options;
-          resolved = ts.resolveModuleName(declaration.specifier, filePath, options || {}, ts.sys).resolvedModule
-            ?.resolvedFileName;
-        }
-        if (!resolved || /\.d\.[cm]?ts$/.test(resolved))
-          throw new Error(`Не удалось разрешить декларацию runtime ${declaration.specifier} из ${filePath}.`);
-        context.addDependency(resolved);
-        const paramKeys = path
-          .relative(appDir, directory)
-          .split(path.sep)
-          .flatMap((segment) => {
-            const match = /^\[\[?(?:\.\.\.)?([^\]]+)\]\]?$/.exec(segment);
-            return match ? [match[1]] : [];
-          });
-        entries.push({ id: entryId(filePath), kind: declaration.kind, resolved, directory, filePath, paramKeys });
+        entries.push(registerEntry(context, declaration, { appDir, projectDir, directory, item, filePath }));
       }
     }
   };
@@ -73,3 +49,30 @@ function collectEntries(context) {
 
 const relativeImport = (from, target) => './' + path.relative(path.dirname(from), target).split(path.sep).join('/');
 module.exports = { collectEntries, relativeImport };
+
+function registerEntry(context, declaration, { appDir, projectDir, directory, item, filePath }) {
+  const expected = declaration.kind === 'layout' ? 'layout.' : 'page.';
+  if (!item.name.startsWith(expected))
+    throw new Error(`Декларация ${declaration.kind} должна находиться в файле ${expected}tsx.`);
+  let resolved;
+  try {
+    resolved = createRequire(filePath).resolve(declaration.specifier);
+  } catch {
+    const configPath = ts.findConfigFile(projectDir, ts.sys.fileExists, 'tsconfig.json');
+    const config = configPath && ts.readConfigFile(configPath, ts.sys.readFile);
+    const options = config && ts.parseJsonConfigFileContent(config.config, ts.sys, path.dirname(configPath)).options;
+    resolved = ts.resolveModuleName(declaration.specifier, filePath, options || {}, ts.sys).resolvedModule
+      ?.resolvedFileName;
+  }
+  if (!resolved || /\.d\.[cm]?ts$/.test(resolved))
+    throw new Error(`Не удалось разрешить декларацию runtime ${declaration.specifier} из ${filePath}.`);
+  context.addDependency(resolved);
+  const paramKeys = path
+    .relative(appDir, directory)
+    .split(path.sep)
+    .flatMap((segment) => {
+      const match = /^\[\[?(?:\.\.\.)?([^\]]+)\]\]?$/.exec(segment);
+      return match ? [match[1]] : [];
+    });
+  return { id: entryId(filePath), kind: declaration.kind, resolved, directory, filePath, paramKeys };
+}

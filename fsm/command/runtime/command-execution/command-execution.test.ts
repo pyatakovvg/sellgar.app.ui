@@ -94,7 +94,7 @@ describe('FSM command confirmation', () => {
     });
 
     execution.confirm({ id: await sent.promise });
-    await operation;
+    await expect(operation).resolves.toBeUndefined();
     response.reject(new Error('Late transport error'));
 
     await Promise.resolve();
@@ -126,10 +126,11 @@ describe('FSM command confirmation', () => {
   it('registers confirmation before invoking a synchronously publishing transport', async () => {
     const { execution } = fixture();
 
-    await execution.run({}, FirstCommand, async (_signal, id) => {
+    const operation = execution.run({}, FirstCommand, async (_signal, id) => {
       execution.confirm({ id });
     });
 
+    await expect(operation).resolves.toBeUndefined();
     execution.dispose();
   });
 

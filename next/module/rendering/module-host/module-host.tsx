@@ -2,6 +2,8 @@
 
 import React from 'react';
 
+import { ModuleMetadataHost } from '../module-metadata-host';
+
 import { useApplication } from '../../../application/hook/use-application';
 import { ControllerRuntimeProvider } from '../../../../react/controller/runtime/controller-runtime-context';
 import { RuntimeScopeProvider } from '../../../../react/runtime/scope/runtime-scope-context';
@@ -48,15 +50,24 @@ export function ModuleHost(props: IProps) {
 
   if (error !== null) throw error;
   const presentation = module.definition.presentation;
-  const content =
-    presentation.kind === 'layout'
-      ? React.isValidElement<LayoutViewProps>(presentation.metadata.view)
-        ? React.cloneElement(presentation.metadata.view, { children: props.children, kind: 'layout' })
-        : renderView(presentation.metadata.view, { children: props.children, kind: 'layout' })
-      : renderLayouts(presentation.metadata.layouts ?? [], renderView(presentation.metadata.view, {}), 'module');
+  let content: React.ReactNode;
+  if (presentation.kind === 'layout') {
+    content = React.isValidElement<LayoutViewProps>(presentation.metadata.view)
+      ? React.cloneElement(presentation.metadata.view, { children: props.children, kind: 'layout' })
+      : renderView(presentation.metadata.view, { children: props.children, kind: 'layout' });
+  } else {
+    content = renderLayouts(presentation.metadata.layouts ?? [], renderView(presentation.metadata.view, {}), 'module');
+  }
 
   return (
     <ModuleContext.Provider value={module}>
+      {presentation.kind === 'module' && props.snapshot.managedMetadata !== false ? (
+        <ModuleMetadataHost
+          module={module}
+          applicationMetadata={props.snapshot.applicationMetadata}
+          resolvedMetadata={props.snapshot.resolvedMetadata}
+        />
+      ) : null}
       <ControllerRuntimeProvider value={module}>
         {ready && module.scope ? <RuntimeScopeProvider scope={module.scope}>{content}</RuntimeScopeProvider> : content}
       </ControllerRuntimeProvider>

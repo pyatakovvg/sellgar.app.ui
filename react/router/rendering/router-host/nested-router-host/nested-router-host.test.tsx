@@ -36,6 +36,10 @@ describe('NestedRouterHost', () => {
       shell: BrokenShell,
     });
     const runtime = {
+      getSnapshot: () => ({ phase: 'active', exception: null }),
+      getActiveLocalRouteRuntimes: () => [],
+      getActiveChildRouterRuntimeOrNull: () => null,
+      subscribe: () => () => {},
       failRender,
       createRenderException: (cause: unknown) =>
         createRuntimeException(

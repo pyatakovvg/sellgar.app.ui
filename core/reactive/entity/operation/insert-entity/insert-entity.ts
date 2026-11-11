@@ -18,7 +18,7 @@ export const insertEntity = <TEntity extends object>(
   }
 
   if (!(entity instanceof constructor)) {
-    throw new Error(`Добавляемое значение не является экземпляром ${constructor.name}.`);
+    throw new TypeError(`Добавляемое значение не является экземпляром ${constructor.name}.`);
   }
 
   const identity = getEntityIdentity(entity);
@@ -39,7 +39,7 @@ export const insertEntity = <TEntity extends object>(
       const items = Reflect.get(collection, property) as unknown;
 
       if (!Array.isArray(items)) {
-        throw new Error(`Поле reactive entity collection не является массивом: ${property}.`);
+        throw new TypeError(`Поле reactive entity collection не является массивом: ${property}.`);
       }
 
       if (items.some((item) => getEntityIdentity(item as TEntity) === identity)) {
@@ -65,7 +65,7 @@ const getScope = (target: object, scopeBy: string, targetName: string): string |
   const scope = Reflect.get(target, scopeBy) as unknown;
 
   if (typeof scope !== 'string' && typeof scope !== 'number') {
-    throw new Error(`${targetName} не содержит scalar scope: ${scopeBy}.`);
+    throw new TypeError(`${targetName} не содержит scalar scope: ${scopeBy}.`);
   }
 
   return scope;

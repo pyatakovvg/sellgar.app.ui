@@ -167,7 +167,8 @@ export abstract class RuntimeScope {
         retainedModules.push(bindingModule);
       }
     } catch (error) {
-      for (const bindingModule of retainedModules.reverse()) {
+      retainedModules.reverse();
+      for (const bindingModule of retainedModules) {
         this.release(bindingModule);
       }
 

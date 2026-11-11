@@ -71,6 +71,7 @@ export abstract class Application extends CoreApplication<ModuleMetadata, Applic
       features: this.fsmConfig.featuresValue,
       getLifecycle: () => this.lifecycle,
       getNavigation: () => this.getNavigationSnapshot(),
+      metadataOptions: this.fsmConfig.metadataValue,
       layouts: this.fsmConfig.layoutsValue,
       routerRuntime: this.getRouterRuntime(),
       scope: this.getApplicationScope(),
