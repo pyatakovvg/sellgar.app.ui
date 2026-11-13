@@ -232,8 +232,8 @@ params и `Request`, хотя уже имеют отдельный `AbortSignal`
 Для module controller `useSubmit()` вызывает RR `useFetcher()`:
 
 1. controller token и payload сериализуются в JSON;
-2. добавляются поля `__tiynAppController`, `__tiynAppSubmitId` и
-   `__tiynAppPayload`;
+2. добавляются поля `__sellgarAppController`, `__sellgarAppSubmitId` и
+   `__sellgarAppPayload`;
 3. `fetcher.submit()` направляет запрос в route action;
 4. `RouteRuntime.action()` снова разбирает `Request`;
 5. результат или ошибка помещаются в envelope;

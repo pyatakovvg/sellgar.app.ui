@@ -15,6 +15,14 @@ import type {
   NativeRouterTransportTarget,
 } from '../../transport/native-router-transport';
 
+const nativeRouterBridgeReference: unique symbol = Symbol('tiyn-app:native-router-bridge');
+
+export interface NativeRouterBridgeReference {
+  readonly [nativeRouterBridgeReference]: true;
+}
+
+const nativeRouterBridges = new WeakMap<NativeRouterBridgeReference, NativeRouterBridge>();
+
 export interface NativeNavigationDriver {
   rootBack(): void | Promise<void>;
 }
@@ -292,8 +300,19 @@ export class NativeRouterBridge implements RouterBridgeInterface {
   }
 }
 
-export const createNativeRouterBridge = (options: NativeRouterBridgeOptions = {}): NativeRouterBridge => {
-  return new NativeRouterBridge(options);
+export const createNativeRouterBridge = (options: NativeRouterBridgeOptions = {}): NativeRouterBridgeReference => {
+  const reference = Object.freeze<NativeRouterBridgeReference>({ [nativeRouterBridgeReference]: true });
+  nativeRouterBridges.set(reference, new NativeRouterBridge(options));
+  return reference;
+};
+
+export const resolveNativeRouterBridge = (reference: NativeRouterBridgeReference): NativeRouterBridge => {
+  const bridge = nativeRouterBridges.get(reference);
+  if (!bridge) {
+    throw new TypeError('Native RouterBridge должен быть создан через createNativeRouterBridge().');
+  }
+
+  return bridge;
 };
 
 const createBridgeLocation = (navigation: NavigationState): RouterBridgeLocationInterface => {

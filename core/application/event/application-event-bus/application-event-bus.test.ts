@@ -15,6 +15,24 @@ import { ApplicationEventBusInterface } from './application-event-bus.interface.
 import { ApplicationEventBus } from './application-event-bus.ts';
 
 describe('ApplicationEventBus', () => {
+  it('keeps a shared handler active until its last owner releases it', async () => {
+    const { bus } = createBus();
+    const handler = vi.fn<() => void>();
+    const first = bus.createScope().subscribe(ProfileResolvedEvent, handler);
+    const second = bus.createScope().subscribe(ProfileResolvedEvent, handler);
+
+    await bus.publish(ProfileResolvedEvent, createProfileResolvedEvent('profile:1'));
+    expect(handler).toHaveBeenCalledOnce();
+
+    first.dispose();
+    await bus.publish(ProfileResolvedEvent, createProfileResolvedEvent('profile:2'));
+    expect(handler).toHaveBeenCalledTimes(2);
+
+    second.dispose();
+    await bus.publish(ProfileResolvedEvent, createProfileResolvedEvent('profile:3'));
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
   it('publishes abstract class events to function and class handlers', async () => {
     const { bus, reporter } = createBus();
     const functionHandler = vi.fn<() => void>();

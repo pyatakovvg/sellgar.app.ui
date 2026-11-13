@@ -14,11 +14,11 @@ import type {
 
 import { ApplicationEventBusInterface } from './application-event-bus.interface.ts';
 
-type ApplicationEventSubscriptionSet = Set<ApplicationEventHandlerDeclaration<object>>;
+type ApplicationEventSubscriptions = Map<ApplicationEventHandlerDeclaration<object>, number>;
 
 @Injectable()
 export class ApplicationEventBus extends ApplicationEventBusInterface {
-  private readonly subscriptions = new Map<ApplicationEventToken<object>, ApplicationEventSubscriptionSet>();
+  private readonly subscriptions = new Map<ApplicationEventToken<object>, ApplicationEventSubscriptions>();
 
   constructor(
     @Inject(ApplicationReportDispatcherInterface)
@@ -49,7 +49,7 @@ export class ApplicationEventBus extends ApplicationEventBusInterface {
     }
 
     await Promise.all(
-      [...subscriptions].map(async (handler) => {
+      [...subscriptions.keys()].map(async (handler) => {
         const owner = { kind: 'application' } as const;
         const result = await executeRuntimeOperation({
           guard: null,
@@ -80,11 +80,11 @@ export class ApplicationEventBus extends ApplicationEventBusInterface {
     let subscriptions = this.subscriptions.get(subscriptionToken);
 
     if (!subscriptions) {
-      subscriptions = new Set<ApplicationEventHandlerDeclaration<object>>();
+      subscriptions = new Map<ApplicationEventHandlerDeclaration<object>, number>();
       this.subscriptions.set(subscriptionToken, subscriptions);
     }
 
-    subscriptions.add(subscriptionHandler);
+    subscriptions.set(subscriptionHandler, (subscriptions.get(subscriptionHandler) ?? 0) + 1);
     let active = true;
 
     return {
@@ -92,7 +92,9 @@ export class ApplicationEventBus extends ApplicationEventBusInterface {
         if (!active) return;
 
         active = false;
-        subscriptions.delete(subscriptionHandler);
+        const remaining = (subscriptions.get(subscriptionHandler) ?? 1) - 1;
+        if (remaining > 0) subscriptions.set(subscriptionHandler, remaining);
+        else subscriptions.delete(subscriptionHandler);
 
         if (subscriptions.size === 0 && this.subscriptions.get(subscriptionToken) === subscriptions) {
           this.subscriptions.delete(subscriptionToken);

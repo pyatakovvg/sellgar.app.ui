@@ -1,3 +1,4 @@
+import { LoaderTransactionService } from '../../../../controller/runtime/loader-transaction';
 import type { MetadataValues } from '../../../../metadata/declaration/metadata';
 import { MetadataService } from '../../../../metadata/runtime/metadata-service';
 import { MetadataServiceInterface } from '../../../../metadata/service/metadata-service';
@@ -47,9 +48,13 @@ export class ApplicationScope extends RuntimeScope {
   constructor() {
     super();
 
+    const transactions = new LoaderTransactionService();
+    this.onDispose(() => transactions.dispose());
+
     this.providerScope = new ProviderScope(this);
 
     this.register((registry) => {
+      registry.bind(LoaderTransactionService).toConstantValue(transactions);
       registry.bind(ProviderScope).toConstantValue(this.providerScope);
       registry.bind(RouterParamsConverterInterface).toConstantValue(this.paramsConverter);
       registry.bind(LocationServiceInterface).toConstantValue(this.location);

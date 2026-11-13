@@ -1,11 +1,7 @@
 export { Application } from './application/lifecycle/application';
 export type { ApplicationOptions } from './application/lifecycle/application';
 export { ApplicationConfiguratorInterface } from './application/config/application-configurator';
-export type {
-  ApplicationComponents,
-  ApplicationRouting,
-  ResolvedApplicationRouting,
-} from './application/config/application-configurator';
+export type { ApplicationComponents, ApplicationRouting } from './application/config/application-configurator';
 export { useApplicationReporter } from './application/reporting/hook/use-application-reporter';
 
 export { Layout } from './layout/declaration/layout';
@@ -107,11 +103,9 @@ export { WidgetPreloaderInterface } from '../core/widget/service/widget-preloade
 export type { WidgetPreloadOptions } from '../core/widget/service/widget-preloader';
 
 export type { RouteDeclaration } from '../core/router/declaration/route';
-export { createNativeRouterBridge, NativeRouterBridge } from './router/bridge/native-router-bridge';
+export { createNativeRouterBridge } from './router/bridge/native-router-bridge';
 export type {
-  NativeNavigationDriver,
-  NativeNavigationEntry,
-  NativeNavigationSnapshot,
+  NativeRouterBridgeReference as NativeRouterBridge,
   NativeRouterBridgeOptions,
 } from './router/bridge/native-router-bridge';
 export {
@@ -131,10 +125,6 @@ export type {
 export { Route } from './router/declaration/route';
 export type { RouteOptions } from './router/declaration/route';
 export { ScreenAnimation } from './screen/declaration/screen-animation';
-export type { ScreenPresentation } from './screen/declaration/screen-presentation';
-export type { ScreenTransition, ScreenTransitionOperation } from './screen/declaration/screen-transition';
-export { ScreenRenderer } from './screen/rendering/screen-renderer';
-export type { ScreenRendererProps } from './screen/rendering/screen-renderer';
 export { useScreenActive } from './screen/runtime/screen-activity-context';
 export { Router } from './router/declaration/router';
 export type { RouterOptions } from './router/declaration/router';

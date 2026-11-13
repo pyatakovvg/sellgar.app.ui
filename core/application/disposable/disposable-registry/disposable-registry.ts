@@ -13,7 +13,7 @@ export class DisposableRegistry implements DisposableRegistryInterface {
     this.disposables.length = 0;
 
     await Promise.allSettled(
-      disposables.map((disposable) => {
+      disposables.map(async (disposable) => {
         if (typeof disposable === 'function') {
           return disposable();
         }

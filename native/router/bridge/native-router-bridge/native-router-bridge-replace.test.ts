@@ -17,7 +17,7 @@ import { param, segments } from '../../../../core/router/declaration/address';
 import { Route } from '../../../../core/router/declaration/route';
 import { Router } from '../../../../core/router/declaration/router';
 import { NavigateServiceInterface } from '../../../../core/router/service/navigate-service';
-import { createNativeRouterBridge, type NativeRouterBridge } from './native-router-bridge';
+import { resolveNativeRouterBridge, createNativeRouterBridge, type NativeRouterBridge } from './native-router-bridge';
 
 class First {}
 class Second {}
@@ -113,18 +113,26 @@ const createApplication = async (
             ? [new Route({ address: segments('parent'), routes, token: Parent })]
             : routes,
   });
-  const bridge = createNativeRouterBridge({
-    transport: {
-      getInitialLocation: async () => ({
-        address:
-          nested === 'top-up' ? ['first'] : nested === 'router' ? ['parent'] : nested ? ['parent', 'first'] : ['first'],
-        nested: nested === 'router' ? { address: ['first'], query: {} } : null,
-        query: {},
-        state: undefined,
-      }),
-      subscribe: () => () => undefined,
-    },
-  });
+  const bridge = resolveNativeRouterBridge(
+    createNativeRouterBridge({
+      transport: {
+        getInitialLocation: async () => ({
+          address:
+            nested === 'top-up'
+              ? ['first']
+              : nested === 'router'
+                ? ['parent']
+                : nested
+                  ? ['parent', 'first']
+                  : ['first'],
+          nested: nested === 'router' ? { address: ['first'], query: {} } : null,
+          query: {},
+          state: undefined,
+        }),
+        subscribe: () => () => undefined,
+      },
+    }),
+  );
   const app = new TestApplication(bridge, router);
   app.compose();
   await app.initialize();

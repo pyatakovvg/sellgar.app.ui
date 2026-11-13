@@ -85,6 +85,7 @@ export { ApplicationMetricInterface } from './application/metric/service/applica
 export type { MetricTrackOptions } from './application/metric/service/application-metric';
 
 export { Controller } from './controller/contract/controller';
+export { Collector, type Collection, type CollectionState } from './collection/runtime/collector';
 export type {
   ControllerActionPayload,
   ControllerActionResult,
@@ -216,7 +217,6 @@ export {
   Entity,
   type EntityConstructor,
   type EntityIdentity,
-  type EntityMetadata,
   type EntityOptions,
 } from './reactive/entity/declaration/entity';
 export {
@@ -228,27 +228,8 @@ export { updateEntity } from './reactive/entity/operation/update-entity';
 export { insertEntity, type InsertEntityOptions } from './reactive/entity/operation/insert-entity';
 export { removeEntity } from './reactive/entity/operation/remove-entity';
 
-export {
-  WidgetDefinition,
-  configureWidgetRuntimeDefinition,
-  getWidgetRuntimeDefinition,
-  isWidgetConstructor,
-} from './widget/declaration/widget';
-export type {
-  ConfigureWidgetRuntimeDefinitionOptions,
-  WidgetConstructor,
-  WidgetProps,
-  WidgetRuntimeDefinition,
-} from './widget/declaration/widget';
-export { WidgetRuntime } from './widget/runtime/widget-runtime';
-export type {
-  WidgetRuntimeActionOptions,
-  WidgetRuntimeActionState,
-  WidgetRuntimeLoadOptions,
-  WidgetRuntimeRevalidateOptions,
-  WidgetRuntimeRevalidateState,
-  WidgetRuntimeSnapshot,
-} from './widget/runtime/widget-runtime';
+export { WidgetDefinition } from './widget/declaration/widget';
+export type { WidgetConstructor, WidgetProps } from './widget/declaration/widget';
 export { WidgetPreloaderInterface } from './widget/service/widget-preloader';
 export type { WidgetPreloadOptions } from './widget/service/widget-preloader';
 
@@ -263,7 +244,6 @@ export type {
   QueryConstructors,
   QueryDecorator,
   QueryInput,
-  QueryMetadata,
   QueryOptions,
   QueryValue,
   QueryValues,

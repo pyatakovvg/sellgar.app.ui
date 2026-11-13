@@ -44,7 +44,7 @@ export function verifyRequestExecutorContract(executor: RequestExecutorInterface
 
   const recovered: Promise<number> = executor.request
     .use((config) => ({ ...config, page: 1 }))
-    .request.use((config): typeof config => {
+    .request.use((_config): typeof _config => {
       throw new Error('prepare');
     })
     .request.use(undefined, (_error, config) => ({ ...config, page: 2 }))

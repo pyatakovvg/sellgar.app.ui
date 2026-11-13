@@ -1,8 +1,9 @@
 # RFC: FSM Application и Router
 
-- Статус документа: draft
-- Статус RFC: proposed
-- Статус реализации: in-progress
+- Статус документа: target
+- Статус RFC: accepted
+- Статус реализации: partial
+- Текущая основа: [публичные entrypoints](../../README.md#проверка-пакета), [SnapshotService](../../fsm/service/snapshot-service/README.md), [CommandsService](../../fsm/service/commands-service/README.md).
 - Последнее согласование: 2026-09-22
 
 ## Контекст
@@ -16,8 +17,8 @@ backend, клиент отправляет команды, а backend публи
 `sellgar.ui.admin/clients/admin/src/application` и его `bootstrap.tsx`.
 
 Этот RFC фиксирует понятия FSM Application, Router и Snapshot Source. Source port
-типизирован формой snapshot конкретного приложения. Bridge получает функцию
-выбора адреса и не знает конкретное имя поля.
+типизирован формой snapshot конкретного приложения. Bridge получает `routingKey`
+строкового поля snapshot и не фиксирует его имя в реализации.
 
 ## FSM Application
 
@@ -162,13 +163,13 @@ initializing.
 
 ## Вне текущего решения
 
-Отдельного согласования требуют:
+Этот RFC не задаёт transport-specific порядок snapshots и revisions.
+Форма snapshot остаётся контрактом приложения и source.
 
-- порядок snapshots и revisions;
-- декларация state и command metadata на class token.
-
-До такого согласования эти сущности и API нельзя выводить из примеров или
-фиксировать по аналогии с конкретным transport.
+Реализованные декларации state/command metadata на class token описаны отдельно
+в текущих контрактах [SnapshotService](../../fsm/service/snapshot-service/README.md)
+и [CommandsService](../../fsm/service/commands-service/README.md). Их API не
+выводится из примера конкретного transport.
 
 ## Реализованная основа
 

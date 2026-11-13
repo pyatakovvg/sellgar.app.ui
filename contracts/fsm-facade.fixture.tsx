@@ -13,7 +13,6 @@ import {
   Module,
   Layout,
   type LayoutViewProps,
-  renderLayouts,
   Widget,
   WidgetDefinition,
   WidgetHost,
@@ -101,11 +100,6 @@ const ShellView: React.FC<LayoutViewProps> = (props) => <main>{props.children}</
 @Layout({ view: ShellView })
 class ShellLayout {}
 
-const shell: React.ReactNode = renderLayouts([ShellLayout], <InitialScreenView />);
-void shell;
-// @ts-expect-error Layout composition accepts class tokens, not React components.
-renderLayouts([ShellView], <InitialScreenView />);
-
 // FSM state and commands are not parameters of the screen address.
 new Route({
   token: StatefulScreenRoute,
@@ -164,6 +158,7 @@ class FixtureApplication extends Application {
     app.components({
       splash: <div>Starting</div>,
     });
+    app.layouts([ShellLayout]);
     // @ts-expect-error FSM keeps the current screen until the next route is ready.
     app.components({ fallback: <div>Loading</div> });
     app.router(router);
@@ -259,3 +254,9 @@ class InvalidPropertyName {
   @Payload(FixturePhonePayload)
   readonly otherPayload: FixturePhonePayload;
 }
+
+void valid;
+void invalid;
+void InvalidBinding;
+void InvalidProperty;
+void InvalidPropertyName;

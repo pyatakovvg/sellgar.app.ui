@@ -1,5 +1,7 @@
-import { Feature as CoreFeature } from '../../../../core/application/feature/application-feature/application-feature.decorator.ts';
-import type { ApplicationFeatureToken } from '../../../../core/application/feature/application-feature/application-feature.interface.ts';
+import {
+  Feature as CoreFeature,
+  type ApplicationFeatureToken,
+} from '../../../../core/application/feature/application-feature';
 
 import type { ApplicationFeatureOptions } from './application-feature.options.ts';
 

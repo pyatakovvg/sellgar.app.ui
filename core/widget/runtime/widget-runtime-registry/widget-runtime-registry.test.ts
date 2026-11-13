@@ -316,13 +316,7 @@ const flushMicrotasks = async (): Promise<void> => {
 };
 
 const waitFor = async (predicate: () => boolean): Promise<void> => {
-  for (let attempt = 0; attempt < 40; attempt++) {
-    if (predicate()) {
-      return;
-    }
-
-    await Promise.resolve();
-  }
-
-  throw new Error('Ожидаемое состояние теста не достигнуто.');
+  await vi.waitFor(() => {
+    expect(predicate()).toBe(true);
+  });
 };

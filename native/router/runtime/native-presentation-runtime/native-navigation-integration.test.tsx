@@ -10,7 +10,11 @@ import { Module, type ModuleMetadata } from '../../../module/declaration/module'
 import { NativeModuleExportResolver } from '../../../module/resolution/module-export-resolver';
 import { ScreenRenderer } from '../../../screen/rendering/screen-renderer';
 import { ScreenAnimation } from '../../../screen/declaration/screen-animation';
-import { createNativeRouterBridge, type NativeRouterBridge } from '../../bridge/native-router-bridge';
+import {
+  resolveNativeRouterBridge,
+  createNativeRouterBridge,
+  type NativeRouterBridge,
+} from '../../bridge/native-router-bridge';
 import { Route } from '../../declaration/route';
 import { Router } from '../../declaration/router';
 import { NativePresentationRuntime } from './native-presentation-runtime';
@@ -172,17 +176,19 @@ describe('native navigation completion across real core and screen runtimes', ()
           ? [onboardingBranch, anonymousBranch, protectedBranch]
           : [protectedBranch, anonymousBranch],
       });
-      const bridge = createNativeRouterBridge({
-        transport: {
-          getInitialLocation: async () => ({
-            address: anonymousIndexFirst ? ['auth', 'code'] : ['products'],
-            nested: null,
-            query: {},
-            state: undefined,
-          }),
-          subscribe: () => () => undefined,
-        },
-      });
+      const bridge = resolveNativeRouterBridge(
+        createNativeRouterBridge({
+          transport: {
+            getInitialLocation: async () => ({
+              address: anonymousIndexFirst ? ['auth', 'code'] : ['products'],
+              nested: null,
+              query: {},
+              state: undefined,
+            }),
+            subscribe: () => () => undefined,
+          },
+        }),
+      );
       const app = new TestApplication(bridge, router);
       app.compose();
       app.sessionState.setAnonymous();
@@ -271,12 +277,14 @@ describe('native navigation completion across real core and screen runtimes', ()
         }),
       ],
     });
-    const bridge = createNativeRouterBridge({
-      transport: {
-        getInitialLocation: async () => null,
-        subscribe: () => () => undefined,
-      },
-    });
+    const bridge = resolveNativeRouterBridge(
+      createNativeRouterBridge({
+        transport: {
+          getInitialLocation: async () => null,
+          subscribe: () => () => undefined,
+        },
+      }),
+    );
     const app = new TestApplication(bridge, router);
     app.compose();
     const presentation = app.createPresentation();

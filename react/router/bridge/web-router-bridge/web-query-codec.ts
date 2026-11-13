@@ -5,6 +5,8 @@ export interface WebQueryParseOptions {
   readonly parseObjects?: boolean;
 }
 
+const MAX_INDEXED_ARRAY_LENGTH = 1000;
+
 export const parseWebQuery = (search: string, options: WebQueryParseOptions): Readonly<Record<string, unknown>> => {
   const resolved = {
     arraySeparator: options.arraySeparator ?? '',
@@ -71,7 +73,10 @@ const setQueryValue = (
 
   if (indexed && options.parseArrays) {
     const arrayKey = indexed[1]!;
-    const index = Number.parseInt(indexed[2]!, 10);
+    const index = Number(indexed[2]);
+    if (!Number.isSafeInteger(index) || index >= MAX_INDEXED_ARRAY_LENGTH) {
+      throw new RangeError(`Query array index must be less than ${MAX_INDEXED_ARRAY_LENGTH}.`);
+    }
     const values = Array.isArray(target[arrayKey]) ? [...target[arrayKey]] : [];
 
     while (values.length <= index) {

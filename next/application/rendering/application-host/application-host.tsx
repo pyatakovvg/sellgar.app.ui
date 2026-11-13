@@ -4,7 +4,7 @@ import React from 'react';
 
 import { RuntimeScopeProvider } from '../../../../react/runtime/scope/runtime-scope-context';
 import { ApplicationFeaturesHost } from '../../../../shared/application/feature/application-features-host';
-import type { Application } from '../../lifecycle/application';
+import { getApplicationRuntime, type Application } from '../../lifecycle/application';
 import { ApplicationContext } from '../../runtime/application-context';
 import { acquireBrowserApplication } from '../../runtime/browser-application';
 
@@ -55,10 +55,12 @@ const ReadyApplicationHost: React.FC<IProps & { readonly app: Application }> = (
     throw lifecycle.exception?.cause ?? new Error('Приложение Next завершилось с ошибкой.');
   if (lifecycle.phase === 'disposing' || lifecycle.phase === 'disposed') return null;
 
+  const runtime = getApplicationRuntime(props.app);
+
   return (
     <ApplicationContext.Provider value={props.app}>
-      <RuntimeScopeProvider scope={props.app.contextScope}>
-        <ApplicationFeaturesHost runtime={props.app.contextFeatures} fallback={props.children}>
+      <RuntimeScopeProvider scope={runtime.scope}>
+        <ApplicationFeaturesHost runtime={runtime.getFeatures()} fallback={props.children}>
           {props.children}
         </ApplicationFeaturesHost>
       </RuntimeScopeProvider>

@@ -1,1 +1,1 @@
-export { Application, startApplication, type ApplicationFactory } from './application';
+export { Application, getApplicationRuntime, startApplication, type ApplicationFactory } from './application';

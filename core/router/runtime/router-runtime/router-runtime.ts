@@ -30,14 +30,10 @@ import {
   RouteQueryServiceInterface,
   ScopedRouteQueryService,
 } from '../../service/route-query-service';
-import {
-  areNavigationParamsEqual,
-  areNavigationQueriesEqual,
-  matchesNavigationState,
-  type NavigationRouterState,
-  type NavigationState,
-} from '../navigation-state';
+import { areNavigationParamsEqual, matchesNavigationState, type NavigationState } from '../navigation-state';
 import { getRouterGraph } from '../router-graph';
+import type { NavigationOperation } from '../navigation-operation';
+import { planNavigationRevalidation, planNavigationCollectionRestart } from '../navigation-revalidation-planner';
 import {
   RouteActivationRuntime,
   RouteRuntime,
@@ -73,6 +69,7 @@ export interface RouterRuntimeActivationSnapshot {
 export interface RouterRuntimePrepareContext {
   readonly app: ApplicationControllerInterface;
   readonly blockersConfirmed?: boolean;
+  readonly navigationOperation?: NavigationOperation;
   readonly onNavigationAccepted?: (navigation: NavigationState) => void;
   readonly session: SessionRuntimeStateInterface;
   readonly signal: AbortSignal;
@@ -1389,6 +1386,7 @@ export class RouterRuntime<TPresentation = unknown> {
       const providerFailure = await this.preparePlans(
         createPlanPreparations(collectPlanPath(plan)),
         abortController.signal,
+        context.navigationOperation,
       );
 
       if (this.isInterrupted(revision, abortController.signal)) {
@@ -1407,6 +1405,7 @@ export class RouterRuntime<TPresentation = unknown> {
         providerFailure,
         allowActivationReuse,
         revision,
+        context.navigationOperation,
       );
     } catch (error) {
       const interrupted = this.isInterrupted(revision, abortController.signal);
@@ -1539,7 +1538,7 @@ export class RouterRuntime<TPresentation = unknown> {
         ? createPreparationsBeforeRouteBoundary(plans, boundary)
         : createPlanPreparations(plans.slice(0, boundaryIndex));
     this.publishPendingBranch(plan, navigation, revision);
-    const providerFailure = await this.preparePlans(preparations, abortController.signal);
+    const providerFailure = await this.preparePlans(preparations, abortController.signal, context.navigationOperation);
 
     if (this.isInterrupted(revision, abortController.signal)) {
       await this.discardPlan(plan);
@@ -1565,6 +1564,7 @@ export class RouterRuntime<TPresentation = unknown> {
       providerFailure ?? boundary,
       allowActivationReuse,
       revision,
+      context.navigationOperation,
     );
   }
 
@@ -1636,10 +1636,11 @@ export class RouterRuntime<TPresentation = unknown> {
   private async preparePlans(
     preparations: readonly RouterPlanPreparation<TPresentation>[],
     signal: AbortSignal,
+    navigationOperation?: NavigationOperation,
   ): Promise<RuntimeBoundaryTransition<TPresentation> | null> {
     const providerPreparations = preparations.map(({ plan }) => this.preparePlanProvider(plan, signal));
     const [, providerFailures] = await Promise.all([
-      this.preparePlanRoutes(preparations, signal),
+      this.preparePlanRoutes(preparations, signal, navigationOperation),
       Promise.all(providerPreparations),
     ]);
     const providerFailure = providerFailures.find((failure) => failure !== null) ?? null;
@@ -1665,12 +1666,13 @@ export class RouterRuntime<TPresentation = unknown> {
   private async preparePlanRoutes(
     preparations: readonly RouterPlanPreparation<TPresentation>[],
     signal: AbortSignal,
+    navigationOperation?: NavigationOperation,
   ): Promise<void> {
     await Promise.all(
       preparations
         .flatMap((preparation) => preparation.routes)
         .map((entry) => {
-          return entry.runtime.prepare({ params: entry.resolved.params, signal });
+          return entry.runtime.prepare({ params: entry.resolved.params, signal, navigationOperation });
         }),
     );
   }
@@ -1755,6 +1757,7 @@ export class RouterRuntime<TPresentation = unknown> {
     boundary: RuntimeBoundaryTransition<TPresentation> | null,
     allowActivationReuse: boolean,
     revision: number,
+    navigationOperation?: NavigationOperation,
   ): RouterRuntimePrepareResult<TPresentation> {
     const previousNavigation = this.committedNavigation;
     let pending!: PendingRouterTransition<TPresentation>;
@@ -1767,16 +1770,35 @@ export class RouterRuntime<TPresentation = unknown> {
           await this.disposeReplacedBranch(plan);
         }
 
-        const plans = resolveNavigationRevalidationPlans(plan, navigation, previousNavigation);
+        const plans = planNavigationRevalidation({
+          navigation,
+          previousNavigation,
+          targets: collectPlanPath(plan).map((target) => ({
+            localChanged: target.localChanged,
+            router: target.runtime.router,
+            target,
+          })),
+        });
 
         if (plans.length === 0 || signal.aborted) {
           return;
         }
 
+        const restart = planNavigationCollectionRestart(navigation, navigationOperation);
+
         await Promise.all(
           plans.flatMap((target) => [
-            target.runtime.runProviderRevalidation(signal),
-            ...target.nextRoutes.map((entry) => entry.runtime.revalidate({ signal })),
+            ...(target.previousBranch ? [target.runtime.runProviderRevalidation(signal)] : []),
+            ...target.nextRoutes
+              .filter((entry) => !target.createdRoutes.includes(entry))
+              .map((entry) =>
+                entry.runtime.revalidate({
+                  signal,
+                  navigationOperation,
+                  restartCollections:
+                    restart?.router === target.runtime.router && restart.route === entry.resolved.node.route,
+                }),
+              ),
           ]),
         );
       },
@@ -2919,52 +2941,6 @@ const getCommonRouteCount = <TPresentation>(
   }
 
   return index;
-};
-
-const resolveNavigationRevalidationPlans = <TPresentation>(
-  plan: RouterTransitionPlan<TPresentation>,
-  navigation: NavigationState,
-  previous: NavigationState | undefined,
-): readonly RouterTransitionPlan<TPresentation>[] => {
-  if (!navigation.revalidation || hasPlanChanges(plan)) {
-    return [];
-  }
-
-  const plans = collectPlanPath(plan);
-
-  switch (navigation.revalidation.kind) {
-    case 'branch':
-      return plans;
-    case 'router': {
-      const router = navigation.revalidation.router;
-      return plans.filter((candidate) => candidate.runtime.router === router);
-    }
-    case 'restore': {
-      const changed = previous ? collectChangedQueryRouters(previous.root, navigation.root) : [];
-      return changed.length > 0 ? plans.filter((candidate) => changed.includes(candidate.runtime.router)) : plans;
-    }
-  }
-};
-
-const collectChangedQueryRouters = (
-  previous: NavigationRouterState,
-  current: NavigationRouterState,
-): readonly RouterDeclaration[] => {
-  const routers: RouterDeclaration[] = [];
-  let left: NavigationRouterState | null = previous;
-  let right: NavigationRouterState | null = current;
-
-  while (right && left?.router === right.router) {
-    if (!areNavigationQueriesEqual(left.query, right.query)) routers.push(right.router);
-    left = left.child;
-    right = right.child;
-  }
-
-  return routers;
-};
-
-const hasPlanChanges = <TPresentation>(plan: RouterTransitionPlan<TPresentation>): boolean => {
-  return plan.localChanged || (plan.childPlan !== null && hasPlanChanges(plan.childPlan));
 };
 
 const stagePlanLocations = <TPresentation>(

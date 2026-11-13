@@ -5,7 +5,11 @@ import { Application as CoreApplication } from '../../../../core/application/lif
 import type { ApplicationNavigationListener } from '../../../../core/application/lifecycle/application';
 import { NativeModuleExportResolver } from '../../../module/resolution/module-export-resolver';
 import type { ModuleMetadata } from '../../../module/declaration/module';
-import type { NativeRouterBridge } from '../../../router/bridge/native-router-bridge';
+import {
+  resolveNativeRouterBridge,
+  type NativeRouterBridge,
+  type NativeRouterBridgeReference,
+} from '../../../router/bridge/native-router-bridge';
 import { NativeBackRuntime } from '../../../router/runtime/native-back-runtime';
 import { NativePresentationRuntime } from '../../../router/runtime/native-presentation-runtime';
 import { ApplicationConfig } from '../../config/application-config';
@@ -13,7 +17,7 @@ import type { ApplicationConfiguratorInterface } from '../../config/application-
 import { createApplicationView, type ApplicationViewSource } from '../../rendering/application-host';
 
 export interface ApplicationOptions {
-  readonly routerBridge: NativeRouterBridge;
+  readonly routerBridge: NativeRouterBridgeReference;
 }
 
 export abstract class Application extends CoreApplication<ModuleMetadata, ApplicationConfiguratorInterface> {
@@ -24,10 +28,11 @@ export abstract class Application extends CoreApplication<ModuleMetadata, Applic
 
   constructor(options: ApplicationOptions) {
     const config = new ApplicationConfig();
+    const routerBridge = resolveNativeRouterBridge(options.routerBridge);
 
-    super(options.routerBridge, config, new NativeModuleExportResolver());
+    super(routerBridge, config, new NativeModuleExportResolver());
     this.nativeConfig = config;
-    this.nativeRouterBridge = options.routerBridge;
+    this.nativeRouterBridge = routerBridge;
   }
 
   createView(): React.FC {

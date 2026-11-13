@@ -2,6 +2,7 @@ import type { RouteParams, RouteToken } from '../../declaration/route-token';
 import type { RouteDeclaration } from '../../declaration/route';
 import { getRouteDefinition } from '../../declaration/route';
 import type { RouterDeclaration } from '../../declaration/router';
+import type { NavigationTrigger } from '../../runtime/navigation-operation';
 import { getRoutePath, getRouterGraph, type RouteGraphNode, validateRouteParams } from '../../runtime/router-graph';
 import type {
   NavigationInitiator,
@@ -24,7 +25,7 @@ import {
 
 export type NavigationExecutor = (
   navigation: NavigationState,
-  options?: { readonly resetHistory: boolean },
+  options?: { readonly resetHistory: boolean; readonly trigger?: NavigationTrigger },
 ) => void | Promise<void>;
 
 export interface CoreNavigateOptions {
@@ -113,7 +114,7 @@ class CoreNavigate extends NavigateServiceInterface {
       this.initiator,
     );
 
-    await this.options.execute(navigation);
+    await this.options.execute(navigation, { resetHistory: false, trigger: 'root' });
   }
 
   through<TToken extends RouteToken, TParams extends RouteParams<TToken> = RouteParams<TToken>>(
@@ -156,11 +157,7 @@ class CoreNavigate extends NavigateServiceInterface {
   async execute(request: NavigationRequest): Promise<void> {
     const navigation = this.resolve(request);
 
-    if (request.history === 'reset') {
-      await this.options.execute(navigation, { resetHistory: true });
-    } else {
-      await this.options.execute(navigation);
-    }
+    await this.options.execute(navigation, { resetHistory: request.history === 'reset', trigger: 'target' });
   }
 
   async query(query: Readonly<Record<string, unknown>>, options: NavigateQueryOptions = {}): Promise<void> {
@@ -179,7 +176,7 @@ class CoreNavigate extends NavigateServiceInterface {
     );
 
     if (navigation !== current) {
-      await this.options.execute(navigation);
+      await this.options.execute(navigation, { resetHistory: false, trigger: 'query' });
     }
   }
 }

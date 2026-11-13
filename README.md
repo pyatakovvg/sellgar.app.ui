@@ -3,6 +3,23 @@
 - Статус пакета: development
 - Статус реализации: in-progress
 
+## Публичный API
+
+Прикладные импорты ограничены entrypoint-ами из `package.json#exports`.
+Они открывают declarations, сервисные контракты, hooks и компоненты подключения.
+Widget runtime, screen renderer, resolved config и metadata registry доступны
+только внутренним owners через их локальные facades.
+
+`createNativeRouterBridge()` возвращает непрозрачную ссылку для
+`ApplicationOptions.routerBridge`. Native Application разрешает её в единственный
+bridge runtime; driver и завершение presentation остаются внутри адаптера.
+Next Application предоставляет прикладной lifecycle и `getDependency()`,
+а доступ renderer к scope, features и регистрации модулей остаётся внутренним.
+
+Граница закреплена compile-time fixtures `contracts/public-api.fixture.ts` и
+`contracts/next-facade.fixture.ts`. Они проверяют отсутствие внутренних экспортов
+и отсутствие runtime access в публичных сигнатурах.
+
 ## Метаданные приложения и модулей
 
 [Метаданные](core/metadata/README.md): `@Metadata` задаёт defaults,
@@ -60,7 +77,7 @@ Native JS-тесты не доказывают корректность жест
 - `react/` → `@sellgar/app/react`;
 - `native/` → `@sellgar/app/native`;
 - `fsm/` → `@sellgar/app/fsm`;
-- `next/` → `@sellgar/app/next` — [адаптер Next.js App Router](next/README.md).
+- `next/` → `@sellgar/app/next` — адаптер Next.js App Router.
 
 `shared/` содержит внутренние общие React bindings двух renderers, но не является
 публичным entrypoint. Контексты renderer-ов остаются раздельными; core не зависит
@@ -288,7 +305,9 @@ Renderer-independent `ApplicationEventBusInterface` также является 
 типизированными событиями без зависимости от renderer adapter. `publish()`
 ожидает async handlers, но изолирует ошибку отдельного подписчика через общий
 runtime failure flow. `createScope()` группирует подписки конкретного владельца,
-а application dispose гарантированно очищает оставшиеся регистрации.
+а application dispose очищает оставшиеся регистрации. Повторные регистрации
+одного handler доставляют событие один раз; снятие одной регистрации не
+отключает остальные scopes, пока не освобождён последний владелец.
 Renderer-neutral reactive entity layer сохраняет `@Entity`,
 `@EntityCollection`, weak registries и атомарные `updateEntity`, `insertEntity`
 и `removeEntity`: доменные classes не импортируют MobX и обновляют все живые
@@ -391,6 +410,9 @@ core, и явно владеет типом renderer-specific module loader. О�
 делегируются ModuleRuntime без второго operation coordinator. Локальный
 revalidate сохраняет Route/Module instances и запускает только их явные
 `revalidate` hooks вокруг Module revalidation.
+Route-provider, Module-provider и controller loaders участвуют в одной
+loader-транзакции ревалидации. Отказ любого участника отбрасывает подготовленные
+накопления Collector, даже если другие участники уже завершились.
 Core `RouterRuntime` собирает эти boundaries в иерархический logical state:
 локальная Route-ветка каждого Router scope хранится отдельно от дочернего Router
 и его owner Route. Это сохраняет основной screen при открытии nested routing,
@@ -470,6 +492,12 @@ RouteRuntime. `navigate.query()` меняет query текущего Router scop
 классу ключи.
 Преобразование через `class-transformer`, validation и сериализация остаются
 внутри core service.
+Web bridge поддерживает повторяющиеся query keys, вложенные объекты и
+индексированные массивы. При включённом `parseArrays` индекс массива должен
+быть безопасным целым числом от 0 до 999; превышение вызывает `RangeError`
+до выделения массива. При `parseArrays: false` ключи с квадратными скобками
+сохраняются буквально. Ограничение индекса не меняет обработку повторяющихся
+ключей и JSON-значений, размер которых определяется размером входа.
 Terminal `navigate.to()` единолично задаёт navigation target и lifecycle.
 `navigate.through()` только связывает params его строгих предков: для уже
 committed внешней ветки nested Router binding является проверкой контекста и не
@@ -503,3 +531,42 @@ params и не принимает transport path или обычные navigatio
 Полная сверка framework-механик с текущей production-композицией зафиксирована
 в [management-panel-characterization.md](docs/management-panel-characterization.md).
 Admin UI и Mobile Shop используют этот package через его публичные entrypoints.
+
+Освобождение Application сохраняет порядок bridge, Router, widgets, features,
+providers и application resources. Ошибка отдельного этапа проходит через
+`cleanup.contained` и не останавливает остальные этапы. Синхронные и асинхронные
+disposers обрабатываются одинаково. Конкурентные вызовы `dispose()` ожидают одно
+освобождение; после завершения Application переходит в `disposed`.
+
+## Навигация и ревалидация
+
+Внутренний `NavigationOperation` сохраняет причину запуска, исходную цель и
+redirect ancestry конкретного перехода. `RuntimeExecution` относится к одному
+запуску loader в конкретном owner scope. Эти metadata не добавляют обязательных
+аргументов контроллеру и не хранятся в глобальном mutable current context.
+
+Новые Route/Module готовятся до commit. Сохранённые owners ревалидируются после
+commit согласно выбранной branch/router/restore области. При смене локальной Route-цепочки
+postcommit обновляет только сохранённые owners с изменившимся query; уже
+подготовленные Route не загружаются повторно. Открытие дочернего Router с прежним
+query не запускает загрузчики родителя. `revalidate: false` пропускает эту фазу.
+
+При явной навигации `target`, `root` или `bridge-request` новая выборка Collector
+начинается только у конечной цели, если её owner выбран для ревалидации.
+Предки и независимые Widget owners не получают скрытого сброса. Ошибка обновления
+сохраняет принятые loader data; поздний результат старой выборки не публикуется.
+
+## Накопление результатов loader
+
+[Collector](core/collection/runtime/collector/README.md) выполняет переданный
+callback, накапливает массив и предоставляет отдельный типизированный
+`state.get/set` для значений потребителя. Он не интерпретирует контракты
+ответов и пагинацию. `reset()` подготавливает новую коллекцию, сохраняя
+прежние данные до успешной замены; injection в runtime связывает фиксацию
+накоплений с принятием loader data.
+
+## Архитектурные решения
+
+- [Универсальное ядро, renderers и router bridge](docs/rfc/universal-core-renderers-router-bridge.md) — accepted, in-progress; целевая архитектура и оставшиеся границы переноса.
+- [FSM Application и Router](docs/rfc/fsm-application-and-router.md) — accepted, partial; основа FSM-среза реализована, документ сохраняет границы решения.
+- [Операции навигации и ревалидация](docs/rfc/navigation-operation-revalidation.md) — accepted, partial; контекст, планирование и Collector реализованы, оценка общего executor остаётся отдельным этапом.

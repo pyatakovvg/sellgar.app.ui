@@ -35,6 +35,8 @@
     "./contracts/fsm-facade.fixture.tsx",
     "./contracts/application-feature.fixture.tsx",
     "./contracts/application-metric.fixture.ts",
-    "./contracts/metadata.fixture.ts"
+    "./contracts/metadata.fixture.ts",
+    "./contracts/collector.fixture.ts",
+    "./contracts/public-api.fixture.ts"
   ]
 }

@@ -5,7 +5,6 @@ export type { ApplicationComponents } from './application/config/application-con
 export { useApplicationReporter } from './application/reporting/hook/use-application-reporter';
 
 export { Layout } from './layout/declaration/layout';
-export { renderLayouts } from './layout/rendering/layout-renderer';
 export type { LayoutConstructor, LayoutMetadata, LayoutViewProps } from './layout/declaration/layout';
 
 export { Module } from './module/declaration/module';

@@ -18,6 +18,12 @@ import type { DependencyToken } from '../../../di/token/dependency-token';
 import { executeGuardedMethod } from '../../../guard/runtime/guard-method-executor';
 import { RevalidateServiceInterface } from '../../../revalidate/contract/revalidate-service';
 import { RuntimeRevalidateService } from '../../../revalidate/runtime/revalidate-service';
+import {
+  LoaderTransactionService,
+  commitLoaderData,
+  discardLoaderData,
+  settleLoaderTasks,
+} from '../../../controller/runtime/loader-transaction';
 import { resolveRuntimeRevalidateState } from '../../../revalidate/runtime/revalidate-state';
 import { isRuntimeExceptionSignal } from '../../exception/runtime-exception';
 import {
@@ -38,6 +44,7 @@ import {
   type RuntimeOperationResult,
 } from '../../operation/runtime-operation';
 import { RuntimeOperationCoordinator } from '../../operation/runtime-operation-coordinator';
+import { createRuntimeExecution } from '../../operation/runtime-execution';
 import { ProviderPipeline, type ProviderPipelineContext } from '../../provider/provider-pipeline';
 import type { RuntimeScope } from '../../scope/base/runtime-scope';
 import type { BindingRegistryInterface } from '../../../di/binding/binding-registry';
@@ -73,6 +80,7 @@ export interface ControllerOwnerRuntimeActionState<TResult = unknown> {
 }
 
 export interface ControllerOwnerRuntimeRevalidateOptions {
+  readonly restartCollections?: boolean;
   readonly controllerToken?: DependencyToken<unknown>;
   readonly signal?: AbortSignal;
 }
@@ -318,6 +326,10 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
 
   revalidate(options: ControllerOwnerRuntimeRevalidateOptions = {}): Promise<void> {
     const runtime = this.getOperationalRuntime();
+    if (options.restartCollections && !options.signal?.aborted) {
+      runtime.scope.get(LoaderTransactionService).restartCollections();
+    }
+
     const operationId = ++this.revalidateOperationCounter;
     const operationGuard = this.createCompletionGuard();
 
@@ -574,12 +586,20 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
       source: this.createRuntimeSource('load'),
     });
 
+    if (result.type !== 'completed') this.discardLoaderTransaction(runtime);
+
     switch (result.type) {
       case 'completed': {
         const completedRuntime = this.activeRuntime;
 
         if (!completedRuntime) {
           throw new Error('Runtime владельца controllers не был создан.');
+        }
+
+        if (!commitLoaderData(completedRuntime.loaderData)) {
+          this.stateMachine.interruptLoading(revision);
+          await this.disposeActiveRuntime(runtime);
+          return;
         }
 
         completedRuntime.providerPipeline.commit();
@@ -648,7 +668,10 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
         source: this.createRuntimeSource('revalidate'),
       });
 
+      if (result.type !== 'completed') runtime.scope.get(LoaderTransactionService).discardCurrent();
+
       if (!this.isCurrentRevalidate(operationId, runtime, abortController)) {
+        if (result.type === 'completed') discardLoaderData(result.value);
         if (this.ownsRevalidate(operationId, runtime, abortController)) {
           this.setRevalidateState(controllerToken, DEFAULT_REVALIDATE_STATE);
         }
@@ -738,7 +761,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
   ): Promise<ControllerLoaderData> {
     const controllers = selectControllers(runtime.controllers, controllerToken);
     const args = this.createControllerArgs(props, signal);
-    const entries = await Promise.all(
+    const entries = await settleLoaderTasks(
       controllers.map(async ([token, controller]) => {
         const value = controller.loader
           ? await executeRuntimeParticipant(
@@ -766,7 +789,25 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     return createControllerLoaderData(entries);
   }
 
+  private discardLoaderTransaction(runtime: ActiveControllerOwnerRuntime<TProps> | null): void {
+    runtime?.scope.get(LoaderTransactionService).discardCurrent();
+  }
+
   private async loadRuntime(
+    runtime: ActiveControllerOwnerRuntime<TProps>,
+    props: TProps,
+    signal: AbortSignal,
+    initial: boolean,
+    controllerToken?: DependencyToken<unknown>,
+  ): Promise<ControllerLoaderData> {
+    const execution = createRuntimeExecution(initial ? 'load' : 'revalidation', runtime.scope);
+
+    return runtime.scope
+      .get(LoaderTransactionService)
+      .run(signal, () => this.loadRuntimeData(runtime, props, signal, initial, controllerToken), execution);
+  }
+
+  private async loadRuntimeData(
     runtime: ActiveControllerOwnerRuntime<TProps>,
     props: TProps,
     signal: AbortSignal,
@@ -778,7 +819,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     throwIfAborted(signal, 'Загрузка владельца controllers была прервана.');
 
     if (!initial) {
-      const [loaderData] = await Promise.all([
+      const [loaderData] = await settleLoaderTasks([
         this.loadControllers(runtime, props, signal, controllerToken),
         runtime.providerPipeline.revalidate(context),
       ]);
@@ -791,7 +832,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     await runtime.providerPipeline.initialize(context);
     throwIfAborted(signal, 'Загрузка владельца controllers была прервана.');
 
-    const [loaderData] = await Promise.all([
+    const [loaderData] = await settleLoaderTasks([
       this.loadControllers(runtime, props, signal, controllerToken),
       runtime.providerPipeline.prepare(context),
     ]);
@@ -847,6 +888,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
   ): Promise<void> {
     switch (result.type) {
       case 'completed':
+        if (!commitLoaderData(result.value)) return;
         runtime.loaderData =
           controllerToken === undefined ? result.value : mergeControllerLoaderData(runtime.loaderData, result.value);
         this.emit();

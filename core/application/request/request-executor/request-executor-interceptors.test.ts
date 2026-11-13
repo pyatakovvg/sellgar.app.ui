@@ -62,7 +62,7 @@ describe('RequestExecutor execution chains', () => {
     const failure = new Error('Preparation failed');
     const chain = executor.request
       .use((config) => ({ ...config, page: 1 }))
-      .request.use((config): typeof config => {
+      .request.use((_config): typeof _config => {
         throw failure;
       })
       .request.use(undefined, (error, config) => {

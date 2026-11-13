@@ -16,6 +16,9 @@ import { reportRuntimeFailure, type RuntimeOwner } from '../../../runtime/failur
 import { executeRuntimeParticipant } from '../../../runtime/operation/runtime-operation';
 import { ProviderPipeline } from '../../../runtime/provider/provider-pipeline';
 import { ModuleScope } from '../../../runtime/scope/kind/module-scope';
+import { LoaderTransactionService, settleLoaderTasks } from '../../../controller/runtime/loader-transaction';
+import type { NavigationOperation } from '../../../router/runtime/navigation-operation';
+import { createRuntimeExecution } from '../../../runtime/operation/runtime-execution';
 
 export type LoadedModuleControllerContext = ControllerArgs<WithParams<Record<string, unknown>, WithProps<object>>>;
 
@@ -67,6 +70,8 @@ export const createLoadedModuleRuntime = async <TPresentation>(
 };
 
 export interface LoadLoadedModuleRuntimeOptions {
+  readonly revalidate?: (signal: AbortSignal) => void | Promise<void>;
+  readonly navigationOperation?: NavigationOperation;
   readonly abortMessage?: string;
   readonly controllerToken?: DependencyToken<unknown>;
   readonly setup?: boolean;
@@ -77,13 +82,30 @@ export const loadLoadedModuleRuntime = async (
   args: LoadedModuleControllerContext,
   options: LoadLoadedModuleRuntimeOptions = {},
 ): Promise<ControllerLoaderData> => {
+  const execution = createRuntimeExecution(
+    options.setup === false ? 'revalidation' : 'load',
+    runtime.scope,
+    options.navigationOperation,
+  );
+
+  return runtime.scope
+    .get(LoaderTransactionService)
+    .run(args.signal, () => loadModuleData(runtime, args, options), execution);
+};
+
+const loadModuleData = async (
+  runtime: LoadedModuleRuntime,
+  args: LoadedModuleControllerContext,
+  options: LoadLoadedModuleRuntimeOptions,
+): Promise<ControllerLoaderData> => {
   const abortMessage = options.abortMessage ?? 'Выполнение модуля было прервано.';
   const context = createProviderContext(runtime, args);
 
   if (options.setup === false) {
-    const [loaderData] = await Promise.all([
+    const [loaderData] = await settleLoaderTasks([
       loadControllers(runtime, args, options.controllerToken),
       runtime.providerPipeline.revalidate(context),
+      Promise.resolve().then(() => options.revalidate?.(args.signal)),
     ]);
 
     throwIfAborted(args.signal, abortMessage);
@@ -94,7 +116,7 @@ export const loadLoadedModuleRuntime = async (
   await runtime.providerPipeline.initialize(context);
   throwIfAborted(args.signal, abortMessage);
 
-  const [loaderData] = await Promise.all([
+  const [loaderData] = await settleLoaderTasks([
     loadControllers(runtime, args, options.controllerToken),
     runtime.providerPipeline.prepare(context),
   ]);
@@ -155,7 +177,7 @@ const loadControllers = async (
   controllerToken?: DependencyToken<unknown>,
 ): Promise<ControllerLoaderData> => {
   const controllers = selectControllers(runtime.controllers, controllerToken);
-  const entries = await Promise.all(
+  const entries = await settleLoaderTasks(
     controllers.map(async ([token, controller]) => {
       const value = controller.loader
         ? await executeRuntimeParticipant(

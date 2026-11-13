@@ -43,6 +43,7 @@ import {
 } from '../../../runtime/operation/runtime-operation';
 import { ProviderPipeline } from '../../../runtime/provider/provider-pipeline';
 import type { RuntimeScope } from '../../../runtime/scope/base/runtime-scope';
+import type { NavigationOperation } from '../navigation-operation';
 import { RouteScope } from '../../../runtime/scope/kind/route-scope';
 import { createRouteScopedNavigate, NavigateServiceInterface } from '../../service/navigate-service';
 import { LocationServiceInterface, ScopedLocationService } from '../../service/location-service';
@@ -60,6 +61,7 @@ export interface RouteRuntimeSnapshot {
 }
 
 export interface RouteRuntimePrepareContext {
+  readonly navigationOperation?: NavigationOperation;
   readonly params: Readonly<Record<string, unknown>>;
   readonly signal: AbortSignal;
 }
@@ -81,6 +83,8 @@ export interface RouteRuntimeCallbacks<TPresentation = unknown> {
 }
 
 export interface RouteRuntimeRevalidateOptions {
+  readonly restartCollections?: boolean;
+  readonly navigationOperation?: NavigationOperation;
   readonly controllerToken?: DependencyToken<unknown>;
   readonly signal?: AbortSignal;
 }
@@ -359,7 +363,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
     this.state = { params, phase: 'preparing' };
     this.emit();
 
-    const promise = this.runPrepare(params, abortController, operationId).finally(() => {
+    const promise = this.runPrepare(params, abortController, operationId, context.navigationOperation).finally(() => {
       context.signal.removeEventListener('abort', abort);
 
       if (this.prepareAbortController === abortController) {
@@ -572,6 +576,8 @@ export class RouteActivationRuntime<TPresentation = unknown> {
 
     const params = this.getParams();
     const moduleOptions: ModuleRuntimeRevalidateOptions = {
+      restartCollections: options.restartCollections,
+      navigationOperation: options.navigationOperation,
       controllerToken: options.controllerToken,
       lifecycle: {
         revalidate: (signal) =>
@@ -652,6 +658,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
     params: Readonly<Record<string, unknown>>,
     abortController: AbortController,
     operationId: number,
+    navigationOperation?: NavigationOperation,
   ): Promise<void> {
     const result = await executeRuntimeOperation({
       guard: this.createPreparationGuard(),
@@ -666,11 +673,14 @@ export class RouteActivationRuntime<TPresentation = unknown> {
 
         await Promise.all([
           providerPipeline.prepare(providerContext),
-          this.moduleRuntime?.load({
-            params: { ...params },
-            props: EMPTY_PROPS,
-            signal: abortController.signal,
-          }),
+          this.moduleRuntime?.load(
+            {
+              params: { ...params },
+              props: EMPTY_PROPS,
+              signal: abortController.signal,
+            },
+            navigationOperation,
+          ),
         ]);
 
         throwIfPreparationAborted(abortController.signal);

@@ -1,5 +1,7 @@
 export {
   createNativeRouterBridge,
+  resolveNativeRouterBridge,
+  type NativeRouterBridgeReference,
   type NativeNavigationEntry,
   NativeRouterBridge,
   type NativeNavigationDriver,

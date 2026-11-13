@@ -4,7 +4,7 @@ import 'reflect-metadata';
 import type { DependencyToken } from '../../../../core/di/token/dependency-token';
 import { ModuleRuntime } from '../../../../core/module/runtime/module-runtime';
 import { RuntimeScope } from '../../../../core/runtime/scope/base/runtime-scope';
-import type { Application } from '../../../application/lifecycle/application';
+import { getApplicationRuntime, type Application } from '../../../application/lifecycle/application';
 import { EntryExportResolver } from '../../../runtime/resolution/entry-export-resolver';
 import type { RuntimeEntryKind, RuntimeEntryPresentation } from '../../../runtime/contract/runtime-entry';
 import type { ModuleLoader, ModuleSnapshot } from '../../contract/module-snapshot';
@@ -30,7 +30,8 @@ export function createModuleRuntime(
   id: string,
   options: ModuleSessionOptions = {},
 ): ModuleSession {
-  const scope = options.parent?.runtime.getActiveModule().scope ?? app.contextScope;
+  const application = getApplicationRuntime(app);
+  const scope = options.parent?.runtime.getActiveModule().scope ?? application.scope;
   const runtime = new ModuleRuntime<RuntimeEntryPresentation>(scope, load, new EntryExportResolver(options.kind), {
     kind: 'route',
     id,
@@ -71,7 +72,7 @@ export function createModuleRuntime(
   };
   unregisterParent = options.parent?.retainChild(session) ?? (() => {});
   try {
-    unregister = app.retainModule(session);
+    unregister = application.retainModule(session);
   } catch (error) {
     unregisterParent();
     throw error;

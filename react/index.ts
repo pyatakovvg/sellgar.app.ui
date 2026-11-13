@@ -2,11 +2,7 @@ export { Application } from './application/lifecycle/application';
 export type { ApplicationOptions } from './application/lifecycle/application';
 export { useApplicationReporter } from './application/reporting/hook/use-application-reporter';
 export { ApplicationConfiguratorInterface } from './application/config/application-configurator';
-export type {
-  ApplicationComponents,
-  ApplicationRouting,
-  ResolvedApplicationRouting,
-} from './application/config/application-configurator';
+export type { ApplicationComponents, ApplicationRouting } from './application/config/application-configurator';
 
 export { Layout } from './layout/declaration/layout';
 export type { LayoutContentKind } from '../shared/layout/declaration/layout-content-kind';

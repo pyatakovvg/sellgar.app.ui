@@ -8,7 +8,7 @@ import { UseBindings } from '../../../../core/di/composition/use-bindings';
 import type { BindingRegistryInterface } from '../../../../core/di/binding/binding-registry';
 import { Module } from '../../../../react/module/declaration/module';
 import { Provider } from '../../../../core/runtime/provider/provider';
-import { Application, startApplication } from '../../../application/lifecycle/application';
+import { Application, getApplicationRuntime, startApplication } from '../../../application/lifecycle/application';
 import { ClientModule } from '../client-module';
 import { captureModuleSnapshot, createModuleRuntime, hydrateModuleSession } from './module-session';
 
@@ -197,10 +197,10 @@ test('provider hooks keep core ordering and every cleanup runs before the applic
 test('application disposal is idempotent and prevents reentrant module activation during cleanup', async () => {
   const app = await startApplication(() => new Application());
   let cleaned = 0;
-  app.retainModule({
+  getApplicationRuntime(app).retainModule({
     async dispose() {
       assert.equal(app.lifecycle.phase, 'ready');
-      assert.throws(() => app.retainModule({ dispose: async () => {} }), /освобождении/);
+      assert.throws(() => getApplicationRuntime(app).retainModule({ dispose: async () => {} }), /освобождении/);
       cleaned++;
     },
   });
@@ -208,6 +208,19 @@ test('application disposal is idempotent and prevents reentrant module activatio
   assert.equal(first, app.dispose());
   await first;
   assert.equal(cleaned, 1);
+  assert.equal(app.lifecycle.phase, 'disposed');
+});
+
+test('renderer access does not become part of the public application instance', async () => {
+  const app = await startApplication(() => new Application());
+
+  for (const member of ['contextScope', 'contextFeatures', 'retainModule']) {
+    assert.equal(member in app, false, member);
+  }
+
+  assert.equal(getApplicationRuntime(app), getApplicationRuntime(app));
+  assert.equal(getApplicationRuntime(app).getFeatures().getSnapshot().phase, 'ready');
+  await app.dispose();
   assert.equal(app.lifecycle.phase, 'disposed');
 });
 

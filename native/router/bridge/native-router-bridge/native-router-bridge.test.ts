@@ -21,7 +21,7 @@ import type {
   NativeRouterTransportInterface,
   NativeRouterTransportListener,
 } from '../../transport/native-router-transport';
-import { createNativeRouterBridge } from './native-router-bridge';
+import { resolveNativeRouterBridge, createNativeRouterBridge, type NativeRouterBridge } from './native-router-bridge';
 
 abstract class ProductsRoute {}
 
@@ -40,8 +40,26 @@ const router = new Router({
 });
 
 describe('NativeRouterBridge', () => {
+  it('keeps the bridge runtime behind a stable opaque reference', () => {
+    const reference = createNativeRouterBridge({ transport: new TestTransport() });
+    const bridge = resolveNativeRouterBridge(reference);
+
+    expect(resolveNativeRouterBridge(reference)).toBe(bridge);
+    expect(Object.isFrozen(reference)).toBe(true);
+    expect('initialize' in reference).toBe(false);
+    expect('completePresentation' in reference).toBe(false);
+    expect('registerDriver' in reference).toBe(false);
+  });
+
+  it('rejects an unregistered bridge reference', () => {
+    // @ts-expect-error Application code cannot construct a bridge reference.
+    expect(() => resolveNativeRouterBridge({})).toThrow(/createNativeRouterBridge/);
+  });
+
   it('selects retained ModuleRuntime lifecycle', () => {
-    expect(createNativeRouterBridge({ transport: new TestTransport() }).runtimeRetention).toBe('retain');
+    expect(
+      resolveNativeRouterBridge(createNativeRouterBridge({ transport: new TestTransport() })).runtimeRetention,
+    ).toBe('retain');
   });
 
   it('keeps query changes inside the current screen runtime', () => {
@@ -65,7 +83,7 @@ describe('NativeRouterBridge', () => {
     const transport = new TestTransport(initial);
     const restore = vi.fn(async () => true);
     const navigateRoot = vi.fn(async () => undefined);
-    const bridge = createNativeRouterBridge({ transport });
+    const bridge = resolveNativeRouterBridge(createNativeRouterBridge({ transport }));
 
     await bridge.initialize(context({ navigateRoot, restore }));
 
@@ -74,7 +92,7 @@ describe('NativeRouterBridge', () => {
   });
 
   it('projects push, pop and session reset commits from authoritative core history', async () => {
-    const bridge = createNativeRouterBridge({ transport: new TestTransport() });
+    const bridge = resolveNativeRouterBridge(createNativeRouterBridge({ transport: new TestTransport() }));
     const products = resolveCoreNavigation(router, ProductsRoute, {}, undefined);
     const first = resolveCoreNavigation(router, ProductRoute, { params: { productId: 'first' } }, products);
 
@@ -96,7 +114,7 @@ describe('NativeRouterBridge', () => {
   it('passes runtime deep links into the same core restore pipeline', async () => {
     const transport = new TestTransport();
     const restore = vi.fn(async () => true);
-    const bridge = createNativeRouterBridge({ transport });
+    const bridge = resolveNativeRouterBridge(createNativeRouterBridge({ transport }));
 
     await bridge.initialize(context({ restore }));
     const next = location(['products', 'second']);
@@ -106,7 +124,7 @@ describe('NativeRouterBridge', () => {
   });
 
   it('exposes Back transition while core restores the previous entry', async () => {
-    const bridge = createNativeRouterBridge({ transport: new TestTransport() });
+    const bridge = resolveNativeRouterBridge(createNativeRouterBridge({ transport: new TestTransport() }));
     const back = vi.fn(async () => {
       expect(bridge.getSnapshot().backInProgress).toBe(true);
       return true;
@@ -120,7 +138,7 @@ describe('NativeRouterBridge', () => {
   });
 
   it('cancels pending forward navigation without starting a Back transition', async () => {
-    const bridge = createNativeRouterBridge({ transport: new TestTransport() });
+    const bridge = resolveNativeRouterBridge(createNativeRouterBridge({ transport: new TestTransport() }));
     const back = vi.fn(async () => true);
 
     await bridge.initialize(
@@ -137,7 +155,7 @@ describe('NativeRouterBridge', () => {
 
   it('rolls back a rejected physical traversal to the committed transport snapshot', async () => {
     const transport = new TestTransport();
-    const bridge = createNativeRouterBridge({ transport });
+    const bridge = resolveNativeRouterBridge(createNativeRouterBridge({ transport }));
     const products = resolveCoreNavigation(router, ProductsRoute, {}, undefined);
     const first = resolveCoreNavigation(router, ProductRoute, { params: { productId: 'first' } }, products);
 
@@ -198,7 +216,7 @@ const location = (address: readonly string[]): RouterBridgeLocationInterface =>
   Object.freeze({ address, nested: null, query: Object.freeze({}), state: undefined });
 
 const commit = (
-  bridge: ReturnType<typeof createNativeRouterBridge>,
+  bridge: NativeRouterBridge,
   navigation: ReturnType<typeof resolveCoreNavigation>,
   action: RouterBridgeHistoryAction,
   id: string,

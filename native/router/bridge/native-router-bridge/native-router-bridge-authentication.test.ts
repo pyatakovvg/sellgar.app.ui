@@ -28,7 +28,7 @@ import type {
   NativeRouterTransportInterface,
   NativeRouterTransportListener,
 } from '../../transport/native-router-transport';
-import { createNativeRouterBridge, type NativeRouterBridge } from './native-router-bridge';
+import { resolveNativeRouterBridge, createNativeRouterBridge, type NativeRouterBridge } from './native-router-bridge';
 
 abstract class SignInRoute {}
 abstract class ProtectedRoute {}
@@ -84,7 +84,7 @@ describe('NativeRouterBridge authentication transport', () => {
     const signInLoad = vi.fn(async () => ({}));
     const protectedLoad = vi.fn(async () => ({}));
     const transport = new TestTransport(location(['protected']));
-    const bridge = createNativeRouterBridge({ transport });
+    const bridge = resolveNativeRouterBridge(createNativeRouterBridge({ transport }));
     const app = new TestApplication(bridge, createRouter(signInLoad, protectedLoad));
 
     app.compose();

@@ -87,7 +87,7 @@ describe('CoreNavigate', () => {
       revalidate: false,
     });
 
-    expect(harness.execute).toHaveBeenCalledWith(harness.getCurrent(), { resetHistory: true });
+    expect(harness.execute).toHaveBeenCalledWith(harness.getCurrent(), { resetHistory: true, trigger: 'target' });
     expect(harness.getCurrent()?.root.path.map(({ params }) => params)).toEqual([{ id: 'one-1' }, { id: 'two-2' }]);
     expect(harness.getCurrent()?.root.query).toEqual({ tab: 'details' });
     expect(harness.getCurrent()?.state).toEqual({ completed: true });
@@ -95,7 +95,7 @@ describe('CoreNavigate', () => {
 
     harness.execute.mockClear();
     await harness.navigate.to(OneRoute, { params: { id: 'next' } });
-    expect(harness.execute).toHaveBeenCalledWith(harness.getCurrent());
+    expect(harness.execute).toHaveBeenCalledWith(harness.getCurrent(), { resetHistory: false, trigger: 'target' });
   });
 
   it('preserves reset intent in declarative navigation requests', async () => {
@@ -107,7 +107,7 @@ describe('CoreNavigate', () => {
     const resolved = resolveNavigateRequest(harness.navigate, request);
     expect(harness.execute).not.toHaveBeenCalled();
     await executeNavigateRequest(harness.navigate, request);
-    expect(harness.execute).toHaveBeenCalledWith(resolved, { resetHistory: true });
+    expect(harness.execute).toHaveBeenCalledWith(resolved, { resetHistory: true, trigger: 'target' });
   });
 
   it('resolves and executes the same ordered request used by declarative navigation controls', async () => {

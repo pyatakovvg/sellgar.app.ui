@@ -44,6 +44,11 @@ import {
 } from '../../../router/service/navigate-service';
 import type { NavigateServiceInterface } from '../../../router/service/navigate-service';
 import type { NavigationRequest } from '../../../router/service/navigation-request';
+import {
+  createNavigationOperation,
+  type NavigationOperation,
+  type NavigationTrigger,
+} from '../../../router/runtime/navigation-operation';
 import { BackBindings } from '../../../router/binding/back-bindings';
 import { BackRuntimeInterface } from '../../../router/runtime/back-runtime';
 import { RuntimeOperationCoordinator } from '../../../runtime/operation/runtime-operation-coordinator';
@@ -168,6 +173,7 @@ export abstract class Application<
 
   private initializerAbortController: AbortController | null = null;
   private initializePromise: Promise<void> | null = null;
+  private applicationDisposal: Promise<void> | null = null;
   private detachRuntimeRefresh: (() => void) | null = null;
   private detachSessionState: (() => void) | null = null;
   private navigationAbortController: AbortController | null = null;
@@ -277,6 +283,7 @@ export abstract class Application<
             sessionBoundary: null,
             allowActivationReuse: true,
             resetHistory: options?.resetHistory,
+            trigger: options?.trigger,
           });
         },
         router: this.config.routerValue,
@@ -356,13 +363,22 @@ export abstract class Application<
     return this.initializePromise;
   }
 
-  async dispose(): Promise<void> {
-    if (this.state === 'disposed' || this.state === 'disposing') {
-      return;
-    }
+  dispose(): Promise<void> {
+    if (this.applicationDisposal) return this.applicationDisposal;
 
+    let resolve!: () => void;
+    let reject!: (error: unknown) => void;
+    this.applicationDisposal = new Promise<void>((complete, fail) => {
+      resolve = complete;
+      reject = fail;
+    });
+    void this.disposeApplication().then(resolve, reject);
+    return this.applicationDisposal;
+  }
+
+  private async disposeApplication(): Promise<void> {
     this.setState('disposing');
-    const metricDisposal = this.scope.disposeMetrics();
+    const metricDisposal = this.disposeResource('metrics.dispose', () => this.scope.disposeMetrics());
     this.detachFeatures?.();
     this.detachFeatures = null;
     this.detachSessionState?.();
@@ -378,13 +394,13 @@ export abstract class Application<
     this.navigationAbortController?.abort(new Error('Навигация остановлена при освобождении приложения.'));
     await Promise.allSettled(this.navigationPromise ? [this.navigationPromise] : []);
 
-    await this.routerBridge.dispose();
-    await this.routerRuntime?.dispose();
-    await this.scope.disposeWidgetRuntimes();
-    await this.featuresRuntime?.dispose();
-    await this.scope.disposeProviders();
+    await this.disposeResource('bridge.dispose', () => this.routerBridge.dispose());
+    await this.disposeResource('router.dispose', () => this.routerRuntime?.dispose());
+    await this.disposeResource('widgets.dispose', () => this.scope.disposeWidgetRuntimes());
+    await this.disposeResource('features.dispose', () => this.featuresRuntime?.dispose());
+    await this.disposeResource('providers.dispose', () => this.scope.disposeProviders());
     if (this.scope.has(RuntimeOperationCoordinator)) {
-      this.scope.get(RuntimeOperationCoordinator).dispose();
+      await this.disposeResource('coordinator.dispose', () => this.scope.get(RuntimeOperationCoordinator).dispose());
     }
     await this.disposables.dispose((error) => {
       const failure = captureRuntimeFailure(error, {
@@ -396,10 +412,26 @@ export abstract class Application<
       this.reportFailure(failure, 'cleanup.contained', 'disposing');
     });
     await metricDisposal;
-    await this.scope.disposeReporters();
-    this.scope.dispose();
+    await this.disposeResource('reporters.dispose', () => this.scope.disposeReporters());
+    await this.disposeResource('scope.dispose', () => this.scope.dispose());
     this.navigationListeners.clear();
     this.setState('disposed');
+  }
+
+  private async disposeResource(operation: string, dispose: () => void | Promise<void>): Promise<void> {
+    try {
+      await dispose();
+    } catch (error) {
+      this.reportFailure(
+        captureRuntimeFailure(error, {
+          operation,
+          owner: { kind: 'application' },
+          participant: { kind: 'runtime' },
+        }),
+        'cleanup.contained',
+        'disposing',
+      );
+    }
   }
 
   subscribe(listener: ApplicationLifecycleListener): () => void {
@@ -630,6 +662,7 @@ export abstract class Application<
       source: 'external',
       blockersConfirmed: false,
       resetHistory: request.history === 'reset',
+      trigger: 'bridge-request',
     });
   }
 
@@ -648,7 +681,11 @@ export abstract class Application<
       return this.restoreHistoryEntry(entry.id, navigation, context.blockersConfirmed);
     }
 
-    return this.executeNavigation(navigation, { source: 'external', blockersConfirmed: context.blockersConfirmed });
+    return this.executeNavigation(navigation, {
+      source: 'external',
+      blockersConfirmed: context.blockersConfirmed,
+      trigger: 'restore',
+    });
   }
 
   private async confirmBridgeLocation(location: RouterBridgeLocationInterface, signal: AbortSignal): Promise<boolean> {
@@ -698,6 +735,7 @@ export abstract class Application<
           source: 'external',
           blockersConfirmed: false,
           historyTargetId: target.id,
+          trigger: 'history',
         });
       }
 
@@ -754,6 +792,7 @@ export abstract class Application<
       blockersConfirmed: false,
       historyTargetId: ownerEntryId,
       replaceCurrent: ownerEntryId === null,
+      trigger: 'close',
     });
   }
 
@@ -768,7 +807,12 @@ export abstract class Application<
     if (this.navigationHistory.current?.id === entry.id) return true;
 
     if (entry.activation === null) {
-      return this.executeNavigation(navigation, { source: 'external', blockersConfirmed, historyTargetId: entry.id });
+      return this.executeNavigation(navigation, {
+        source: 'external',
+        blockersConfirmed,
+        historyTargetId: entry.id,
+        trigger: 'history',
+      });
     }
 
     const linkedSignal = createLinkedAbortController(this.applicationAbortController.signal);
@@ -813,6 +857,7 @@ export abstract class Application<
       sessionBoundary = null,
       allowActivationReuse = true,
       resetHistory = false,
+      trigger = 'target',
     }: {
       readonly source?: RouterBridgeNavigationSource;
       readonly blockersConfirmed?: boolean;
@@ -821,6 +866,7 @@ export abstract class Application<
       readonly sessionBoundary?: ApplicationSessionBoundary | null;
       readonly allowActivationReuse?: boolean;
       readonly resetHistory?: boolean;
+      readonly trigger?: NavigationTrigger;
     } = {},
   ): Promise<boolean> {
     const request: ApplicationNavigationRequest = Object.freeze({
@@ -845,6 +891,7 @@ export abstract class Application<
       return Promise.resolve(false);
     }
 
+    const operation = createNavigationOperation(trigger, source, navigation);
     const previous = this.navigationPromise;
 
     this.navigationAbortController?.abort(new Error('Навигация заменена новым переходом.'));
@@ -868,6 +915,7 @@ export abstract class Application<
         sessionBoundary,
         allowActivationReuse,
         resetHistory,
+        operation,
       });
     })().finally(() => {
       if (this.scope.has(NavigationBlockerRuntimeInterface)) {
@@ -924,6 +972,7 @@ export abstract class Application<
       allowActivationReuse,
       resetHistory,
       locationAction = source === 'internal' ? 'apply' : 'preserve',
+      operation,
     }: {
       readonly source: RouterBridgeNavigationSource;
       readonly blockersConfirmed: boolean;
@@ -933,6 +982,7 @@ export abstract class Application<
       readonly allowActivationReuse: boolean;
       readonly resetHistory: boolean;
       readonly locationAction?: RouterBridgeLocationAction;
+      readonly operation: NavigationOperation;
     },
   ): Promise<boolean> {
     if (redirectDepth > MAX_POLICY_REDIRECT_DEPTH) {
@@ -943,6 +993,7 @@ export abstract class Application<
     const prepareContext = {
       app: this,
       blockersConfirmed,
+      navigationOperation: operation,
       onNavigationAccepted: (acceptedNavigation: NavigationState): void => {
         if (navigationAccepted) return;
 
@@ -979,6 +1030,7 @@ export abstract class Application<
         allowActivationReuse,
         resetHistory,
         locationAction: resolvedLocationAction,
+        operation,
       });
     }
 
@@ -1129,6 +1181,7 @@ export abstract class Application<
       allowActivationReuse,
       resetHistory,
       locationAction,
+      operation,
     }: {
       readonly source: RouterBridgeNavigationSource;
       readonly blockersConfirmed: boolean;
@@ -1138,6 +1191,7 @@ export abstract class Application<
       readonly allowActivationReuse: boolean;
       readonly resetHistory: boolean;
       readonly locationAction: RouterBridgeLocationAction;
+      readonly operation: NavigationOperation;
     },
   ): Promise<boolean> {
     switch (decision.type) {
@@ -1170,6 +1224,7 @@ export abstract class Application<
           allowActivationReuse,
           resetHistory,
           locationAction: 'apply',
+          operation: createNavigationOperation('redirect', source, target, operation),
         });
       }
       case 'redirect-to-saved-location': {
@@ -1195,6 +1250,7 @@ export abstract class Application<
           allowActivationReuse,
           resetHistory,
           locationAction: 'apply',
+          operation: createNavigationOperation('redirect', source, target, operation),
         });
       }
       case 'forbidden':
@@ -1251,7 +1307,7 @@ export abstract class Application<
           this.navigationSnapshot.navigation,
         );
 
-        await this.executeNavigation(target);
+        await this.executeNavigation(target, { trigger: 'redirect' });
         return;
       }
       case 'redirect-to-saved-location': {
@@ -1267,7 +1323,7 @@ export abstract class Application<
               this.navigationSnapshot.navigation,
             );
 
-        await this.executeNavigation(target);
+        await this.executeNavigation(target, { trigger: 'redirect' });
       }
     }
   }
@@ -1328,7 +1384,14 @@ export abstract class Application<
           replace: true,
           revalidation: null,
         }),
-        { source: 'internal', blockersConfirmed: false, historyTargetId: null, replaceCurrent: false, sessionBoundary },
+        {
+          source: 'internal',
+          blockersConfirmed: false,
+          historyTargetId: null,
+          replaceCurrent: false,
+          sessionBoundary,
+          trigger: 'session',
+        },
       );
       return;
     }
@@ -1340,6 +1403,7 @@ export abstract class Application<
           replace: true,
           revalidation: Object.freeze({ kind: 'branch' }),
         }),
+        { trigger: 'recovery' },
       );
       return;
     }
@@ -1374,6 +1438,7 @@ export abstract class Application<
               replace: true,
               revalidation: Object.freeze({ kind: 'branch' }),
             }),
+            { trigger: 'recovery' },
           );
           return;
         case 'decision':
@@ -1414,6 +1479,7 @@ export abstract class Application<
         replaceCurrent: true,
         sessionBoundary: null,
         allowActivationReuse: false,
+        trigger: 'recovery',
       },
     );
   }

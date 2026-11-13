@@ -39,7 +39,7 @@ const ShellGestureScrollView = React.forwardRef<React.ComponentRef<typeof ReactN
     const gestureRelations: Pick<React.ComponentProps<typeof GestureScrollView>, 'simultaneousWith'> = {
       simultaneousWith: runtime.dismissGesture,
     };
-    const scrollRef = useAnimatedRef<React.ComponentRef<typeof ReactNativeScrollView>>();
+    const scrollRef = useAnimatedRef<typeof ReactNativeScrollView>();
 
     useScrollOffset(scrollRef, runtime.scrollOffset);
 

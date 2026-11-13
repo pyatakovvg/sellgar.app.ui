@@ -18,6 +18,7 @@ import {
   type LoadedModuleRuntime,
 } from '../loaded-module-runtime';
 import type { RuntimeScope } from '../../../runtime/scope/base/runtime-scope';
+import type { NavigationOperation } from '../../../router/runtime/navigation-operation';
 import {
   reportRuntimeFailure,
   type RuntimeFailure,
@@ -44,6 +45,11 @@ import {
 } from '../../../runtime/exception/runtime-exception';
 import { RevalidateServiceInterface } from '../../../revalidate/contract/revalidate-service';
 import { RuntimeRevalidateService } from '../../../revalidate/runtime/revalidate-service';
+import {
+  LoaderTransactionService,
+  commitLoaderData,
+  discardLoaderData,
+} from '../../../controller/runtime/loader-transaction';
 import { resolveRuntimeRevalidateState } from '../../../revalidate/runtime/revalidate-state';
 import { WidgetRuntimeRegistry } from '../../../widget/runtime/widget-runtime-registry';
 
@@ -68,6 +74,8 @@ export interface ActiveModuleRuntime<TPresentation = unknown> extends LoadedModu
 }
 
 export interface ModuleRuntimeRevalidateOptions {
+  readonly restartCollections?: boolean;
+  readonly navigationOperation?: NavigationOperation;
   readonly controllerToken?: DependencyToken<unknown>;
   readonly lifecycle?: ModuleRuntimeRevalidateLifecycle;
   readonly params?: Record<string, unknown>;
@@ -456,6 +464,10 @@ export class ModuleRuntime<TPresentation = unknown> {
     }
 
     const moduleRuntime = this.state.active;
+    if (options.restartCollections && !options.signal?.aborted) {
+      moduleRuntime.scope.get(LoaderTransactionService).restartCollections();
+    }
+
     const operationId = ++this.revalidateOperationCounter;
     const operationGuard = this.createCompletionGuard();
 
@@ -522,12 +534,12 @@ export class ModuleRuntime<TPresentation = unknown> {
     this.emit();
   }
 
-  load(args: LoadedModuleControllerContext): Promise<ControllerLoaderData> {
+  load(args: LoadedModuleControllerContext, navigationOperation?: NavigationOperation): Promise<ControllerLoaderData> {
     if (this.loadPromise) {
       return this.loadPromise;
     }
 
-    const promise = this.runLoad(args).finally(() => {
+    const promise = this.runLoad(args, navigationOperation).finally(() => {
       if (this.loadPromise === promise) {
         this.loadPromise = null;
       }
@@ -671,7 +683,10 @@ export class ModuleRuntime<TPresentation = unknown> {
     }
   }
 
-  private async runLoad(args: LoadedModuleControllerContext): Promise<ControllerLoaderData> {
+  private async runLoad(
+    args: LoadedModuleControllerContext,
+    navigationOperation?: NavigationOperation,
+  ): Promise<ControllerLoaderData> {
     const guard = this.ownerScope.has(SessionRuntimeStateInterface)
       ? createRuntimeRevisionGuard(this.ownerScope.get(SessionRuntimeStateInterface))
       : null;
@@ -685,6 +700,7 @@ export class ModuleRuntime<TPresentation = unknown> {
           throwIfAborted(args.signal);
           return loadLoadedModuleRuntime(moduleRuntime, args, {
             abortMessage: 'Активация модуля была прервана.',
+            navigationOperation,
           });
         },
         signal: args.signal,
@@ -695,12 +711,15 @@ export class ModuleRuntime<TPresentation = unknown> {
         },
       });
 
+      if (result.type !== 'completed') moduleRuntime.scope.get(LoaderTransactionService).discardCurrent();
+
       switch (result.type) {
         case 'completed':
           throwIfAborted(args.signal);
           if (this.getBoundaryModuleOrNull() !== moduleRuntime) {
             throw new Error('Runtime загрузки модуля больше не актуален.');
           }
+          if (!commitLoaderData(result.value)) throw new Error('Loader result was superseded.');
           moduleRuntime.loaderData = result.value;
           moduleRuntime.loaderParams = args.params;
           moduleRuntime.loaderProps = args.props;
@@ -764,28 +783,18 @@ export class ModuleRuntime<TPresentation = unknown> {
     try {
       const result = await executeRuntimeOperation({
         guard: operationGuard,
-        operation: async () => {
-          const [loaderData] = await Promise.all([
-            loadLoadedModuleRuntime(
-              moduleRuntime,
-              {
-                params,
-                props,
-                signal: abortController.signal,
-              },
-              {
-                abortMessage: 'Обновление модуля было прервано.',
-                controllerToken,
-                setup: false,
-              },
-            ),
-            options.lifecycle?.revalidate?.(abortController.signal),
-          ]);
-
-          throwIfAborted(abortController.signal);
-
-          return loaderData;
-        },
+        operation: () =>
+          loadLoadedModuleRuntime(
+            moduleRuntime,
+            { params, props, signal: abortController.signal },
+            {
+              abortMessage: 'Обновление модуля было прервано.',
+              navigationOperation: options.navigationOperation,
+              controllerToken,
+              revalidate: (signal) => options.lifecycle?.revalidate?.(signal),
+              setup: false,
+            },
+          ),
         signal: abortController.signal,
         source: {
           operation: 'revalidate',
@@ -794,7 +803,10 @@ export class ModuleRuntime<TPresentation = unknown> {
         },
       });
 
+      if (result.type !== 'completed') moduleRuntime.scope.get(LoaderTransactionService).discardCurrent();
+
       if (!this.isCurrentRevalidate(operationId, moduleRuntime, abortController)) {
+        if (result.type === 'completed') discardLoaderData(result.value);
         if (this.ownsRevalidate(operationId, moduleRuntime, abortController)) {
           this.setRevalidateState(controllerToken, DEFAULT_REVALIDATE_STATE);
         }
@@ -834,6 +846,7 @@ export class ModuleRuntime<TPresentation = unknown> {
   ): Promise<void> {
     switch (result.type) {
       case 'completed':
+        if (!commitLoaderData(result.value)) return;
         moduleRuntime.loaderData =
           controllerToken === undefined
             ? result.value
