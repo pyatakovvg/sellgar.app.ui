@@ -28,13 +28,34 @@ export abstract class RuntimeScope {
   private readonly retainedModules = new Map<BindingModuleConstructor, RetainedBindingModule>();
   private readonly retainedOrder: BindingModuleConstructor[] = [];
   private isDisposed = false;
+  private requestAbortController = new AbortController();
 
   protected readonly container: Container;
 
-  constructor(parent?: RuntimeScope) {
+  constructor(private readonly parent?: RuntimeScope) {
     this.container = new Container({
       parent: parent?.container,
     });
+  }
+
+  getRequestSignal(): AbortSignal {
+    return this.parent
+      ? AbortSignal.any([this.requestAbortController.signal, this.parent.getRequestSignal()])
+      : this.requestAbortController.signal;
+  }
+
+  suspendRequests(): void {
+    this.requestAbortController.abort();
+  }
+
+  resumeRequests(): void {
+    if (!this.isDisposed && this.requestAbortController.signal.aborted) {
+      this.requestAbortController = new AbortController();
+    }
+  }
+
+  isWithin(owner: RuntimeScope): boolean {
+    return this === owner || (this.parent?.isWithin(owner) ?? false);
   }
 
   activate(owner: unknown, options: RuntimeScopeActivateOptions = {}): void {
@@ -46,6 +67,7 @@ export abstract class RuntimeScope {
       return;
     }
 
+    this.suspendRequests();
     const disposeErrors: unknown[] = [];
 
     for (const listener of this.disposeListeners) {

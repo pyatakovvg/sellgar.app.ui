@@ -90,8 +90,11 @@ export const createRuntimeCompletionRevisionGuard = (source: RuntimeRevisionSour
 export const executeRuntimeOperation = async <TValue>(
   options: RuntimeOperationOptions<TValue>,
 ): Promise<RuntimeOperationResult<TValue>> => {
+  if (options.signal?.aborted || options.guard?.isInterrupted()) {
+    return { type: 'interrupted', cause: options.signal?.reason, reason: 'guard-interrupted' };
+  }
+  const guardInterruption = createGuardInterruption<TValue>(options.guard, options.signal);
   const operationPromise = executeRuntimeOperationBody(options);
-  const guardInterruption = createGuardInterruption<TValue>(options.guard);
 
   try {
     return await Promise.race([operationPromise, guardInterruption.promise]);
@@ -171,8 +174,10 @@ interface GuardInterruption<TResult> {
 
 const createGuardInterruption = <TValue>(
   guard: RuntimeOperationGuard | null,
+  signal?: AbortSignal,
 ): GuardInterruption<RuntimeOperationResult<TValue>> => {
   let unsubscribe = (): void => {};
+  let abort = (): void => {};
   const promise = new Promise<RuntimeOperationResult<TValue>>((resolve) => {
     const interrupt = (): void => {
       resolve({
@@ -182,7 +187,10 @@ const createGuardInterruption = <TValue>(
       });
     };
 
-    if (guard?.isInterrupted()) {
+    abort = () => resolve({ type: 'interrupted', cause: signal?.reason, reason: 'request-cancelled' });
+    signal?.addEventListener('abort', abort, { once: true });
+
+    if (signal?.aborted || guard?.isInterrupted()) {
       interrupt();
       return;
     }
@@ -191,7 +199,10 @@ const createGuardInterruption = <TValue>(
   });
 
   return {
-    dispose: () => unsubscribe(),
+    dispose: () => {
+      unsubscribe();
+      signal?.removeEventListener('abort', abort);
+    },
     promise,
   };
 };

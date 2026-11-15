@@ -3,6 +3,9 @@ import { Controller, type ControllerArgs, type WithPayload } from '../../../cont
 import { UseBindings } from '../../../di/composition/use-bindings';
 import type { BindingRegistryInterface } from '../../../di/binding/binding-registry';
 import { ApplicationScope } from '../../../runtime/scope/kind/application-scope';
+import { RequestExecutor } from '../../request/request-executor';
+import { UnauthorizedException } from '../../../http/exception/http-exception';
+import { SessionRuntimeStateInterface } from '../../session/session-runtime-state';
 import { SessionRuntimeState } from '../../session/session-runtime-state';
 import { Feature, type ApplicationFeatureInterface } from '../application-feature';
 import { ApplicationFeaturesRuntime } from './application-features-runtime';
@@ -69,6 +72,31 @@ const fixture = (options: { load?: () => Promise<void>; action?: (signal: AbortS
 };
 
 describe('application feature controller lifecycle', () => {
+  it('accepts another loader after a protected 401 interrupted its previous request', async () => {
+    let load = async () => {};
+    const f = fixture({ load: () => load() });
+    const session = f.scope.get(SessionRuntimeStateInterface);
+    session.setAuthenticated();
+    const requests = new RequestExecutor(session);
+    const started = vi.fn();
+    try {
+      await f.runtime.load();
+      load = () => requests.run(() => Promise.reject(new UnauthorizedException({ title: 'expired' })));
+      await f.runtime.revalidate({ controllerToken: f.Counter });
+      expect(session.phase).toBe('anonymous');
+      expect(f.runtime.getRevalidateState().inProcess).toBe(false);
+      session.setAuthenticated();
+      load = async () => {
+        started();
+      };
+      await f.runtime.revalidate({ controllerToken: f.Counter });
+      expect(started).toHaveBeenCalledOnce();
+      expect(f.runtime.getRevalidateState().inProcess).toBe(false);
+    } finally {
+      await f.dispose();
+    }
+  });
+
   it('rejects classes that do not declare the feature role', () => {
     class UndeclaredFeature implements ApplicationFeatureInterface {}
 

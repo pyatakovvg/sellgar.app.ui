@@ -49,6 +49,7 @@ import {
   LoaderTransactionService,
   commitLoaderData,
   discardLoaderData,
+  settleLoaderTasks,
 } from '../../../controller/runtime/loader-transaction';
 import { resolveRuntimeRevalidateState } from '../../../revalidate/runtime/revalidate-state';
 import { WidgetRuntimeRegistry } from '../../../widget/runtime/widget-runtime-registry';
@@ -130,6 +131,7 @@ interface ModuleCleanupTask<TPresentation> {
 }
 
 interface ModuleRevalidateTask<TPresentation> {
+  readonly controllerToken: DependencyToken<unknown> | undefined;
   readonly moduleRuntime: ActiveModuleRuntime<TPresentation>;
   readonly promise: Promise<void>;
 }
@@ -464,14 +466,26 @@ export class ModuleRuntime<TPresentation = unknown> {
     }
 
     const moduleRuntime = this.state.active;
-    if (options.restartCollections && !options.signal?.aborted) {
+    if (options.signal?.aborted) return Promise.resolve();
+    if (this.loadPromise) return this.loadPromise.then(() => undefined);
+
+    const pending = [...this.revalidateTasks].filter(
+      (task) =>
+        task.moduleRuntime === moduleRuntime &&
+        (options.controllerToken === undefined ||
+          options.restartCollections ||
+          task.controllerToken === undefined ||
+          task.controllerToken === options.controllerToken),
+    );
+    if (pending.length === 1) return pending[0]!.promise;
+    if (pending.length > 1) return settleLoaderTasks(pending.map((task) => task.promise)).then(() => undefined);
+
+    if (options.restartCollections) {
       moduleRuntime.scope.get(LoaderTransactionService).restartCollections();
     }
 
-    const operationId = ++this.revalidateOperationCounter;
+    const operationId = this.revalidateOperationCounter;
     const operationGuard = this.createCompletionGuard();
-
-    this.revalidateAbortController?.abort();
 
     const promise = this.revalidateQueue.then(() => {
       if (operationId !== this.revalidateOperationCounter) {
@@ -481,6 +495,7 @@ export class ModuleRuntime<TPresentation = unknown> {
       return this.executeRevalidate(moduleRuntime, options, operationId, operationGuard);
     });
     const task: ModuleRevalidateTask<TPresentation> = {
+      controllerToken: options.controllerToken,
       moduleRuntime,
       promise,
     };
@@ -528,7 +543,13 @@ export class ModuleRuntime<TPresentation = unknown> {
 
     const active = this.state.active;
 
-    await active.providerPipeline.focus({ scope: active.scope, signal });
+    active.scope.resumeRequests();
+    try {
+      await active.providerPipeline.focus({ scope: active.scope, signal });
+    } catch (error) {
+      active.scope.suspendRequests();
+      throw error;
+    }
     active.scope.get(WidgetRuntimeRegistry).focusOwner(active.scope);
     this.state = { active, phase: 'active' };
     this.emit();
@@ -691,6 +712,7 @@ export class ModuleRuntime<TPresentation = unknown> {
       ? createRuntimeRevisionGuard(this.ownerScope.get(SessionRuntimeStateInterface))
       : null;
     const moduleRuntime = await this.activate(args.signal);
+    args = { ...args, signal: AbortSignal.any([args.signal, moduleRuntime.scope.getRequestSignal()]) };
 
     try {
       // Cleanup waits for this operation, not for a request suspended by session expiration.
@@ -759,7 +781,10 @@ export class ModuleRuntime<TPresentation = unknown> {
 
     const controllerToken = options.controllerToken;
     const abortController = new AbortController();
-    const externalSignal = options.signal;
+    const externalSignal = AbortSignal.any([
+      moduleRuntime.scope.getRequestSignal(),
+      ...(options.signal ? [options.signal] : []),
+    ]);
     const abortRevalidate = (): void => {
       abortController.abort();
     };
@@ -986,6 +1011,7 @@ export class ModuleRuntime<TPresentation = unknown> {
   private interruptRevalidation(): void {
     this.revalidateAbortController?.abort();
     this.revalidateOperationCounter++;
+    this.resetRevalidateState(false);
   }
 
   private isActiveModule(moduleRuntime: ActiveModuleRuntime<TPresentation>): boolean {
@@ -1053,6 +1079,7 @@ export class ModuleRuntime<TPresentation = unknown> {
     }
 
     this.disposedModules.add(moduleRuntime);
+    moduleRuntime.scope.suspendRequests();
     const loadPromise = this.loadPromise;
 
     const task: ModuleCleanupTask<TPresentation> = {

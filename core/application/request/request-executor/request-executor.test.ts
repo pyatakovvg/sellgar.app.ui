@@ -13,6 +13,67 @@ import { SessionRuntimeState } from '../../session/session-runtime-state';
 import { RequestExecutor } from './request-executor.ts';
 
 describe('RequestExecutor', () => {
+  it('cancels an uncooperative request and releases its sequential key before its late response', async () => {
+    const executor = new RequestExecutor(new SessionRuntimeState());
+    const abort = new AbortController();
+    const finish = createDeferred<string>();
+    const signals: AbortSignal[] = [];
+    const first = executor.run({ queueKey: 'shared', mode: 'sequential', signal: abort.signal }, ({ signal }) => {
+      signals.push(signal);
+      return finish.promise;
+    });
+    const failure = first.catch((error) => error);
+    const secondFinish = createDeferred<string>();
+    const next = vi.fn(() => secondFinish.promise);
+    const second = executor.run({ queueKey: 'shared', mode: 'sequential' }, next);
+    expect(next).not.toHaveBeenCalled();
+    abort.abort();
+    expect(isRuntimeInterruption(await failure)).toBe(true);
+    expect(signals[0]!.aborted).toBe(true);
+    const third = vi.fn(async () => 'third');
+    const thirdResult = executor.run({ queueKey: 'shared', mode: 'sequential' }, third);
+    finish.resolve('stale');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(third).not.toHaveBeenCalled();
+    secondFinish.resolve('next');
+    expect(await second).toBe('next');
+    expect(await thirdResult).toBe('third');
+  });
+
+  it('removes a cancelled queued request without cancelling an active request', async () => {
+    const executor = new RequestExecutor(new SessionRuntimeState());
+    const finish = createDeferred<string>();
+    const abort = new AbortController();
+    const first = executor.run({ queueKey: 'shared', mode: 'sequential' }, () => finish.promise);
+    const queued = vi.fn(async () => 'queued');
+    const second = executor.run({ queueKey: 'shared', mode: 'sequential', signal: abort.signal }, queued);
+    const failure = second.catch((error) => error);
+    abort.abort();
+    expect(isRuntimeInterruption(await failure)).toBe(true);
+    finish.resolve('first');
+    expect(await first).toBe('first');
+    expect(queued).not.toHaveBeenCalled();
+  });
+
+  it('does not cancel existing work for a pre-aborted cancelPrevious caller', async () => {
+    const executor = new RequestExecutor(new SessionRuntimeState());
+    const finish = createDeferred<string>();
+    let runningSignal!: AbortSignal;
+    const first = executor.run({ scope: 'same' }, ({ signal }) => {
+      runningSignal = signal;
+      return finish.promise;
+    });
+    const abort = new AbortController();
+    abort.abort();
+    await expect(
+      executor.run({ scope: 'same', cancelPrevious: true, signal: abort.signal }, async () => 'unused'),
+    ).rejects.toSatisfy(isRuntimeInterruption);
+    expect(runningSignal.aborted).toBe(false);
+    finish.resolve('first');
+    expect(await first).toBe('first');
+  });
+
   it('keeps cancellation terminal when an active operation resolves after abort', async () => {
     const session = new SessionRuntimeState();
     const operation = createDeferred<string>();

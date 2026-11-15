@@ -98,6 +98,7 @@ export interface ControllerOwnerRuntimeSnapshot {
 type ControllerOwnerRuntimeListener = () => void;
 
 interface WidgetRevalidateTask<TProps extends object> {
+  readonly controllerToken: DependencyToken<unknown> | undefined;
   readonly runtime: ActiveControllerOwnerRuntime<TProps>;
   readonly promise: Promise<void>;
 }
@@ -174,6 +175,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     this.loadAbortController?.abort(new Error('Runtime владельца controllers освобождён.'));
     this.interruptRevalidation();
     this.abortActions();
+    this.activeRuntime?.scope.suspendRequests();
 
     const runtime = this.activeRuntime;
 
@@ -301,7 +303,9 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
 
     const props = this.props;
     const revision = this.stateMachine.startLoading();
-    const linkedAbortController = createLinkedAbortController(options.signal);
+    const linkedAbortController = createLinkedAbortController(
+      AbortSignal.any([this.ownerScope.getRequestSignal(), ...(options.signal ? [options.signal] : [])]),
+    );
     const { abortController } = linkedAbortController;
 
     this.loadAbortController = abortController;
@@ -326,14 +330,26 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
 
   revalidate(options: ControllerOwnerRuntimeRevalidateOptions = {}): Promise<void> {
     const runtime = this.getOperationalRuntime();
-    if (options.restartCollections && !options.signal?.aborted) {
+    if (options.signal?.aborted) return Promise.resolve();
+    if (this.loadPromise) return this.loadPromise.then(() => undefined);
+
+    const pending = [...this.revalidateTasks].filter(
+      (task) =>
+        task.runtime === runtime &&
+        (options.controllerToken === undefined ||
+          options.restartCollections ||
+          task.controllerToken === undefined ||
+          task.controllerToken === options.controllerToken),
+    );
+    if (pending.length === 1) return pending[0]!.promise;
+    if (pending.length > 1) return settleLoaderTasks(pending.map((task) => task.promise)).then(() => undefined);
+
+    if (options.restartCollections) {
       runtime.scope.get(LoaderTransactionService).restartCollections();
     }
 
-    const operationId = ++this.revalidateOperationCounter;
+    const operationId = this.revalidateOperationCounter;
     const operationGuard = this.createCompletionGuard();
-
-    this.revalidateAbortController?.abort(new Error('Обновление владельца controllers заменено новым.'));
 
     const promise = this.revalidateQueue.then(() => {
       if (operationId !== this.revalidateOperationCounter) {
@@ -342,7 +358,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
 
       return this.executeRevalidate(runtime, options, operationId, operationGuard);
     });
-    const task = { promise, runtime };
+    const task = { controllerToken: options.controllerToken, promise, runtime };
 
     this.revalidateTasks.add(task);
     this.revalidateQueue = promise.catch(() => undefined);
@@ -466,6 +482,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     }
 
     this.disposedRuntimes.add(runtime);
+    runtime.scope.suspendRequests();
     if (waitForRevalidations) {
       await this.waitForRevalidations(runtime);
     }
@@ -517,7 +534,9 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     }
 
     const props = this.props;
-    const linkedAbortController = createLinkedAbortController(options.signal);
+    const linkedAbortController = createLinkedAbortController(
+      AbortSignal.any([runtime.scope.getRequestSignal(), ...(options.signal ? [options.signal] : [])]),
+    );
     const { abortController } = linkedAbortController;
 
     this.actionAbortControllers.set(controllerToken, abortController);
@@ -653,7 +672,9 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
 
     const props = this.props;
     const controllerToken = options.controllerToken;
-    const linkedAbortController = createLinkedAbortController(options.signal);
+    const linkedAbortController = createLinkedAbortController(
+      AbortSignal.any([runtime.scope.getRequestSignal(), ...(options.signal ? [options.signal] : [])]),
+    );
     const { abortController } = linkedAbortController;
 
     this.revalidateAbortController = abortController;
@@ -727,6 +748,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
   private interruptRevalidation(): void {
     this.revalidateAbortController?.abort(new Error('Runtime владельца controllers освобождён.'));
     this.revalidateOperationCounter++;
+    this.resetRevalidateState(false);
   }
 
   private isActive(runtime: ActiveControllerOwnerRuntime<TProps>): boolean {

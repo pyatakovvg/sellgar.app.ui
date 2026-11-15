@@ -282,6 +282,15 @@ Navigation API pre-commit, history fallback и `beforeunload`.
 ApplicationScope также владеет единым
 RequestExecutor: он сохраняет очереди, scoped cancellation и session recovery
 текущего framework, а Application отменяет оставшиеся запросы при dispose.
+После подтверждения перехода на другую страницу, включая history back/forward,
+текущие запросы executor отменяются до загрузки новой страницы. Отмена освобождает
+последовательную очередь сразу; поздний ответ не публикуется.
+Отмена принятого перехода через Back или замену другим переходом также отменяет
+запросы загружаемой страницы. Обычная замена query сохраняет правило занятого loader.
+Сигнал lifecycle распространяется от Route/Module на вложенные виджеты. Retain прекращает их
+загрузки, а focus позволяет последующие запросы и возобновляет отменённую первую
+загрузку виджета. При отмене сбрасывается `inProcess`; состояние коллекции
+сохраняется по последнему принятому результату.
 Защищённый `401` полностью поглощается этим application boundary: конкурентные
 ошибки объединяются в одну recovery operation, notifier выполняется до перехода
 в `anonymous`, а `SessionRuntimeState.expire()` активно завершает зависшие
@@ -368,8 +377,14 @@ state, и только явная runtime escalation переводит ModuleRu
 controllers, providers и текущие loader data, параллельно выполняет guarded
 loaders и явный provider `revalidate` без повтора `initialize`/`prepare`/`activate`
 и без initial fallback. Global и targeted
-operations имеют observable state, последовательно supersede-ят устаревшую
-operation и не применяют late result после abort, session revision либо dispose.
+operations имеют observable state. Пока controller выполняет loader, повторная
+ревалидация этого controller не запускается; общий запуск блокируется, пока есть
+любая незавершённая загрузка owner. Заблокированный вызов ожидает текущую
+работу и не планирует повтор. Правило действует и при смене query/props:
+после завершения нужен новый явный вызов. UI блокирует управляющие элементы
+через loading. Разные targeted operations сохраняют существующую
+последовательность loader transactions. Abort, session revision и dispose
+по-прежнему запрещают публикацию late result.
 `useRevalidate()` без token запускает общую revalidation owner и агрегирует
 `inProcess/error` общей и любой targeted operation. `useRevalidate(Token)`
 запускает targeted revalidation и наблюдает только operation, явно адресованную
@@ -389,7 +404,7 @@ StrictMode replay не пересоздавал controller/provider instances. �
 identity разделяет runtime, loader data, submit/revalidate state и последнее
 принятое значение props; разные keys и owner scopes изолированы. Каждая
 load/action/revalidate operation захватывает собственный props snapshot,
-superseded revalidation не публикует late result. React entrypoint владеет
+прерванная revalidation не публикует late result. React entrypoint владеет
 `@Widget`, `WidgetHost`, `useWidgetProps` и локальными fallback/exception,
 включая render error boundary; core не импортирует presentation types.
 В React, Native и FSM внутренний widget host мемоизирован по runtime/token:

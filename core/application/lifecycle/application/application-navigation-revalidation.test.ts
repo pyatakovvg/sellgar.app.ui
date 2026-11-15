@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { RequestExecutorInterface } from '../../request/request-executor';
+import { WidgetDefinition, configureWidgetRuntimeDefinition } from '../../../widget/declaration/widget';
+import { WidgetRuntimeRegistry } from '../../../widget/runtime/widget-runtime-registry';
 import { Controller } from '../../../controller/contract/controller';
 import type { BindingModuleInterface } from '../../../di/binding/binding-module';
 import type { BindingRegistryInterface } from '../../../di/binding/binding-registry';
@@ -48,8 +51,10 @@ const createFixture = async (
   retention: RouterBridgeRuntimeRetention,
   otherRouteReady: Promise<void> = Promise.resolve(),
   redirectOther = false,
+  throughExecutor = false,
 ) => {
   const events: string[] = [];
+  const requestSignals: AbortSignal[] = [];
   const executions: RuntimeExecution[] = [];
   const read = vi.fn<() => Promise<number[]>>().mockResolvedValue([1]);
   const otherRouteStarted = deferred();
@@ -63,14 +68,22 @@ const createFixture = async (
 
   @Controller()
   class ListController {
-    constructor(@Inject(LoaderTransactionService) private readonly transactions: LoaderTransactionService) {}
+    constructor(
+      @Inject(LoaderTransactionService) private readonly transactions: LoaderTransactionService,
+      @Inject(RequestExecutorInterface) private readonly requests: RequestExecutorInterface,
+    ) {}
 
     loader(): Promise<number[]> {
       const execution = this.transactions.requireCurrent().execution;
       if (!execution) throw new Error('Loader execution context is missing.');
       executions.push(execution);
       events.push('loader');
-      return read();
+      return throughExecutor
+        ? this.requests.run({ mode: 'sequential', queueKey: 'list' }, ({ signal }) => {
+            requestSignals.push(signal);
+            return read();
+          })
+        : read();
     }
   }
 
@@ -82,6 +95,10 @@ const createFixture = async (
 
   @UseBindings(ListBindings)
   class ListModule {}
+
+  @UseBindings(ListBindings)
+  class ListWidget extends WidgetDefinition {}
+  configureWidgetRuntimeDefinition(ListWidget);
 
   @Provider()
   class ListProvider implements ProviderInterface {
@@ -192,7 +209,18 @@ const createFixture = async (
   app.compose();
   await app.initialize();
 
-  return { app, bridge, events, executions, lifecycle, ListController, otherRouteStarted, read };
+  return {
+    app,
+    bridge,
+    events,
+    executions,
+    lifecycle,
+    ListController,
+    ListWidget,
+    otherRouteStarted,
+    read,
+    requestSignals,
+  };
 };
 
 describe('Navigation and revalidation compatibility', () => {
@@ -265,6 +293,37 @@ describe('Navigation and revalidation compatibility', () => {
       expect(read).toHaveBeenCalledTimes(2);
       expect(app.navigation.navigation?.root.query).toEqual({ sort: 'desc' });
       expect(app.routes[0]).toBe(route);
+    });
+
+    it('skips query revalidation while a loader is busy and allows the next explicit refresh', async () => {
+      const { app, read, ListController } = await createFixture(retention);
+      const route = app.routes[0]!;
+      const ready = deferred();
+      const finish = deferred();
+      const revalidate = vi.spyOn(route.getModuleRuntime(), 'revalidate');
+      read.mockImplementationOnce(async () => {
+        ready.resolve();
+        await finish.promise;
+        return [2];
+      });
+      const first = route.revalidate({ controllerToken: ListController });
+      await ready.promise;
+      const navigation = app.navigate.query({ sort: 'desc' });
+      try {
+        await vi.waitFor(() => expect(revalidate).toHaveBeenCalledTimes(2));
+        finish.resolve();
+        await Promise.all([first, navigation]);
+        expect(app.navigation.navigation?.root.query).toEqual({ sort: 'desc' });
+        expect(read).toHaveBeenCalledTimes(2);
+        expect(route.getLoaderData(ListController)).toEqual([2]);
+        read.mockResolvedValueOnce([3]);
+        await route.revalidate();
+        expect(read).toHaveBeenCalledTimes(3);
+        expect(route.getLoaderData(ListController)).toEqual([3]);
+      } finally {
+        finish.resolve();
+        await Promise.allSettled([first, navigation]);
+      }
     });
 
     it('preserves accepted navigation and data after a postcommit loader failure and permits retry', async () => {
@@ -362,6 +421,133 @@ describe('Navigation and revalidation compatibility', () => {
       expect(executions.at(-1)!.navigation?.source).toBe('external');
       expect(executions.at(-1)!.navigation?.requested.root.query).toEqual({ sort: 'asc' });
     });
+  });
+
+  it('cancels a busy loader on browser history restore even when only the query changes', async () => {
+    const f = await createFixture('retain', Promise.resolve(), false, true);
+    const route = f.app.routes[0]!;
+    const started = deferred();
+    const finish = deferred();
+    f.read.mockImplementationOnce(async () => {
+      started.resolve();
+      await finish.promise;
+      return [99];
+    });
+    const refresh = route.revalidate();
+    await started.promise;
+    const signal = f.requestSignals.at(-1)!;
+    try {
+      f.read.mockResolvedValueOnce([3]);
+      await f.bridge.restore({ address: ['list'], nested: null, query: { sort: 'asc' }, state: undefined });
+      await refresh;
+      expect(signal.aborted).toBe(true);
+      expect(route.getRevalidateState().inProcess).toBe(false);
+      expect(route.getLoaderData(f.ListController)).toEqual([3]);
+      finish.resolve();
+      await Promise.resolve();
+      expect(route.getLoaderData(f.ListController)).toEqual([3]);
+    } finally {
+      finish.resolve();
+      await refresh;
+    }
+  });
+
+  describe.each(['release', 'retain'] as const)('request cancellation with %s retention', (retention) => {
+    it.each(['target', 'back', 'forward'] as const)(
+      'cancels the outgoing module on %s before the next loader needs its sequential key',
+      async (direction) => {
+        const f = await createFixture(retention, Promise.resolve(), false, true);
+        if (direction === 'back') await f.app.navigate.to(OtherRoute);
+        if (direction === 'forward') {
+          await f.app.navigate.to(OtherRoute);
+          await f.app.navigate.back();
+        }
+        const route = f.app.routes[0]!;
+        const started = deferred();
+        const finish = deferred();
+        f.read.mockImplementationOnce(async () => {
+          started.resolve();
+          await finish.promise;
+          return [99];
+        });
+        const refresh = route.revalidate({ controllerToken: f.ListController });
+        await started.promise;
+        const signal = f.requestSignals.at(-1)!;
+        try {
+          if (direction === 'back') await f.app.navigate.back();
+          else if (direction === 'forward')
+            await f.bridge.restore({ address: ['other'], nested: null, query: {}, state: undefined });
+          else await f.app.navigate.to(OtherRoute);
+          await refresh;
+          expect(signal.aborted).toBe(true);
+          expect(route.getRevalidateState().inProcess).toBe(false);
+          const current = f.app.routes[0]!;
+          f.read.mockResolvedValueOnce([3]);
+          await current.revalidate();
+          finish.resolve();
+          await Promise.resolve();
+          expect(current.getLoaderData(f.ListController)).toEqual([3]);
+        } finally {
+          finish.resolve();
+          await refresh;
+        }
+      },
+    );
+
+    it.each(['initial', 'revalidation'] as const)(
+      'cancels a widget %s on page exit and can load it after history back',
+      async (mode) => {
+        const f = await createFixture(retention, Promise.resolve(), false, true);
+        const route = f.app.routes[0]!;
+        const ownerScope = route.getModuleRuntime().getActiveModule().scope;
+        const registry = ownerScope.get(WidgetRuntimeRegistry);
+        const started = deferred();
+        const finish = deferred();
+        if (mode === 'initial')
+          f.read.mockImplementationOnce(async () => {
+            started.resolve();
+            await finish.promise;
+            return [99];
+          });
+        const lease = registry.attach({ ownerScope, token: f.ListWidget, props: {} });
+        const widget = lease.runtime;
+        let refresh: Promise<void> = Promise.resolve();
+        if (mode === 'revalidation') {
+          await vi.waitFor(() => expect(widget.getSnapshot().phase).toBe('ready'));
+          f.read.mockImplementationOnce(async () => {
+            started.resolve();
+            await finish.promise;
+            return [99];
+          });
+          refresh = widget.revalidate({ controllerToken: f.ListController });
+        }
+        await started.promise;
+        const signal = f.requestSignals.at(-1)!;
+        try {
+          await f.app.navigate.to(OtherRoute);
+          await refresh;
+          expect(signal.aborted).toBe(true);
+          expect(widget.getRevalidateState().inProcess).toBe(false);
+          f.read.mockResolvedValueOnce([3]);
+          await f.app.navigate.back();
+          if (retention === 'retain') {
+            await vi.waitFor(() => expect(widget.getSnapshot().phase).toBe('ready'));
+            if (mode === 'revalidation') await widget.revalidate({ controllerToken: f.ListController });
+            expect(widget.getLoaderData(f.ListController)).toEqual([3]);
+            finish.resolve();
+            await Promise.resolve();
+            expect(widget.getLoaderData(f.ListController)).toEqual([3]);
+          } else {
+            expect(widget.getSnapshot().phase).toBe('disposed');
+            expect(f.app.routes[0]!.getLoaderData(f.ListController)).toEqual([3]);
+          }
+        } finally {
+          finish.resolve();
+          lease.release();
+          await refresh;
+        }
+      },
+    );
   });
 
   it('restores a retained activation from history without another loader or controller instance', async () => {

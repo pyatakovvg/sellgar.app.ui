@@ -413,7 +413,7 @@ describe('Collector navigation ownership', () => {
     expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([1, 2, 3]);
   });
 
-  it('does not merge a late append into a replacement selection', async () => {
+  it('blocks reentry while a loader runs and permits an explicit replacement after completion', async () => {
     const { app, list, ListController, read } = await createFixture();
     const started = deferred();
     const finish = deferred();
@@ -424,11 +424,15 @@ describe('Collector navigation ownership', () => {
     });
     const append = list.revalidate();
     await started.promise;
-    read.mockResolvedValueOnce({ entries: [3], following: 30 });
+    const calls = vi.spyOn(list.getModuleRuntime(), 'revalidate');
     const restart = app.navigate.to(ListRoute);
+    await vi.waitFor(() => expect(calls).toHaveBeenCalledOnce());
     finish.resolve();
-    await append;
-    await restart;
+    await Promise.all([append, restart]);
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([1, 99]);
+    read.mockResolvedValueOnce({ entries: [3], following: 30 });
+    await app.navigate.to(ListRoute);
     expect(read).toHaveBeenLastCalledWith(undefined);
     expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([3]);
   });

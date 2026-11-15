@@ -53,8 +53,18 @@ export class WidgetRuntimeRegistry {
   ): WidgetRuntimeLease<WidgetProps<TWidget>> {
     const lease = this.acquire(options);
 
-    if (lease.runtime.getSnapshot().phase === 'idle') {
+    const phase = lease.runtime.getSnapshot().phase;
+    if (phase === 'idle') {
       void lease.runtime.load().catch(() => undefined);
+    } else if (phase === 'loading') {
+      void lease.runtime
+        .load()
+        .then(() => {
+          if (!options.ownerScope.getRequestSignal().aborted && lease.runtime.getSnapshot().phase === 'idle') {
+            return lease.runtime.load();
+          }
+        })
+        .catch(() => undefined);
     }
 
     return lease;
@@ -173,13 +183,28 @@ export class WidgetRuntimeRegistry {
   }
 
   retainOwner(ownerScope: RuntimeScope): void {
+    ownerScope.suspendRequests();
     const bucket = this.owners.get(ownerScope);
     if (bucket) bucket.retained = true;
   }
 
   focusOwner(ownerScope: RuntimeScope): void {
+    ownerScope.resumeRequests();
     const bucket = this.owners.get(ownerScope);
     if (bucket) bucket.retained = false;
+    for (const entry of this.entries) {
+      if (!entry.ownerScope.isWithin(ownerScope)) continue;
+      const phase = entry.runtime.getSnapshot().phase;
+      if (phase !== 'idle' && phase !== 'loading') continue;
+      void entry.runtime
+        .load()
+        .then(() => {
+          if (!entry.ownerScope.getRequestSignal().aborted && entry.runtime.getSnapshot().phase === 'idle') {
+            return entry.runtime.load();
+          }
+        })
+        .catch(() => undefined);
+    }
   }
 
   /** Called after a retained surface is committed visible and its hosts have reattached. */

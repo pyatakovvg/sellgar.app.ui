@@ -1,3 +1,4 @@
+import { RequestExecutor } from '../../../application/request/request-executor';
 import type { ApplicationControllerInterface } from '../../../application/lifecycle/application-lifecycle';
 import { ApplicationReportDispatcherInterface } from '../../../application/reporting/application-report';
 import type { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
@@ -482,6 +483,27 @@ export class RouterRuntime<TPresentation = unknown> {
 
     activation.markReleased();
     await this.releaseActivationNode(activation.getRootNode());
+  }
+
+  cancelRequests(): void {
+    this.routerScope.get(RequestExecutor).cancelAll();
+    for (const runtime of this.getActiveRouteRuntimes()) {
+      const scope = runtime.getRouteScope();
+      scope.suspendRequests();
+      scope.resumeRequests();
+    }
+  }
+
+  private cancelRequestsBeforeNavigation(
+    next: readonly RouteActivationRuntime<TPresentation>[],
+    operation?: NavigationOperation,
+  ): void {
+    const previous = this.getActiveRouteRuntimes();
+    const history = operation?.trigger === 'restore' || operation?.trigger === 'history';
+    if (previous.length === 0) return;
+    if (!history && previous.length === next.length && previous.every((runtime, index) => runtime === next[index]))
+      return;
+    this.cancelRequests();
   }
 
   getActiveRouteRuntimes(): readonly RouteActivationRuntime<TPresentation>[] {
@@ -1183,6 +1205,7 @@ export class RouterRuntime<TPresentation = unknown> {
     }
 
     context.onNavigationAccepted?.(candidate.navigation);
+    this.cancelRequestsBeforeNavigation(collectActivationRouteRuntimes(root), context.navigationOperation);
 
     for (const boundary of ['canMatch', 'canActivate'] as const) {
       const decision = await this.executeActivationPolicies(root, boundary, context, abortController.signal);
@@ -1348,6 +1371,7 @@ export class RouterRuntime<TPresentation = unknown> {
       }
 
       context.onNavigationAccepted?.(candidate.navigation);
+      this.cancelRequestsBeforeNavigation(collectPlanRouteRuntimes(plan), context.navigationOperation);
 
       const canMatchResult = await this.executePlanPolicies(plan, 'canMatch', context, abortController.signal);
 

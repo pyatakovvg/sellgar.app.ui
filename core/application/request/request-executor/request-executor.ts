@@ -26,6 +26,7 @@ export interface RequestExecutionOptions {
   readonly priority?: number;
   readonly queueKey?: string;
   readonly scope?: string;
+  readonly signal?: AbortSignal;
 }
 
 export type RequestOperation<T, TContext extends RequestExecutionContext = RequestExecutionContext> = (
@@ -46,6 +47,7 @@ interface NormalizedRequestExecutionOptions {
   readonly priority: number;
   readonly queueKey: string | null;
   readonly scope: string | null;
+  readonly signal?: AbortSignal;
 }
 
 interface ExecutionTask<T = unknown> {
@@ -56,6 +58,7 @@ interface ExecutionTask<T = unknown> {
   readonly sessionBound: boolean;
   readonly signal: AbortSignal;
   sessionTerminated: boolean;
+  dispose(): void;
   reject(error: unknown): void;
   resolve(value: T): void;
 }
@@ -135,6 +138,10 @@ export class RequestExecutor implements RequestExecutorInterface {
     options: RequestExecutionOptions,
     operation: RequestOperation<T, RequestInterceptorContext>,
   ): Promise<T> {
+    if (options.signal?.aborted) {
+      return Promise.reject(createRuntimeInterruption(options.signal.reason, 'request-cancelled'));
+    }
+
     const normalizedOptions = this.normalizeOptions(options);
 
     if (normalizedOptions.cancelPrevious && normalizedOptions.scope) {
@@ -159,6 +166,7 @@ export class RequestExecutor implements RequestExecutorInterface {
       priority: options.priority ?? 0,
       queueKey,
       scope,
+      signal: options.signal,
     };
   }
 
@@ -170,6 +178,10 @@ export class RequestExecutor implements RequestExecutorInterface {
       const controller = new AbortController();
       const task: ExecutionTask<T> = {
         controller,
+        dispose: () => {
+          options.signal?.removeEventListener('abort', abort);
+          controller.signal.removeEventListener('abort', cancel);
+        },
         id: ++this.nextTaskId,
         operation,
         options,
@@ -179,6 +191,20 @@ export class RequestExecutor implements RequestExecutorInterface {
         signal: controller.signal,
         sessionTerminated: false,
       };
+
+      const abort = (): void => controller.abort(options.signal?.reason);
+      const cancel = (): void => {
+        if (!task.sessionTerminated) {
+          task.reject(createRuntimeInterruption(task.signal.reason, 'request-cancelled'));
+        }
+        const index = this.pendingTasks.indexOf(task as ExecutionTask);
+        if (index >= 0) this.pendingTasks.splice(index, 1);
+        this.finish(task as ExecutionTask);
+      };
+      controller.signal.addEventListener('abort', cancel, { once: true });
+      options.signal?.addEventListener('abort', abort, { once: true });
+      if (options.signal?.aborted) abort();
+      if (controller.signal.aborted) return;
 
       if (task.sessionBound && this.sessionRecoveryActive) {
         task.sessionTerminated = true;
@@ -255,16 +281,17 @@ export class RequestExecutor implements RequestExecutorInterface {
         task.reject(resolvedError.error);
       }
     } finally {
-      const wasActive = this.activeTasks.delete(task);
-
-      if (wasActive && task.options.mode === 'sequential' && task.options.queueKey) {
-        this.activeSequentialKeys.delete(task.options.queueKey);
-      }
-
-      if (wasActive) {
-        this.drain();
-      }
+      this.finish(task);
     }
+  }
+
+  private finish(task: ExecutionTask): void {
+    task.dispose();
+    if (!this.activeTasks.delete(task)) return;
+    if (task.options.mode === 'sequential' && task.options.queueKey) {
+      this.activeSequentialKeys.delete(task.options.queueKey);
+    }
+    this.drain();
   }
 
   private executeOperation<T>(task: ExecutionTask<T>): Promise<T> {
@@ -369,11 +396,6 @@ export class RequestExecutor implements RequestExecutorInterface {
 
       task.sessionTerminated = true;
       task.controller.abort();
-      this.activeTasks.delete(task);
-
-      if (task.options.mode === 'sequential' && task.options.queueKey) {
-        this.activeSequentialKeys.delete(task.options.queueKey);
-      }
     }
 
     this.drain();
@@ -388,7 +410,7 @@ export class RequestExecutor implements RequestExecutorInterface {
       }
 
       this.pendingTasks.splice(index, 1);
-      task.reject(createRuntimeInterruption(undefined, 'request-cancelled'));
+      task.controller.abort();
     }
   }
 }

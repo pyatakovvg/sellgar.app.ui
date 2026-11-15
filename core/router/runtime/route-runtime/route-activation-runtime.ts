@@ -498,11 +498,17 @@ export class RouteActivationRuntime<TPresentation = unknown> {
     }
 
     const params = this.state.params;
+    this.routeScope.resumeRequests();
 
-    await Promise.all([
-      this.providerPipeline?.focus({ scope: this.routeScope, signal }),
-      this.moduleRuntime?.focus(signal),
-    ]);
+    try {
+      await Promise.all([
+        this.providerPipeline?.focus({ scope: this.routeScope, signal }),
+        this.moduleRuntime?.focus(signal),
+      ]);
+    } catch (error) {
+      this.routeScope.suspendRequests();
+      throw error;
+    }
     this.routeScope.get(WidgetRuntimeRegistry).focusOwner(this.routeScope);
     this.state = { params, phase: 'active' };
     this.emit();
@@ -751,6 +757,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
   }
 
   private async runDispose(): Promise<void> {
+    this.routeScope.suspendRequests();
     this.operationCounter += 1;
     this.lifecycleAbortController.abort(new Error('Runtime маршрута освобождён.'));
     this.prepareAbortController?.abort(new Error('Runtime маршрута освобождён.'));

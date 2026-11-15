@@ -17,6 +17,10 @@ const transactions = new WeakMap<ControllerLoaderData, LoaderTransaction>();
 
 export class LoaderTransaction {
   private readonly participants = new Set<LoaderTransactionParticipant>();
+  private interrupt!: () => void;
+  readonly interrupted = new Promise<never>((_, reject) => {
+    this.interrupt = () => reject(createRuntimeInterruption(undefined, 'request-cancelled'));
+  });
   private phase: 'pending' | 'committed' | 'discarded' = 'pending';
 
   constructor(
@@ -25,7 +29,8 @@ export class LoaderTransaction {
     readonly execution?: RuntimeExecution,
     readonly collection?: LoaderCollectionContext,
   ) {
-    signal?.addEventListener('abort', this.discard, { once: true });
+    void this.interrupted.catch(() => undefined);
+    signal?.addEventListener('abort', this.cancel, { once: true });
   }
 
   enlist(participant: LoaderTransactionParticipant): void {
@@ -57,7 +62,7 @@ export class LoaderTransaction {
     }
 
     this.phase = 'committed';
-    this.signal?.removeEventListener('abort', this.discard);
+    this.signal?.removeEventListener('abort', this.cancel);
 
     for (const participant of this.participants) participant.commit();
 
@@ -66,11 +71,17 @@ export class LoaderTransaction {
     return true;
   }
 
+  readonly cancel = (): void => {
+    if (this.phase === 'committed') return;
+    this.discard();
+    this.interrupt();
+  };
+
   readonly discard = (): void => {
     if (this.phase !== 'pending') return;
 
     this.phase = 'discarded';
-    this.signal?.removeEventListener('abort', this.discard);
+    this.signal?.removeEventListener('abort', this.cancel);
 
     for (const participant of this.participants) participant.discard();
 
@@ -88,7 +99,8 @@ export class LoaderTransactionService {
 
   restartCollections(): void {
     this.collectionVersion = Symbol();
-    for (const transaction of this.pending) transaction.discard();
+    this.active?.cancel();
+    for (const transaction of this.pending) transaction.cancel();
   }
 
   requireCurrent(): LoaderTransaction {
@@ -101,7 +113,7 @@ export class LoaderTransactionService {
   }
 
   discardCurrent(): void {
-    this.active?.discard();
+    this.active?.cancel();
     this.active = undefined;
   }
 
@@ -135,9 +147,11 @@ export class LoaderTransactionService {
     });
     this.active = transaction;
     this.pending.add(transaction);
+    const abort = (): void => transaction.cancel();
+    signal.addEventListener('abort', abort, { once: true });
 
     try {
-      const data = await load();
+      const data = await Promise.race([load(), transaction.interrupted]);
       transaction.assertCurrent();
       transactions.set(data, transaction);
       return data;
@@ -146,13 +160,15 @@ export class LoaderTransactionService {
       this.pending.delete(transaction);
       throw error;
     } finally {
+      signal.removeEventListener('abort', abort);
       if (this.active === transaction) this.active = undefined;
     }
   }
 
   dispose(): void {
     this.disposed = true;
-    for (const transaction of this.pending) transaction.discard();
+    this.active?.cancel();
+    for (const transaction of this.pending) transaction.cancel();
 
     this.pending.clear();
     this.active = undefined;

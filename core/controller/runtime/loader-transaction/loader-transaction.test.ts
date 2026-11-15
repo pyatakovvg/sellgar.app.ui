@@ -17,6 +17,63 @@ const deferred = () => {
 };
 
 describe('Loader execution context', () => {
+  it('releases a cancelled transaction without waiting for its loader and rejects its late commit', async () => {
+    const service = new LoaderTransactionService();
+    const started = deferred();
+    const finish = deferred();
+    const abort = new AbortController();
+    const first = service.run(abort.signal, async () => {
+      started.resolve();
+      await finish.promise;
+      return createControllerLoaderData([]);
+    });
+    const failure = first.catch((error) => error);
+    await started.promise;
+    abort.abort();
+    expect(isRuntimeInterruption(await failure)).toBe(true);
+    const next = await service.run(new AbortController().signal, async () => createControllerLoaderData([]));
+    expect(commitLoaderData(next)).toBe(true);
+    finish.resolve();
+    await Promise.resolve();
+    service.dispose();
+  });
+
+  it('releases a discarded session transaction even when the contained request never settles', async () => {
+    const service = new LoaderTransactionService();
+    const started = deferred();
+    const first = service.run(new AbortController().signal, () => {
+      started.resolve();
+      return new Promise(() => {});
+    });
+    const failure = first.catch((error) => error);
+    await started.promise;
+    service.discardCurrent();
+    expect(isRuntimeInterruption(await failure)).toBe(true);
+    expect(
+      commitLoaderData(await service.run(new AbortController().signal, async () => createControllerLoaderData([]))),
+    ).toBe(true);
+    service.dispose();
+  });
+
+  it('still cancels loader work after a participant discarded the transaction', async () => {
+    const service = new LoaderTransactionService();
+    const started = deferred();
+    const abort = new AbortController();
+    const first = service.run(abort.signal, () => {
+      service.requireCurrent().discard();
+      started.resolve();
+      return new Promise(() => {});
+    });
+    const failure = first.catch((error) => error);
+    await started.promise;
+    abort.abort();
+    expect(isRuntimeInterruption(await failure)).toBe(true);
+    expect(
+      commitLoaderData(await service.run(new AbortController().signal, async () => createControllerLoaderData([]))),
+    ).toBe(true);
+    service.dispose();
+  });
+
   it('captures context per queued transaction without replacing the currently running one', async () => {
     const service = new LoaderTransactionService();
     const owner = new ApplicationScope();

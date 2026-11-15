@@ -113,24 +113,24 @@ describe('WidgetRuntime', () => {
     });
   });
 
-  it('does not apply a superseded revalidation result', async () => {
+  it('keeps the current props snapshot until the busy loader finishes', async () => {
     const deferred = createDeferred<void>();
     const runtime = createRuntime({ value: 'initial' });
-
     await runtime.load();
-    runtime.updateProps({ value: 'superseded' });
+    runtime.updateProps({ value: 'loading' });
     TestController.loaderDeferred = deferred;
-
-    const superseded = runtime.revalidate();
-
+    const first = runtime.revalidate();
     await waitFor(() => TestController.loadCount === 2);
     runtime.updateProps({ value: 'latest' });
     TestController.loaderDeferred = null;
-    const latest = runtime.revalidate();
-
+    const repeated = runtime.revalidate();
+    expect(repeated).toBe(first);
     deferred.resolve();
-    await Promise.all([superseded, latest]);
-
+    await Promise.all([first, repeated]);
+    expect(TestController.loadCount).toBe(2);
+    expect(runtime.getLoaderData(TestController)).toBe('loading');
+    await runtime.revalidate();
+    expect(TestController.loadCount).toBe(3);
     expect(runtime.getLoaderData(TestController)).toBe('latest');
   });
 

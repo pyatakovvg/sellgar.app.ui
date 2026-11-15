@@ -26,6 +26,7 @@ import { NavigationHistory, type NavigationHistoryMutation } from '../../../rout
 import {
   areNavigationQueriesEqual,
   areNavigationStatesEqual,
+  matchesNavigationState,
   type NavigationRouterState,
   type NavigationState,
 } from '../../../router/runtime/navigation-state';
@@ -743,6 +744,7 @@ export abstract class Application<
         return false;
       }
 
+      this.getRouterRuntime().cancelRequests();
       await this.getRouterRuntime().focusActivation(
         target.activation,
         target.navigation,
@@ -898,6 +900,13 @@ export abstract class Application<
 
     const linkedSignal = createLinkedAbortController(this.applicationAbortController.signal);
     const abortController = linkedSignal.controller;
+    const cancelRequests = (): void => {
+      const { navigation: current, pending } = this.navigationSnapshot;
+      if (!pending || (current && matchesNavigationState(current, pending) && matchesNavigationState(pending, current)))
+        return;
+      this.scope.get(RequestExecutor).cancelAll();
+    };
+    abortController.signal.addEventListener('abort', cancelRequests, { once: true });
 
     this.navigationAbortController = abortController;
     const promise = (async () => {
@@ -922,6 +931,7 @@ export abstract class Application<
         this.scope.get(NavigationBlockerRuntimeInterface).complete();
       }
 
+      abortController.signal.removeEventListener('abort', cancelRequests);
       linkedSignal.dispose();
 
       if (this.navigationAbortController === abortController) {

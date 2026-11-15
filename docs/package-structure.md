@@ -278,7 +278,17 @@ router bootstrap; bridge не подменяет application initialization.
 `RequestExecutor` также принадлежит ApplicationScope: все дочерние runtime
 scopes получают один executor, session recovery и набор очередей. Application
 отменяет его активные и ожидающие задачи до cleanup остальных application
-resources.
+resources. Подтверждённый переход на другую страницу отменяет текущие запросы
+executor до запуска destination loaders; history back/forward использует то же
+правило. Повторная ревалидация того же активного owner сохраняет правило busy.
+`RequestExecutionOptions.signal` позволяет явно связать отдельный запрос с отменой.
+Снятие отменённой задачи освобождает её sequential key до физического завершения
+операции. Поздний результат не может освободить ключ нового запроса.
+RuntimeScope хранит сигнал lifecycle с наследованием от parent; при retain он
+отменяется, при focus заменяется новым. Widget initial load и revalidation следуют
+этому сигналу. Отмена или session interruption освобождает LoaderTransactionService,
+даже если Promise отменённого loader больше не завершится; discard по ошибке
+сохраняет исходную ошибку.
 
 `request-execution-chain` — внутренний owner неизменяемого описания перехватчиков
 одного запуска. `executor.request.use(...)` и `executor.response.use(...)` создают
@@ -352,7 +362,11 @@ runtime-local adapter. Ближайший `ModuleScope` связывает servi
 revalidation заменяет весь loader-data snapshot, targeted — объединяет patch по
 controller token. Обе сохраняют runtime instances и текущую presentation,
 параллельно выполняют guarded loaders и явный provider `revalidate`, публикуют
-`inProcess/error` и выполняются последовательной superseding queue. Abort,
+`inProcess/error`. Незавершённая targeted operation блокирует повтор для того
+же token и общий запуск; общая operation блокирует все targeted-вызовы.
+Заблокированные вызовы ожидают текущую работу, не добавляя повторов в очередь,
+в том числе при смене query/props. Разные targets используют существующую
+последовательность loader transactions. Abort,
 session revision, замена runtime и dispose запрещают применение late result;
 cleanup controller/provider ждёт физического завершения уже запущенного loader.
 Tokenless handle `useRevalidate()` запускает общую operation и агрегирует её

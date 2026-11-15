@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { Controller } from '../../../controller/contract/controller';
+import { Controller, type ControllerArgs } from '../../../controller/contract/controller';
 import { Inject } from '../../../di/injection/decorators';
 import type { BindingModuleInterface } from '../../../di/binding/binding-module';
 import type { BindingRegistryInterface } from '../../../di/binding/binding-registry';
@@ -36,6 +36,7 @@ const deferred = () => {
 class ListController {
   static read = vi.fn<(position?: number) => Promise<{ entries: number[]; following: number }>>();
   static instance: ListController;
+  static signals: AbortSignal[] = [];
   static executions: RuntimeExecution[] = [];
   static transactions: LoaderTransaction[] = [];
 
@@ -46,7 +47,8 @@ class ListController {
     ListController.instance = this;
   }
 
-  loader(): Promise<number[]> {
+  loader(args: ControllerArgs): Promise<number[]> {
+    ListController.signals.push(args.signal);
     const transaction = this.transactions.requireCurrent();
     ListController.transactions.push(transaction);
     const execution = transaction.execution;
@@ -57,6 +59,14 @@ class ListController {
       state.set('position', response.following);
       return collection.append(response.entries);
     });
+  }
+}
+
+@Controller()
+class OtherController {
+  static read = vi.fn<() => Promise<number[]>>().mockResolvedValue([101]);
+  loader(): Promise<number[]> {
+    return OtherController.read();
   }
 }
 
@@ -75,6 +85,7 @@ class ListBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
     registry.bind(Collector).toSelf().inSingletonScope();
     registry.bind(ListController).toSelf().inSingletonScope();
+    registry.bind(OtherController).toSelf().inSingletonScope();
   }
 }
 
@@ -112,6 +123,8 @@ const setup = async (kind: 'module' | 'widget') => {
 
 describe.each(['module', 'widget'] as const)('Collector in %s runtime', (kind) => {
   beforeEach(() => {
+    ListController.signals = [];
+    OtherController.read = vi.fn().mockResolvedValue([101]);
     ListController.executions = [];
     ListController.transactions = [];
     ListController.read = vi.fn().mockResolvedValue({ entries: [1], following: 10 });
@@ -386,4 +399,229 @@ describe('Module route-provider transaction', () => {
       }
     },
   );
+});
+
+const turn = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+describe.each(['module', 'widget'] as const)('Loader admission in %s', (kind) => {
+  beforeEach(() => {
+    ListController.read = vi.fn().mockResolvedValue({ entries: [1], following: 10 });
+    ListController.signals = [];
+    ListController.executions = [];
+    ListController.transactions = [];
+    OtherController.read = vi.fn().mockResolvedValue([101]);
+    ListProvider.refresh = vi.fn().mockResolvedValue(undefined);
+  });
+
+  it.each(['targeted', 'general'] as const)(
+    'drops repeated %s launches until the current loader finishes',
+    async (mode) => {
+      const { runtime, scope } = await setup(kind);
+      const ready = deferred();
+      const finish = deferred();
+      const calls: Promise<void>[] = [];
+      try {
+        ListController.read.mockImplementationOnce(async () => {
+          ready.resolve();
+          await finish.promise;
+          return { entries: [2], following: 20 };
+        });
+        const options = mode === 'targeted' ? { controllerToken: ListController } : {};
+        calls.push(runtime.revalidate(options), runtime.revalidate(options));
+        await ready.promise;
+        for (let batch = 0; batch < 5; batch++) {
+          for (let event = 0; event < 20; event++) calls.push(runtime.revalidate(options));
+          await turn();
+        }
+        expect(ListController.signals.at(-1)?.aborted).toBe(false);
+        finish.resolve();
+        await Promise.all(calls);
+        await turn();
+        expect(ListController.read).toHaveBeenCalledTimes(2);
+        expect(runtime.getLoaderData(ListController)).toEqual([1, 2]);
+      } finally {
+        finish.resolve();
+        await Promise.allSettled(calls);
+        await runtime.dispose();
+        scope.dispose();
+      }
+    },
+  );
+
+  it('does not launch or queue general revalidation while a targeted loader runs', async () => {
+    const { runtime, scope } = await setup(kind);
+    const ready = deferred();
+    const finish = deferred();
+    const calls: Promise<void>[] = [];
+    try {
+      ListController.read.mockImplementationOnce(async () => {
+        ready.resolve();
+        await finish.promise;
+        return { entries: [2], following: 20 };
+      });
+      calls.push(runtime.revalidate({ controllerToken: ListController }));
+      await ready.promise;
+      for (let event = 0; event < 20; event++) calls.push(runtime.revalidate());
+      finish.resolve();
+      await Promise.all(calls);
+      await turn();
+      expect(ListController.read).toHaveBeenCalledTimes(2);
+      expect(OtherController.read).toHaveBeenCalledTimes(1);
+      expect(runtime.getLoaderData(ListController)).toEqual([1, 2]);
+    } finally {
+      finish.resolve();
+      await Promise.allSettled(calls);
+      await runtime.dispose();
+      scope.dispose();
+    }
+  });
+
+  it('does not repeat a loader already participating in general revalidation', async () => {
+    const { runtime, scope } = await setup(kind);
+    const ready = deferred();
+    const finish = deferred();
+    const calls: Promise<void>[] = [];
+    try {
+      ListController.read.mockImplementationOnce(async () => {
+        ready.resolve();
+        await finish.promise;
+        return { entries: [2], following: 20 };
+      });
+      calls.push(runtime.revalidate());
+      await ready.promise;
+      calls.push(runtime.revalidate({ controllerToken: ListController }));
+      finish.resolve();
+      await Promise.all(calls);
+      expect(ListController.read).toHaveBeenCalledTimes(2);
+      expect(OtherController.read).toHaveBeenCalledTimes(2);
+      expect(runtime.getLoaderData(ListController)).toEqual([1, 2]);
+    } finally {
+      finish.resolve();
+      await Promise.allSettled(calls);
+      await runtime.dispose();
+      scope.dispose();
+    }
+  });
+
+  it('keeps independent controller requests without cancelling the active loader', async () => {
+    const { runtime, scope } = await setup(kind);
+    const ready = deferred();
+    const finish = deferred();
+    const calls: Promise<void>[] = [];
+    try {
+      ListController.read.mockImplementationOnce(async () => {
+        ready.resolve();
+        await finish.promise;
+        return { entries: [2], following: 20 };
+      });
+      OtherController.read.mockResolvedValue([102]);
+      calls.push(runtime.revalidate({ controllerToken: ListController }));
+      await ready.promise;
+      calls.push(
+        runtime.revalidate({ controllerToken: OtherController }),
+        runtime.revalidate({ controllerToken: OtherController }),
+      );
+      calls.push(runtime.revalidate());
+      finish.resolve();
+      await Promise.all(calls);
+      expect(ListController.signals.at(-1)?.aborted).toBe(false);
+      expect(OtherController.read).toHaveBeenCalledTimes(2);
+      expect(runtime.getLoaderData(ListController)).toEqual([1, 2]);
+      expect(runtime.getLoaderData(OtherController)).toEqual([102]);
+    } finally {
+      finish.resolve();
+      await Promise.allSettled(calls);
+      await runtime.dispose();
+      scope.dispose();
+    }
+  });
+
+  it.each(['before', 'after'] as const)('ignores a repeated caller cancelled %s admission', async (when) => {
+    const { runtime, scope } = await setup(kind);
+    const ready = deferred();
+    const finish = deferred();
+    const abort = new AbortController();
+    try {
+      ListController.read.mockImplementationOnce(async () => {
+        ready.resolve();
+        await finish.promise;
+        return { entries: [2], following: 20 };
+      });
+      const first = runtime.revalidate({ controllerToken: ListController });
+      await ready.promise;
+      if (when === 'before') abort.abort();
+      const repeated = runtime.revalidate({ controllerToken: ListController, signal: abort.signal });
+      if (when === 'after') abort.abort();
+      finish.resolve();
+      await Promise.all([first, repeated]);
+      expect(ListController.signals.at(-1)?.aborted).toBe(false);
+      expect(ListController.read).toHaveBeenCalledTimes(2);
+      expect(runtime.getLoaderData(ListController)).toEqual([1, 2]);
+    } finally {
+      finish.resolve();
+      await runtime.dispose();
+      scope.dispose();
+    }
+  });
+
+  it('unlocks a cancelled loader after completion and permits a new explicit call', async () => {
+    const { runtime, scope } = await setup(kind);
+    const ready = deferred();
+    const finish = deferred();
+    const abort = new AbortController();
+    try {
+      ListController.read.mockImplementationOnce(async () => {
+        ready.resolve();
+        await finish.promise;
+        return { entries: [99], following: 99 };
+      });
+      const first = runtime.revalidate({ controllerToken: ListController, signal: abort.signal });
+      await ready.promise;
+      abort.abort();
+      const repeated = runtime.revalidate({ controllerToken: ListController });
+      finish.resolve();
+      await Promise.all([first, repeated]);
+      expect(ListController.read).toHaveBeenCalledTimes(2);
+      expect(runtime.getLoaderData(ListController)).toEqual([1]);
+      ListController.read.mockResolvedValueOnce({ entries: [2], following: 20 });
+      await runtime.revalidate({ controllerToken: ListController });
+      expect(ListController.read).toHaveBeenLastCalledWith(10);
+      expect(runtime.getLoaderData(ListController)).toEqual([1, 2]);
+    } finally {
+      finish.resolve();
+      await runtime.dispose();
+      scope.dispose();
+    }
+  });
+
+  it('allows the next explicit call after a failed loader without scheduling repeated launches', async () => {
+    const { runtime, scope } = await setup(kind);
+    const ready = deferred();
+    const finish = deferred();
+    const failure = new Error('failed');
+    try {
+      ListController.read.mockImplementationOnce(async () => {
+        ready.resolve();
+        await finish.promise;
+        throw failure;
+      });
+      const first = runtime.revalidate({ controllerToken: ListController });
+      await ready.promise;
+      const repeated = runtime.revalidate({ controllerToken: ListController });
+      const outcomes = Promise.allSettled([first, repeated]);
+      finish.resolve();
+      expect(await outcomes).toEqual([
+        { status: 'rejected', reason: failure },
+        { status: 'rejected', reason: failure },
+      ]);
+      expect(ListController.read).toHaveBeenCalledTimes(2);
+      ListController.read.mockResolvedValueOnce({ entries: [2], following: 20 });
+      await runtime.revalidate({ controllerToken: ListController });
+      expect(ListController.read).toHaveBeenLastCalledWith(10);
+      expect(runtime.getLoaderData(ListController)).toEqual([1, 2]);
+    } finally {
+      finish.resolve();
+      await runtime.dispose();
+      scope.dispose();
+    }
+  });
 });
