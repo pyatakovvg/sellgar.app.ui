@@ -16,6 +16,9 @@ vi.mock('../../../screen/rendering/screen-compositor', () => ({
   ScreenLayerHost: ({ children }: React.PropsWithChildren) => children,
 }));
 vi.mock('../router-host', () => ({ RouterHost: () => null }));
+vi.mock('../handled-routing-error', () => ({
+  RoutingErrorPresentation: ({ children }: React.PropsWithChildren) => children,
+}));
 vi.mock('../router-host/nested-router-host', () => ({
   NestedRouterHost: ({ phase, onPresentationComplete }: { phase: string; onPresentationComplete: () => void }) => {
     shell.phase = phase;

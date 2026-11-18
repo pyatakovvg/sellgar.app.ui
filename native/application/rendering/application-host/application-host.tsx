@@ -20,6 +20,7 @@ import {
 } from '../../../../shared/application/feature/application-feature-renderer';
 import { type ApplicationComponents, type ResolvedApplicationRouting } from '../../config/application-configurator';
 import { renderLayouts } from '../../../layout/rendering/layout-renderer';
+import { RoutingErrorPresentation } from '../../../router/rendering/handled-routing-error';
 import type { LayoutConstructor } from '../../../layout/declaration/layout';
 import type { ModuleMetadata } from '../../../module/declaration/module';
 import type { NativeRouterBridge } from '../../../router/bridge/native-router-bridge';
@@ -81,15 +82,19 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
   } else {
     const runtime = props.source.getRouterRuntime();
 
-    content = renderLayouts(
-      props.source.layouts,
-      <NativeNavigationHost
-        components={props.source.components}
-        presentationRuntime={props.source.presentationRuntime}
-        requestBack={props.source.requestBack}
-        runtime={runtime}
-      />,
-      getRouterContentKind(runtime),
+    content = (
+      <RoutingErrorPresentation components={props.source.components} runtime={runtime}>
+        {renderLayouts(
+          props.source.layouts,
+          <NativeNavigationHost
+            components={props.source.components}
+            presentationRuntime={props.source.presentationRuntime}
+            requestBack={props.source.requestBack}
+            runtime={runtime}
+          />,
+          getRouterContentKind(runtime),
+        )}
+      </RoutingErrorPresentation>
     );
     framePresentation = <NativeFramePresentationHost source={props.source} />;
 

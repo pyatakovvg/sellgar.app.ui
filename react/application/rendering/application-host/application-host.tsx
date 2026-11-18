@@ -27,6 +27,7 @@ import type { LayoutConstructor } from '../../../layout/declaration/layout';
 import type { ModuleMetadata } from '../../../module/declaration/module';
 import { NestedRouterLayer } from '../../../router/rendering/nested-router-layer';
 import { RouterHost } from '../../../router/rendering/router-host';
+import { RoutingErrorPresentation } from '../../../router/rendering/handled-routing-error';
 import { NavigationStateProvider } from '../../../router/runtime/navigation-state-context';
 import { ExceptionProvider } from '../../../runtime/exception/exception-context';
 import { RuntimeScopeProvider } from '../../../runtime/scope/runtime-scope-context';
@@ -89,14 +90,22 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
   } else if (lifecycle.phase !== 'ready') {
     content = props.source.components.splash ?? null;
   } else {
-    content = renderLayouts(
-      props.source.layouts,
-      <RouterHost
+    content = (
+      <RoutingErrorPresentation
         components={props.source.components}
         decision={navigation.decision}
         runtime={props.source.routerRuntime}
-      />,
-      getRouterContentKind(props.source.routerRuntime),
+      >
+        {renderLayouts(
+          props.source.layouts,
+          <RouterHost
+            components={props.source.components}
+            decision={navigation.decision}
+            runtime={props.source.routerRuntime}
+          />,
+          getRouterContentKind(props.source.routerRuntime),
+        )}
+      </RoutingErrorPresentation>
     );
     frame = (
       <NestedRouterLayer

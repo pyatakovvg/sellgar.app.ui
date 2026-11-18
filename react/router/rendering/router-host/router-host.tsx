@@ -14,6 +14,7 @@ import { RuntimeErrorBoundary } from '../../../runtime/exception/runtime-error-b
 import { getRoutePresentationDefinition } from '../../declaration/route';
 import { getRouterPresentationDefinition } from '../../declaration/router';
 import { RouteHost } from '../route-host';
+import { RoutingErrorPresentation } from '../handled-routing-error';
 
 const routeRuntimeKeys = new WeakMap<RouteActivationRuntime<ModuleMetadata>, string>();
 let routeRuntimeKey = 0;
@@ -53,7 +54,14 @@ export const RouterHost: React.FC<IProps> = (props) => {
       resolveException={(error) => props.runtime.createRenderException(error)}
       resetKeys={[props.runtime]}
     >
-      {renderLayouts(definition.layouts, renderRouterContent(props, components, snapshot, branch), kind)}
+      <RoutingErrorPresentation
+        components={props.components}
+        decision={props.decision}
+        pending={props.pending}
+        runtime={props.runtime}
+      >
+        {renderLayouts(definition.layouts, renderRouterContent(props, components, snapshot, branch), kind)}
+      </RoutingErrorPresentation>
     </RuntimeErrorBoundary>
   );
 };

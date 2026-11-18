@@ -13,6 +13,7 @@ import { getRouterPresentationDefinition } from '../../declaration/router';
 import { NestedRouterHost } from '../router-host/nested-router-host';
 import { RouterHost } from '../router-host';
 import { ShellHost } from '../shell-host';
+import { RoutingErrorPresentation } from '../handled-routing-error';
 
 interface IProps {
   readonly components: ApplicationComponents;
@@ -53,12 +54,14 @@ export const NestedRouterLayer: React.FC<IProps> = (props) => {
 
   return (
     <ShellHost>
-      <NestedRouterHost exception={components.exception} routing={props.routing} runtime={activeChild.runtime}>
-        <RouterHost components={components} pending={branch.childPending} runtime={activeChild.runtime} />
-        {branch.childPending ? null : (
-          <NestedRouterLayer components={components} routing={props.routing} runtime={activeChild.runtime} />
-        )}
-      </NestedRouterHost>
+      <RoutingErrorPresentation components={components} pending={branch.childPending} runtime={activeChild.runtime}>
+        <NestedRouterHost exception={components.exception} routing={props.routing} runtime={activeChild.runtime}>
+          <RouterHost components={components} pending={branch.childPending} runtime={activeChild.runtime} />
+          {branch.childPending ? null : (
+            <NestedRouterLayer components={components} routing={props.routing} runtime={activeChild.runtime} />
+          )}
+        </NestedRouterHost>
+      </RoutingErrorPresentation>
     </ShellHost>
   );
 };

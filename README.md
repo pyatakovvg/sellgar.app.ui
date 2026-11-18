@@ -350,6 +350,15 @@ React render и StrictMode replay не запускают hooks. Dispose пре�
 provider `dispose`. Ошибка lifecycle или render его view/layouts переводит
 только ModuleRuntime в `failed`; React boundary передаёт render failure core
 runtime и освобождает его controllers/providers.
+При показе уже разрешённого `forbidden` или `notFound` React и Native adapters
+не выводят рядом Exception виджета в окружающем layout для того же HTTP-статуса
+403 или 404. Виджет сохраняет своё runtime-состояние и обычный lifecycle;
+меняется только его presentation. Цепочка поиска компонентов не меняется:
+если специализированный компонент не выбран, Exception виджета остаётся
+доступным. Остальные ошибки не подавляются. Область этого правила ограничена
+одной Router presentation; независимый frame получает собственную область,
+а при восстановлении маршрута подавление дополнительного Exception снимается.
+
 Module view получает свой ModuleScope и typed controller runtime через
 React contexts; публичный adapter экспортирует reference hooks `useController`,
 `useLoaderData`, `useSubmit`, `useParams`, `useRevalidate` и `useDependency`.
