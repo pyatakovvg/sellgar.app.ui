@@ -10,6 +10,8 @@ import type { ModuleMetadata } from '../../../module/declaration/module';
 import { ExceptionProvider } from '../../../runtime/exception/exception-context';
 import { RuntimeErrorBoundary } from '../../../runtime/exception/runtime-error-boundary';
 import { getRouterPresentationDefinition } from '../../declaration/router';
+import { RoutingErrorPresentation } from '../handled-routing-error';
+import type { RouteActivationRuntime } from '../../../../core/router/runtime/route-runtime';
 
 export interface RouterPresentationContext {
   readonly components: ApplicationComponents;
@@ -22,6 +24,8 @@ interface RouterPresentationHostProps {
   readonly decision?: ApplicationNavigationDecision | null;
   readonly runtime: RouterRuntime<ModuleMetadata>;
   readonly snapshot?: RouterRuntimeSnapshot;
+  readonly routes?: readonly RouteActivationRuntime<ModuleMetadata>[];
+  readonly pending?: boolean;
 }
 
 export const RouterPresentationHost: React.FC<RouterPresentationHostProps> = (props) => {
@@ -46,7 +50,16 @@ export const RouterPresentationHost: React.FC<RouterPresentationHostProps> = (pr
       resolveException={(error) => props.runtime.createRenderException(error)}
       resetKeys={[props.runtime]}
     >
-      {renderLayouts(definition.layouts, resolveContent(props, components, snapshot), props.kind)}
+      <RoutingErrorPresentation
+        components={props.components}
+        decision={props.decision}
+        runtime={props.runtime}
+        snapshot={props.snapshot}
+        routes={props.routes}
+        pending={props.pending}
+      >
+        {renderLayouts(definition.layouts, resolveContent(props, components, snapshot), props.kind)}
+      </RoutingErrorPresentation>
     </RuntimeErrorBoundary>
   );
 };

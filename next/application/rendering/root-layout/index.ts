@@ -1,2 +1,1 @@
-export { withRootLayout, generateApplicationMetadata } from './root-layout';
-export { ApplicationHost } from '../application-host';
+export { withRootLayout, generateApplicationMetadata, ApplicationHost } from './root-layout';

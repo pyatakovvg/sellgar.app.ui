@@ -1,6 +1,10 @@
 /// <reference path="./application/config/application-entry/application-entry.d.ts" />
 
-export { Application, type ApplicationFactory } from './application/lifecycle/application';
+export {
+  Application,
+  type ApplicationFactory,
+  type ApplicationFactoryContext,
+} from './application/lifecycle/application';
 export type { ApplicationConfiguratorInterface } from './application/config/application-config';
 export { useApplication } from './application/hook/use-application';
 export { getApplication } from './application/runtime/server-application';
@@ -29,3 +33,10 @@ export {
   type MetadataComposition,
   type MetadataCompositionOptions,
 } from '../core/metadata/composition/metadata-composition';
+
+export { Widget, WidgetDefinition } from '../react/widget/declaration/widget';
+export type { WidgetConstructor, WidgetMetadata, WidgetProps } from '../react/widget/declaration/widget';
+
+export { ApplicationStateInterface } from './application/state/application-state';
+export type { ApplicationSnapshot, ApplicationStateToken } from './application/state/application-state';
+export { useApplicationState, useReadyApplication } from './application/state/application-state-context';

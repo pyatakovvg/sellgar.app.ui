@@ -32,6 +32,8 @@ test('application context reaches a framework layout rendered inside the root bo
             return app;
           },
         };
+      if (specifier === '../../lifecycle/application')
+        return { getApplicationRuntime: () => ({ captureSnapshot: () => ({ cart: { quantity: 3 } }) }) };
       if (specifier === '../application-host') return { ApplicationHost };
       return require(specifier);
     },
@@ -90,4 +92,7 @@ export default function RootLayout({ children }) {
     );
   }
   assert.equal(starts, 2);
+  const prepared = await exports.ApplicationHost({ children: 'Page' });
+  assert.equal(prepared.props.snapshot.cart.quantity, 3);
+  assert.equal(prepared.props.children, 'Page');
 });

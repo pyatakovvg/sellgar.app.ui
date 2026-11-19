@@ -10,6 +10,7 @@ import { RuntimeScopeProvider } from '../../../../runtime/scope/runtime-scope-co
 import { renderView } from '../../../../view/renderable-view';
 import { getWidgetMetadata, type WidgetConstructor } from '../../../declaration/widget';
 import { WidgetRuntimeProvider } from '../../../runtime/widget-runtime-context';
+import { useIsRoutingErrorHandled } from '../../../../router/rendering/handled-routing-error';
 
 interface IProps<TProps extends object> {
   readonly runtime: WidgetRuntime<TProps>;
@@ -19,6 +20,7 @@ interface IProps<TProps extends object> {
 const WidgetRuntimeHostImplementation = <TProps extends object>(props: IProps<TProps>): React.ReactElement => {
   const applicationComponents = useApplicationComponents();
   const metadata = getWidgetMetadata(props.token);
+  const isRoutingErrorHandled = useIsRoutingErrorHandled();
   const snapshot = React.useSyncExternalStore(
     React.useCallback((listener) => props.runtime.subscribe(listener), [props.runtime]),
     React.useCallback(() => props.runtime.getSnapshot(), [props.runtime]),
@@ -32,8 +34,10 @@ const WidgetRuntimeHostImplementation = <TProps extends object>(props: IProps<TP
   );
 
   if (snapshot.phase === 'failed') {
+    const exception = requireRuntimeException(snapshot.exception);
+    if (isRoutingErrorHandled(exception.cause)) return <></>;
     return (
-      <ExceptionProvider exception={requireRuntimeException(snapshot.exception)}>
+      <ExceptionProvider exception={exception}>
         {metadata.exception ?? applicationComponents.exception ?? null}
       </ExceptionProvider>
     );
@@ -45,11 +49,13 @@ const WidgetRuntimeHostImplementation = <TProps extends object>(props: IProps<TP
 
   return (
     <ErrorBoundary
-      fallbackRender={({ error }) => (
-        <ExceptionProvider exception={props.runtime.createRenderException(error)}>
-          {metadata.exception ?? applicationComponents.exception ?? null}
-        </ExceptionProvider>
-      )}
+      fallbackRender={({ error }) =>
+        isRoutingErrorHandled(error) ? null : (
+          <ExceptionProvider exception={props.runtime.createRenderException(error)}>
+            {metadata.exception ?? applicationComponents.exception ?? null}
+          </ExceptionProvider>
+        )
+      }
       onError={(error) => void props.runtime.failRender(error)}
       resetKeys={[props.runtime]}
     >

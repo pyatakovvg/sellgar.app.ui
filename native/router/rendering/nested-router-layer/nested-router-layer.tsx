@@ -22,6 +22,7 @@ import { getRoutePresentationDefinition } from '../../declaration/route';
 import { getRouterPresentationDefinition } from '../../declaration/router';
 import { NestedRouterHost } from '../router-host/nested-router-host';
 import { RouterHost } from '../router-host';
+import { RoutingErrorPresentation } from '../handled-routing-error';
 import type { NativeFrameTransition } from '../presentation-cycle';
 
 interface IProps {
@@ -206,43 +207,51 @@ const FramePresentation: React.FC<FramePresentationProps> = (props) => {
     if (!target) return null;
 
     return (
-      <NestedRouterHost
-        dismissPending={props.dismissPending}
-        exception={target.components.exception}
-        onPresentationComplete={handlePresentationComplete}
-        ownerRuntime={target.runtime ?? props.ownerRuntime}
-        phase={state.phase}
-        router={target.router}
-        routing={target.routing}
+      <RoutingErrorPresentation
+        components={target.components}
         runtime={target.runtime}
+        pending={target.childPending}
+        routes={target.tree?.routes}
+        snapshot={target.tree?.snapshot}
       >
-        {target.runtime ? (
-          <>
-            <RouterHost
-              components={target.components}
-              pending={target.childPending}
-              runtime={target.runtime}
-              tree={target.tree}
-            />
-            {target.childPending ? null : (
-              <NestedRouterLayer
+        <NestedRouterHost
+          dismissPending={props.dismissPending}
+          exception={target.components.exception}
+          onPresentationComplete={handlePresentationComplete}
+          ownerRuntime={target.runtime ?? props.ownerRuntime}
+          phase={state.phase}
+          router={target.router}
+          routing={target.routing}
+          runtime={target.runtime}
+        >
+          {target.runtime ? (
+            <>
+              <RouterHost
                 components={target.components}
-                depth={props.depth + 1}
-                dismissPending={props.dismissPending}
-                onPresentationComplete={props.onPresentationComplete}
-                pending={props.pending}
-                retainedTree={props.retainedTarget?.tree}
-                routing={target.routing}
+                pending={target.childPending}
                 runtime={target.runtime}
-                transition={props.transition}
                 tree={target.tree}
               />
-            )}
-          </>
-        ) : (
-          target.components.fallback
-        )}
-      </NestedRouterHost>
+              {target.childPending ? null : (
+                <NestedRouterLayer
+                  components={target.components}
+                  depth={props.depth + 1}
+                  dismissPending={props.dismissPending}
+                  onPresentationComplete={props.onPresentationComplete}
+                  pending={props.pending}
+                  retainedTree={props.retainedTarget?.tree}
+                  routing={target.routing}
+                  runtime={target.runtime}
+                  transition={props.transition}
+                  tree={target.tree}
+                />
+              )}
+            </>
+          ) : (
+            target.components.fallback
+          )}
+        </NestedRouterHost>
+      </RoutingErrorPresentation>
     );
   }, [
     handlePresentationComplete,

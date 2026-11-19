@@ -11,6 +11,7 @@ import { ModuleHost } from '../../../module/rendering/module-host';
 import { ExceptionProvider } from '../../../runtime/exception/exception-context';
 import { RuntimeErrorBoundary } from '../../../runtime/exception/runtime-error-boundary';
 import { RuntimeScopeProvider } from '../../../runtime/scope/runtime-scope-context';
+import { HandledRoutingErrorBoundary } from '../handled-routing-error';
 
 interface IProps {
   readonly children: React.ReactNode;
@@ -36,7 +37,9 @@ export const RouteHost: React.FC<IProps> = (props) => {
       resetKeys={[props.runtime]}
     >
       <RuntimeScopeProvider scope={props.runtime.getRouteScope()}>
-        {renderLayouts(props.layouts, content, props.kind)}
+        <HandledRoutingErrorBoundary phase={snapshot.phase} components={props.components}>
+          {renderLayouts(props.layouts, content, props.kind)}
+        </HandledRoutingErrorBoundary>
       </RuntimeScopeProvider>
     </RuntimeErrorBoundary>
   );

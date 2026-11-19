@@ -267,6 +267,74 @@ Layout view может быть компонентом или объявленн
 к React; отсутствие runtime-импорта React в core не означает, что дерево установки
 всего объединённого пакета полностью свободно от renderer-зависимостей.
 
+## Провайдеры приложения
+
+`app.providers([StartupProvider])` подключает обычные `@Provider()` к владельцу
+Application. API наследуется React/Native/FSM и доступен в Next configurator.
+Порядок старта: initializers → application providers (`initialize`, `prepare`,
+`activate`, commit) → features → router bridge → ready. Все hooks ожидаются;
+пока провайдер или его preload не завершён, приложение остаётся initializing.
+
+```ts
+@Provider()
+class StartupProvider implements ProviderInterface {
+  constructor(
+    @Inject(WidgetPreloaderInterface) private readonly widgets: WidgetPreloaderInterface,
+  ) {}
+
+  prepare(context: ProviderPrepareContextInterface) {
+    return this.widgets.preload(context, GlobalWidget);
+  }
+
+  dispose(): void {}
+}
+
+// В configure приложения:
+app.providers([StartupProvider]);
+```
+
+Контекст prepare связан с application scope, props и params пусты. Используется
+существующий WidgetPreloader; preload удерживает lease до освобождения провайдера.
+Host переиспользует виджет при совпадении owner scope, token и runtimeKey.
+Обычный host внутри module scope по-прежнему имеет отдельную identity: этот API
+не экспортирует приватные widget bindings и не меняет выбор владельца host.
+
+Навигация не перезапускает провайдеры приложения. `lifetime: 'application'`
+сохраняет прежние ограничения hooks и совместное использование между pipelines;
+для prepare/preload достаточно обычного `@Provider()` на уровне приложения.
+
+Отказ hooks или последующего feature/router startup освобождает pipeline до
+отклонения initialize. При dispose сначала отменяется startup signal, затем
+останавливаются страницы и провайдеры приложения, после них освобождаются registry
+виджетов, features и DI. Cleanup выполняется один раз, включая поздний результат
+прерванной подготовки. Ошибки provider имеют application owner в reporting.
+В Next server application остаётся request-scoped, browser application — общим
+для вкладки; browser-only работу провайдер определяет в своих hooks.
+
+## Подготовленное состояние Next
+
+Next `app.states([StateAdapter])` регистрирует request-scoped адаптеры
+`ApplicationStateInterface<T>`. Токен задаёт уникальный `key` и
+`deserialize(unknown)`, экземпляр — `getSnapshot`, `subscribe`, `serialize` и
+`hydrate`. Сериализация должна возвращать только разрешённые публичные данные;
+request headers, cookie, credentials и экземпляры сервисов в неё не включаются.
+
+Серверный ApplicationHost ожидает ready, получает сериализованные состояния и
+передаёт их клиентскому host вместе с SSR-деревом. Browser runtime восстанавливает
+все зарегистрированные состояния до initializers и providers. Провайдер может
+использовать восстановленные данные без повторной загрузки. Отсутствующий или
+невалидный снимок отклоняет startup; скрытой подмены пустым состоянием нет.
+
+`useApplicationState(StateAdapter)` отдаёт подготовленный снимок при SSR и
+гидратации, затем подписывается на живое состояние приложения. Команды из ещё
+гидратирующегося интерфейса могут ожидать `useReadyApplication()` и получить
+общий сервис из готового приложения. Next сохраняет SSR-интерфейс видимым без
+splash и без клиентской подмены подготовленных контролов.
+
+Фабрика приложения получает необязательный `ApplicationFactoryContext` с
+server request headers или browser snapshot. Эти значения принадлежат отдельному
+запуску; mutable global request context не используется.
+
 ## Application runtime
 
 Core `Application` остаётся внутренней реализацией. React entrypoint уже
@@ -377,6 +445,15 @@ React render и StrictMode replay не запускают hooks. Dispose пре�
 provider `dispose`. Ошибка lifecycle или render его view/layouts переводит
 только ModuleRuntime в `failed`; React boundary передаёт render failure core
 runtime и освобождает его controllers/providers.
+При показе уже разрешённого `forbidden` или `notFound` React и Native adapters
+не выводят рядом Exception виджета в окружающем layout для того же HTTP-статуса
+403 или 404. Виджет сохраняет своё runtime-состояние и обычный lifecycle;
+меняется только его presentation. Цепочка поиска компонентов не меняется:
+если специализированный компонент не выбран, Exception виджета остаётся
+доступным. Остальные ошибки не подавляются. Область этого правила ограничена
+одной Router presentation; независимый frame получает собственную область,
+а при восстановлении маршрута подавление дополнительного Exception снимается.
+
 Module view получает свой ModuleScope и typed controller runtime через
 React contexts; публичный adapter экспортирует reference hooks `useController`,
 `useLoaderData`, `useSubmit`, `useParams`, `useRevalidate` и `useDependency`.

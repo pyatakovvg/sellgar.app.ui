@@ -1,5 +1,7 @@
 import { createApplication } from 'sellgar-next-application';
 
+import type { ApplicationSnapshot } from '../../state/application-state';
+
 import { type Application, startApplication } from '../../lifecycle/application';
 
 interface BrowserApplicationEntry {
@@ -14,12 +16,12 @@ export interface BrowserApplicationLease {
 
 let current: BrowserApplicationEntry | null = null;
 
-export function startBrowserApplication(): Promise<Application> {
-  return getEntry().ready;
+export function startBrowserApplication(snapshot?: ApplicationSnapshot): Promise<Application> {
+  return getEntry(snapshot).ready;
 }
 
-export function acquireBrowserApplication(): BrowserApplicationLease {
-  const entry = getEntry();
+export function acquireBrowserApplication(snapshot?: ApplicationSnapshot): BrowserApplicationLease {
+  const entry = getEntry(snapshot);
   entry.leases += 1;
   let released = false;
 
@@ -46,11 +48,11 @@ export function acquireBrowserApplication(): BrowserApplicationLease {
   };
 }
 
-function getEntry(): BrowserApplicationEntry {
+function getEntry(snapshot?: ApplicationSnapshot): BrowserApplicationEntry {
   if (current) return current;
 
   const ready = Promise.resolve()
-    .then(() => startApplication(createApplication))
+    .then(() => startApplication(createApplication, { snapshot }))
     .then((app) => {
       if (process.env.NODE_ENV === 'development') {
         console.info('[sellgar/app/next] client application ready');

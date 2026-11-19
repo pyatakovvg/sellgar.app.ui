@@ -32,6 +32,8 @@ export const RouterHost: React.FC<IProps> = (props) => {
       decision={props.decision}
       runtime={props.runtime}
       snapshot={props.tree?.snapshot}
+      routes={props.tree?.routes}
+      pending={props.pending}
     >
       {({ components }) => renderRouterContent(props, components)}
     </RouterPresentationHost>
