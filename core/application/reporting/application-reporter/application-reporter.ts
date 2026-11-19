@@ -1,4 +1,5 @@
 import { Injectable } from '../../../di/injection/decorators';
+import type { RuntimeContextInterface } from '../../../runtime/context/runtime-context';
 import {
   ApplicationReporterInterface,
   ApplicationReportDispatcherInterface,
@@ -13,11 +14,13 @@ import {
 @Injectable()
 export class ApplicationReporter extends ApplicationReporterInterface implements ApplicationReportDispatcherInterface {
   private active = false;
+  private context: RuntimeContextInterface | null = null;
   private readonly deliveries = new Set<Promise<void>>();
   private handlers: readonly ApplicationReportHandlerInterface[] = [];
   private readonly pendingReports: ApplicationReport[] = [];
 
-  activate(handlers: readonly ApplicationReportHandlerInterface[]): void {
+  activate(handlers: readonly ApplicationReportHandlerInterface[], context: RuntimeContextInterface): void {
+    this.context = context;
     this.handlers = [...handlers];
     this.active = true;
 
@@ -49,7 +52,8 @@ export class ApplicationReporter extends ApplicationReporterInterface implements
   }
 
   report(report: ApplicationReport): Promise<void> {
-    if (this.handlers.length === 0) {
+    const context = this.context;
+    if (!context || this.handlers.length === 0) {
       if (!this.active) {
         this.pendingReports.push(report);
       }
@@ -58,7 +62,7 @@ export class ApplicationReporter extends ApplicationReporterInterface implements
       return Promise.resolve();
     }
 
-    const delivery = this.dispatch(report);
+    const delivery = this.dispatch(report, context);
 
     this.deliveries.add(delivery);
     void delivery.finally(() => this.deliveries.delete(delivery));
@@ -82,10 +86,10 @@ export class ApplicationReporter extends ApplicationReporterInterface implements
     }
   }
 
-  private async dispatch(report: ApplicationReport): Promise<void> {
+  private async dispatch(report: ApplicationReport, context: RuntimeContextInterface): Promise<void> {
     const results = await Promise.allSettled(
       this.handlers.map((handler) => {
-        return Promise.resolve().then(() => handler.report(report));
+        return Promise.resolve().then(() => handler.report(report, context));
       }),
     );
 

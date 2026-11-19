@@ -2,7 +2,21 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { ApplicationReport, ApplicationReportHandlerInterface } from '../application-report';
 
+import type { RuntimeContextInterface } from '../../../runtime/context/runtime-context';
+import { SessionRuntimeState } from '../../session/session-runtime-state';
+
 import { ApplicationReporter } from './application-reporter.ts';
+
+const context: RuntimeContextInterface = {
+  app: {
+    lifecycle: { exception: null, phase: 'ready' },
+    location: null,
+    subscribe: () => () => undefined,
+    subscribeLocation: () => () => undefined,
+  },
+  session: new SessionRuntimeState(),
+  signal: new AbortController().signal,
+};
 
 const report: ApplicationReport = {
   event: 'test.event',
@@ -22,12 +36,12 @@ describe('ApplicationReporter', () => {
     const second = new TestReportHandler();
     const reporter = new ApplicationReporter();
 
-    reporter.activate([first, second]);
+    reporter.activate([first, second], context);
     await reporter.report(report);
     await reporter.dispose();
 
-    expect(first.report).toHaveBeenCalledWith(report);
-    expect(second.report).toHaveBeenCalledWith(report);
+    expect(first.report).toHaveBeenCalledWith(report, context);
+    expect(second.report).toHaveBeenCalledWith(report, context);
     expect(first.dispose).toHaveBeenCalledOnce();
     expect(second.dispose).toHaveBeenCalledOnce();
   });
@@ -36,7 +50,7 @@ describe('ApplicationReporter', () => {
     const handler = new TestReportHandler();
     const reporter = new ApplicationReporter();
 
-    reporter.activate([handler]);
+    reporter.activate([handler], context);
     reporter[level]({ event: `test.${level}`, message: 'Test report' });
 
     await vi.waitFor(() => {
@@ -48,6 +62,7 @@ describe('ApplicationReporter', () => {
           message: 'Test report',
           reportedAt: expect.any(Number),
         }),
+        context,
       );
     });
   });
@@ -61,10 +76,10 @@ describe('ApplicationReporter', () => {
 
     const reporter = new ApplicationReporter();
 
-    reporter.activate([failed, healthy]);
+    reporter.activate([failed, healthy], context);
     await reporter.report(report);
 
-    expect(healthy.report).toHaveBeenCalledWith(report);
+    expect(healthy.report).toHaveBeenCalledWith(report, context);
     expect(fallback).toHaveBeenCalledWith(
       expect.objectContaining({
         applicationReportId: 'application-report:1',
@@ -80,9 +95,9 @@ describe('ApplicationReporter', () => {
     const reporter = new ApplicationReporter();
 
     await reporter.report(report);
-    reporter.activate([handler]);
+    reporter.activate([handler], context);
 
-    await vi.waitFor(() => expect(handler.report).toHaveBeenCalledWith(report));
+    await vi.waitFor(() => expect(handler.report).toHaveBeenCalledWith(report, context));
     expect(fallback).toHaveBeenCalledWith(report);
   });
 });

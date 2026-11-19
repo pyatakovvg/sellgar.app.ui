@@ -25,6 +25,8 @@ import { NavigateServiceInterface } from '../../../../router/service/navigate-se
 import { ClassTransformerRouterParamsConverter } from '../../../../router/params/class-transformer-router-params-converter';
 import { RouterParamsConverterInterface } from '../../../../router/params/router-params-converter';
 import { ApplicationLocationService, LocationServiceInterface } from '../../../../router/service/location-service';
+import type { LocationServiceListener, RouterLocationSnapshot } from '../../../../router/service/location-service';
+import type { RuntimeContextInterface } from '../../../context/runtime-context';
 import {
   ApplicationRouteQueryService,
   RouteQueryServiceInterface,
@@ -89,7 +91,10 @@ export class ApplicationScope extends RuntimeScope {
     return this.get(ApplicationMetric).dispose();
   }
 
-  activateReporters(reporters: readonly ApplicationReporterDeclaration[]): Promise<void> {
+  activateReporters(
+    reporters: readonly ApplicationReporterDeclaration[],
+    context: RuntimeContextInterface,
+  ): Promise<void> {
     for (const reporter of reporters) {
       if (!isReporterToken(reporter)) {
         throw new Error('Reporter class must be decorated with @Reporter().');
@@ -126,7 +131,7 @@ export class ApplicationScope extends RuntimeScope {
     });
 
     const initialization = resolvedReporters.map(({ instance }) => {
-      return Promise.resolve().then(() => instance.initialize?.());
+      return Promise.resolve().then(() => instance.initialize?.(context));
     });
 
     return Promise.allSettled(initialization).then((results) => {
@@ -151,7 +156,7 @@ export class ApplicationScope extends RuntimeScope {
         });
       }
 
-      this.get(ApplicationReporter).activate(instances);
+      this.get(ApplicationReporter).activate(instances, context);
     });
   }
 
@@ -217,6 +222,14 @@ export class ApplicationScope extends RuntimeScope {
   syncLocation(navigation: NavigationState): void {
     this.location.sync(navigation);
     this.query.sync(navigation);
+  }
+
+  getLocationSnapshot(): RouterLocationSnapshot | null {
+    return this.location.location;
+  }
+
+  subscribeLocation(listener: LocationServiceListener): () => void {
+    return this.location.subscribe(listener);
   }
   bindMetadata(defaults: MetadataValues): void {
     const metadata = new MetadataService(defaults);

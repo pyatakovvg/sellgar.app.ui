@@ -44,6 +44,7 @@ import {
   resolveNavigateRequest,
 } from '../../../router/service/navigate-service';
 import type { NavigateServiceInterface } from '../../../router/service/navigate-service';
+import type { LocationServiceListener, RouterLocationSnapshot } from '../../../router/service/location-service';
 import type { NavigationRequest } from '../../../router/service/navigation-request';
 import {
   createNavigationOperation,
@@ -212,6 +213,14 @@ export abstract class Application<
     return this.lifecycleSnapshot;
   }
 
+  get location(): RouterLocationSnapshot | null {
+    return this.scope.getLocationSnapshot();
+  }
+
+  subscribeLocation(listener: LocationServiceListener): () => void {
+    return this.scope.subscribeLocation(listener);
+  }
+
   createRenderException(error: unknown): RuntimeException {
     return createApplicationException(
       captureRuntimeFailure(error, createApplicationRuntimeSource('render')),
@@ -265,7 +274,11 @@ export abstract class Application<
       this.detachSessionState = this.session.subscribe((change) => this.captureSessionBoundary(change));
       this.scope.bindDisposables(this.disposables);
       this.scope.activate(this);
-      this.reporterInitializationPromise = this.scope.activateReporters(this.reporterDeclarations);
+      this.reporterInitializationPromise = this.scope.activateReporters(this.reporterDeclarations, {
+        app: this,
+        session: this.session,
+        signal: this.applicationAbortController.signal,
+      });
       this.configure(this.config);
       getRouterGraph(this.config.routerValue);
 
