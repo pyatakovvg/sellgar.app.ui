@@ -1,1 +1,7 @@
-export { Application, getApplicationRuntime, startApplication, type ApplicationFactory } from './application';
+export {
+  Application,
+  getApplicationRuntime,
+  startApplication,
+  type ApplicationFactory,
+  type ApplicationFactoryContext,
+} from './application';

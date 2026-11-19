@@ -1,4 +1,5 @@
 import type { DependencyConstructor } from '../../../di/binding/binding-builder';
+import type { RuntimeContextInterface } from '../../../runtime/context/runtime-context';
 
 export type ApplicationReportLevel = 'debug' | 'info' | 'warning' | 'error';
 
@@ -19,9 +20,9 @@ export interface ApplicationReport extends ApplicationErrorReportInput {
 }
 
 export interface ApplicationReportHandlerInterface {
-  initialize?(): void | Promise<void>;
+  initialize?(context: RuntimeContextInterface): void | Promise<void>;
 
-  report(report: ApplicationReport): void | Promise<void>;
+  report(report: ApplicationReport, context: RuntimeContextInterface): void | Promise<void>;
 
   dispose?(): void | Promise<void>;
 }

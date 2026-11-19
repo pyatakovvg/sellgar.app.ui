@@ -6,6 +6,7 @@ import {
   type ApplicationReporterDeclaration,
 } from '../../reporting/application-report';
 import { UseBindings } from '../../../di/composition/use-bindings';
+import { ProviderPipeline } from '../../../runtime/provider/provider-pipeline';
 import type { DependencyToken } from '../../../di/token/dependency-token';
 import { Exception } from '../../../exception/contract/exception';
 import { NavigationBlockerRuntimeInterface } from '../../../features/navigation-blocker/runtime/navigation-blocker-runtime';
@@ -44,6 +45,7 @@ import {
   resolveNavigateRequest,
 } from '../../../router/service/navigate-service';
 import type { NavigateServiceInterface } from '../../../router/service/navigate-service';
+import type { LocationServiceListener, RouterLocationSnapshot } from '../../../router/service/location-service';
 import type { NavigationRequest } from '../../../router/service/navigation-request';
 import {
   createNavigationOperation,
@@ -168,6 +170,8 @@ export abstract class Application<
   private readonly navigationHistory = new NavigationHistory<RouterRuntimeActivation<TPresentation>>();
   private reporterDeclarations: readonly ApplicationReporterDeclaration[] = [];
   private readonly scope = new ApplicationScope();
+  private applicationProviders: ProviderPipeline | null = null;
+  private applicationProvidersDisposal: Promise<void> | null = null;
   private featuresRuntime: ApplicationFeaturesRuntime | null = null;
   private detachFeatures: (() => void) | null = null;
   private readonly session = new SessionRuntimeState();
@@ -210,6 +214,14 @@ export abstract class Application<
 
   get lifecycle(): ApplicationLifecycleSnapshot {
     return this.lifecycleSnapshot;
+  }
+
+  get location(): RouterLocationSnapshot | null {
+    return this.scope.getLocationSnapshot();
+  }
+
+  subscribeLocation(listener: LocationServiceListener): () => void {
+    return this.scope.subscribeLocation(listener);
   }
 
   createRenderException(error: unknown): RuntimeException {
@@ -265,7 +277,11 @@ export abstract class Application<
       this.detachSessionState = this.session.subscribe((change) => this.captureSessionBoundary(change));
       this.scope.bindDisposables(this.disposables);
       this.scope.activate(this);
-      this.reporterInitializationPromise = this.scope.activateReporters(this.reporterDeclarations);
+      this.reporterInitializationPromise = this.scope.activateReporters(this.reporterDeclarations, {
+        app: this,
+        session: this.session,
+        signal: this.applicationAbortController.signal,
+      });
       this.configure(this.config);
       getRouterGraph(this.config.routerValue);
 
@@ -397,6 +413,7 @@ export abstract class Application<
 
     await this.disposeResource('bridge.dispose', () => this.routerBridge.dispose());
     await this.disposeResource('router.dispose', () => this.routerRuntime?.dispose());
+    await this.disposeResource('application.providers.dispose', () => this.disposeApplicationProviders());
     await this.disposeResource('widgets.dispose', () => this.scope.disposeWidgetRuntimes());
     await this.disposeResource('features.dispose', () => this.featuresRuntime?.dispose());
     await this.disposeResource('providers.dispose', () => this.scope.disposeProviders());
@@ -541,6 +558,8 @@ export abstract class Application<
         return;
       }
 
+      await this.prepareApplicationProviders(signal);
+
       await this.getFeaturesRuntime().load({ signal });
       if (signal.aborted) return;
       if (this.getFeaturesRuntime().getSnapshot().phase !== 'ready') {
@@ -568,6 +587,7 @@ export abstract class Application<
       }
       this.setState('ready');
     } catch (error) {
+      await this.disposeApplicationProviders();
       if (signal.aborted) {
         return;
       }
@@ -589,6 +609,24 @@ export abstract class Application<
       this.fail(createApplicationException(failure, 'application.activation-failed'));
       throw failure.cause;
     }
+  }
+
+  private async prepareApplicationProviders(signal: AbortSignal): Promise<void> {
+    const providers = new ProviderPipeline(this.scope, this.config.providersValue, { kind: 'application' });
+    this.applicationProviders = providers;
+    const context = { params: {}, props: {}, scope: this.scope, signal };
+
+    await providers.prepare(context);
+    signal.throwIfAborted();
+    await providers.activate(context);
+    signal.throwIfAborted();
+    providers.commit();
+  }
+
+  private disposeApplicationProviders(): Promise<void> {
+    this.applicationProvidersDisposal ??= this.applicationProviders?.dispose() ?? Promise.resolve();
+
+    return this.applicationProvidersDisposal;
   }
 
   private async executeInitializerDeclaration(

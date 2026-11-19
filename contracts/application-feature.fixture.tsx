@@ -1,4 +1,7 @@
 import React from 'react';
+import type { ApplicationConfiguratorInterface as ReactConfigurator } from '../react';
+import type { ApplicationConfiguratorInterface as NativeConfigurator } from '../native';
+import type { ApplicationConfiguratorInterface as FsmConfigurator } from '../fsm';
 import {
   type ApplicationFeatureInterface,
   type ApplicationFeatureToken,
@@ -45,3 +48,9 @@ const options: ApplicationFeatureOptions = {
   },
 };
 void [feature, options];
+
+// Every renderer inherits application-owned providers from the core configurator.
+
+declare const providers: Parameters<ReactConfigurator['providers']>[0];
+declare const configurators: readonly [ReactConfigurator, NativeConfigurator, FsmConfigurator];
+for (const configurator of configurators) configurator.providers(providers);

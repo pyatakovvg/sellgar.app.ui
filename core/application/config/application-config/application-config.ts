@@ -1,6 +1,7 @@
 import type { MetadataCompositionOptions } from '../../../metadata/composition/metadata-composition';
 import type { Router } from '../../../router/declaration/router';
 import type { ApplicationFeatureToken } from '../../feature/application-feature';
+import type { ProviderToken } from '../../../runtime/provider/provider-token';
 import type { MetricToken } from '../../metric/declaration/metric';
 import { ApplicationConfiguratorInterface, type ApplicationInitializerDeclaration } from '../application-configurator';
 
@@ -16,6 +17,7 @@ export class ApplicationConfig extends ApplicationConfiguratorInterface {
   }
 
   private metricsList: readonly MetricToken[] = [];
+  private providersList: readonly ProviderToken[] = [];
   private featuresList: ApplicationFeatureToken[] = [];
   private initializersList: ApplicationInitializerDeclaration[] = [];
   private routerDeclaration: Router | null = null;
@@ -26,6 +28,10 @@ export class ApplicationConfig extends ApplicationConfiguratorInterface {
 
   metrics(metrics: readonly MetricToken[]): void {
     this.metricsList = Object.freeze([...metrics]);
+  }
+
+  get providersValue(): readonly ProviderToken[] {
+    return this.providersList;
   }
 
   get featuresValue(): readonly ApplicationFeatureToken[] {
@@ -42,6 +48,10 @@ export class ApplicationConfig extends ApplicationConfiguratorInterface {
     }
 
     return this.routerDeclaration;
+  }
+
+  providers(providers: readonly ProviderToken[]): void {
+    this.providersList = Object.freeze([...providers]);
   }
 
   features(features: readonly ApplicationFeatureToken[]): void {

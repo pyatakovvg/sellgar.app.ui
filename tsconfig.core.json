@@ -6,6 +6,7 @@
   },
   "files": [
     "./core/index.ts",
+    "./contracts/application-context.fixture.ts",
     "./contracts/application-metric.fixture.ts",
     "./contracts/metadata.fixture.ts",
     "./contracts/collector.fixture.ts"

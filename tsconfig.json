@@ -25,6 +25,7 @@
   "files": [
     "./env.d.ts",
     "./core/index.ts",
+    "./contracts/application-context.fixture.ts",
     "./react/index.ts",
     "./native/index.ts",
     "./fsm/index.ts",

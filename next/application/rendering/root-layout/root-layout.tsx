@@ -5,7 +5,15 @@ import 'server-only';
 import React from 'react';
 
 import { getApplication } from '../../runtime/server-application';
-import { ApplicationHost } from '../application-host';
+import { getApplicationRuntime } from '../../lifecycle/application';
+import { ApplicationHost as ClientApplicationHost } from '../application-host';
+
+export async function ApplicationHost({ children }: { readonly children: React.ReactNode }) {
+  const app = await getApplication();
+  return (
+    <ClientApplicationHost snapshot={getApplicationRuntime(app).captureSnapshot()}>{children}</ClientApplicationHost>
+  );
+}
 
 export function withRootLayout<TProps extends { readonly children: React.ReactNode }>(
   RootLayout: React.ComponentType<TProps>,

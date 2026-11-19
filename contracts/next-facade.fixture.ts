@@ -8,3 +8,9 @@ export type ApplicationBoundary = Assert<HasNoRuntimeAccess<Next.Application>>;
 export type ClientApplicationBoundary = Assert<HasNoRuntimeAccess<NonNullable<ReturnType<typeof Next.useApplication>>>>;
 export type ServerApplicationBoundary = Assert<HasNoRuntimeAccess<Awaited<ReturnType<typeof Next.getApplication>>>>;
 export type NextFacadeBoundary = Assert<'getApplicationRuntime' extends keyof typeof Next ? false : true>;
+
+export type NextApplicationProviders = Assert<
+  'providers' extends keyof Next.ApplicationConfiguratorInterface ? true : false
+>;
+
+export type NextWidgetDeclaration = Assert<'Widget' extends keyof typeof Next ? true : false>;

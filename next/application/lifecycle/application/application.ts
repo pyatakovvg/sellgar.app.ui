@@ -5,10 +5,14 @@ import type { ApplicationFeaturesRuntime } from '../../../../core/application/fe
 import type { DependencyToken } from '../../../../core/di/token/dependency-token';
 import type { ApplicationScope } from '../../../../core/runtime/scope/kind/application-scope';
 import { ContextRouterBridge } from '../../../router/bridge/context-router-bridge';
+import type { ApplicationSnapshot } from '../../state/application-state';
+
 import { ApplicationConfig, type ApplicationConfiguratorInterface } from '../../config/application-config';
 
 interface ApplicationRuntimeAccess {
   readonly scope: ApplicationScope;
+  captureSnapshot(): ApplicationSnapshot;
+  hydrateSnapshot(snapshot: ApplicationSnapshot): void;
   getFeatures(): ApplicationFeaturesRuntime;
   retainModule(module: { dispose(): Promise<void> }): () => void;
 }
@@ -21,12 +25,13 @@ export function getApplicationRuntime(app: Application): ApplicationRuntimeAcces
   return runtime;
 }
 
-export class Application extends CoreApplication<never> {
+export class Application extends CoreApplication<never, ApplicationConfig> {
   private readonly modules = new Set<{ dispose(): Promise<void> }>();
   private disposal: Promise<void> | undefined;
 
   constructor() {
-    super(new ContextRouterBridge(), new ApplicationConfig(), {
+    const config = new ApplicationConfig();
+    super(new ContextRouterBridge(), config, {
       resolve: () => {
         throw new Error('Контекст приложения Next не разрешает маршруты фреймворка.');
       },
@@ -34,6 +39,14 @@ export class Application extends CoreApplication<never> {
 
     runtimes.set(this, {
       scope: this.getApplicationScope(),
+      captureSnapshot: () =>
+        Object.fromEntries(config.statesValue.map((token) => [token.key, this.getDependency(token).serialize()])),
+      hydrateSnapshot: (snapshot) => {
+        for (const token of config.statesValue) {
+          if (!Object.hasOwn(snapshot, token.key)) throw new Error(`Missing application state: ${token.key}`);
+          this.getDependency(token).hydrate(token.deserialize(snapshot[token.key]));
+        }
+      },
       getFeatures: () => this.getFeaturesRuntime(),
       retainModule: (module) => {
         if (this.disposal) throw new Error('Нельзя активировать модуль при освобождении приложения Next.');
@@ -67,13 +80,22 @@ export class Application extends CoreApplication<never> {
   }
 }
 
-export type ApplicationFactory = () => Application | Promise<Application>;
+export interface ApplicationFactoryContext {
+  readonly request?: { readonly headers: Readonly<Record<string, string>> };
+  readonly snapshot?: ApplicationSnapshot;
+}
 
-export async function startApplication(factory: ApplicationFactory): Promise<Application> {
-  const app = await factory();
+export type ApplicationFactory = (context?: ApplicationFactoryContext) => Application | Promise<Application>;
+
+export async function startApplication(
+  factory: ApplicationFactory,
+  context?: ApplicationFactoryContext,
+): Promise<Application> {
+  const app = await factory(context);
 
   try {
     app.compose();
+    if (context?.snapshot) getApplicationRuntime(app).hydrateSnapshot(context.snapshot);
     await app.initialize();
 
     if (app.lifecycle.phase !== 'ready') {

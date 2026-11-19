@@ -6,10 +6,13 @@ import { RuntimeScopeProvider } from '../../../../react/runtime/scope/runtime-sc
 import { ApplicationFeaturesHost } from '../../../../shared/application/feature/application-features-host';
 import { getApplicationRuntime, type Application } from '../../lifecycle/application';
 import { ApplicationContext } from '../../runtime/application-context';
-import { acquireBrowserApplication } from '../../runtime/browser-application';
+import type { ApplicationSnapshot } from '../../state/application-state';
+import { ApplicationSnapshotContext, ApplicationPreparationContext } from '../../state/application-state-context';
+import { startBrowserApplication, acquireBrowserApplication } from '../../runtime/browser-application';
 
 interface IProps {
   readonly children: React.ReactNode;
+  readonly snapshot?: ApplicationSnapshot;
 }
 
 export const ApplicationHost: React.FC<IProps> = (props) => {
@@ -17,7 +20,7 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
   const [failure, setFailure] = React.useState<{ readonly error: unknown } | null>(null);
 
   React.useEffect(() => {
-    const lease = acquireBrowserApplication();
+    const lease = acquireBrowserApplication(props.snapshot);
     let active = true;
 
     void lease.ready.then(
@@ -33,15 +36,23 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
       active = false;
       lease.release();
     };
-  }, []);
+  }, [props.snapshot]);
+
+  const ready = React.useCallback(() => startBrowserApplication(props.snapshot), [props.snapshot]);
 
   if (failure) throw failure.error;
 
-  // Preserve the Next server HTML; a client-only bootstrap must not replace
-  // the entire page with a loading screen or require serialization of a DI container.
-  if (!app) return <ApplicationContext.Provider value={null}>{props.children}</ApplicationContext.Provider>;
+  const content = app ? (
+    <ReadyApplicationHost app={app}>{props.children}</ReadyApplicationHost>
+  ) : (
+    <ApplicationContext.Provider value={null}>{props.children}</ApplicationContext.Provider>
+  );
 
-  return <ReadyApplicationHost app={app}>{props.children}</ReadyApplicationHost>;
+  return (
+    <ApplicationSnapshotContext.Provider value={props.snapshot ?? EMPTY_SNAPSHOT}>
+      <ApplicationPreparationContext.Provider value={ready}>{content}</ApplicationPreparationContext.Provider>
+    </ApplicationSnapshotContext.Provider>
+  );
 };
 
 const ReadyApplicationHost: React.FC<IProps & { readonly app: Application }> = (props) => {
@@ -67,3 +78,5 @@ const ReadyApplicationHost: React.FC<IProps & { readonly app: Application }> = (
     </ApplicationContext.Provider>
   );
 };
+
+const EMPTY_SNAPSHOT = Object.freeze({});
