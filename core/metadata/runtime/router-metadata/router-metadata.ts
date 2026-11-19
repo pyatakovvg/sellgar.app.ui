@@ -53,7 +53,12 @@ export class RouterMetadata<TPresentation = unknown> {
         blocked = true;
         break;
       }
-      const module = route.getModuleRuntimeOrNull()?.getActiveModuleOrNull();
+      const moduleRuntime = route.getModuleRuntimeOrNull();
+      if (moduleRuntime?.getSnapshot().phase === 'failed') {
+        blocked = true;
+        break;
+      }
+      const module = moduleRuntime?.getActiveModuleOrNull();
       if (!module) continue;
       const metadata = module.scope.get(MetadataServiceInterface);
       sources.add(metadata);

@@ -480,7 +480,10 @@ export class RouteActivationRuntime<TPresentation = unknown> {
     widgetRegistry.retainOwner(this.routeScope);
 
     try {
-      await Promise.all([this.providerPipeline?.deactivate(), this.moduleRuntime?.retain()]);
+      await Promise.all([
+        this.providerPipeline?.deactivate(),
+        this.moduleRuntime?.getSnapshot().phase === 'failed' ? undefined : this.moduleRuntime?.retain(),
+      ]);
     } catch (error) {
       widgetRegistry.focusOwner(this.routeScope);
       throw error;
@@ -503,7 +506,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
     try {
       await Promise.all([
         this.providerPipeline?.focus({ scope: this.routeScope, signal }),
-        this.moduleRuntime?.focus(signal),
+        this.moduleRuntime?.getSnapshot().phase === 'failed' ? undefined : this.moduleRuntime?.focus(signal),
       ]);
     } catch (error) {
       this.routeScope.suspendRequests();

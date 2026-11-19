@@ -957,16 +957,8 @@ export class RouterRuntime<TPresentation = unknown> {
     return this.committedBranch.child?.runtime.isRefreshableBranch() ?? true;
   }
 
-  private isReusableBranch(): boolean {
-    if (this.refreshBoundary !== null || !this.isRefreshableBranch() || this.committedBranch === null) {
-      return false;
-    }
-
-    if (this.committedBranch.routes.some((entry) => !entry.runtime.isReusableForNavigation())) {
-      return false;
-    }
-
-    return this.committedBranch.child?.runtime.isReusableBranch() ?? true;
+  private isReusableForNavigation(): boolean {
+    return this.refreshBoundary === null && this.committedBoundary === null && this.committedBranch !== null;
   }
 
   private async runProviderRevalidation(signal: AbortSignal): Promise<void> {
@@ -2055,7 +2047,7 @@ export class RouterRuntime<TPresentation = unknown> {
     this.queryService?.stage(target.query);
     const previousRoutes = previousBranch?.routes ?? [];
     const policyCommonRouteCount = allowActivationReuse ? getCommonRouteCount(previousRoutes, target.routes) : 0;
-    const commonRouteCount = this.isReusableBranch() ? policyCommonRouteCount : 0;
+    const commonRouteCount = this.isReusableForNavigation() ? policyCommonRouteCount : 0;
     const nextRoutes: RuntimeRouteEntry<TPresentation>[] = previousRoutes.slice(0, commonRouteCount);
     const createdRoutes: RuntimeRouteEntry<TPresentation>[] = [];
     let parentScope: RuntimeScope =
@@ -2089,7 +2081,7 @@ export class RouterRuntime<TPresentation = unknown> {
       nextChildOwner = childOwner.runtime;
       const canReuseChild =
         previousBranch?.child?.runtime.router === target.child.router &&
-        previousBranch.child.runtime.isReusableBranch() &&
+        previousBranch.child.runtime.isReusableForNavigation() &&
         childOwnerIndex < commonRouteCount;
 
       nextChild = canReuseChild

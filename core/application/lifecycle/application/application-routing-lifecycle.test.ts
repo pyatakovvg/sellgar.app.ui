@@ -209,6 +209,10 @@ class TestApplication extends Application<null> {
     return this.getRouterRuntime().getSnapshot();
   }
 
+  get routerRuntime() {
+    return this.getRouterRuntime();
+  }
+
   get runtimeEntries() {
     return this.getRouterRuntimeEntries();
   }
@@ -1162,6 +1166,73 @@ describe('Application routing lifecycle', () => {
 
     await app.dispose();
   });
+
+  it.each(['release', 'retain'] as const)(
+    'keeps a nested Router and its healthy route prefix after a child module fails (%s)',
+    async (retention) => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const gate = createDeferred<Record<string, unknown>>();
+      const child = new Router({
+        routes: [
+          new Route({
+            routes: [
+              createModuleRoute(FirstRoute, 'first'),
+              new Route({ token: SlowRoute, address: segments('slow'), load: () => gate.promise }),
+            ],
+          }),
+        ],
+      });
+      const router = new Router({
+        routes: [
+          new Route({
+            token: ParentScreenRoute,
+            address: segments('parent'),
+            load: loadTestModule,
+            routing: [child],
+          }),
+        ],
+      });
+      const app = await createApplication(
+        router,
+        (navigate) => navigate.through(ParentScreenRoute).to(FirstRoute),
+        retention,
+      );
+      const owner = app.activeRoutes[0]!;
+      const nested = app.routerRuntime.getActiveChildRouterRuntimeOrNull()!.runtime;
+      const [parent, failed] = nested.getActiveLocalRouteRuntimes();
+      await failed!.getModuleRuntime().failRender(new Error('Child module failed'));
+      const navigation = app.navigate.through(ParentScreenRoute).to(SlowRoute);
+
+      try {
+        await vi.waitFor(() => expect(app.routerRuntime.getBranchSnapshot().pending).toBe(true));
+        expect(app.routerRuntime.getBranchSnapshot().pendingLocalChange).toBeNull();
+        expect(app.routerRuntime.getActiveChildRouterRuntimeOrNull()!.runtime).toBe(nested);
+        expect(nested.getBranchSnapshot().pendingLocalChange).toEqual({ commonRouteCount: 1 });
+        expect(nested.getActiveLocalRouteRuntimes()[0]).toBe(parent);
+        gate.resolve(await loadTestModule());
+        await navigation;
+        expect(app.activeRoutes[0]).toBe(owner);
+        expect(app.routerRuntime.getActiveChildRouterRuntimeOrNull()!.runtime).toBe(nested);
+        expect(nested.getActiveLocalRouteRuntimes()[0]).toBe(parent);
+        await app.navigate.back();
+        expect(app.activeRoutes[0]).toBe(owner);
+        expect(app.routerRuntime.getActiveChildRouterRuntimeOrNull()!.runtime).toBe(nested);
+        expect(nested.getActiveLocalRouteRuntimes()[0]).toBe(parent);
+        const restored = nested.getActiveLocalRouteRuntimes()[1]!;
+        if (retention === 'retain') {
+          expect(restored).toBe(failed);
+          expect(restored.getModuleRuntime().getSnapshot().phase).toBe('failed');
+        } else {
+          expect(restored).not.toBe(failed);
+          expect(restored.getModuleRuntime().getSnapshot().phase).toBe('active');
+        }
+      } finally {
+        gate.resolve(await loadTestModule());
+        await navigation;
+        await app.dispose();
+      }
+    },
+  );
 
   it('moves the Application to failed and releases its Router branch after an application render failure', async () => {
     const app = await createApplication(createBranchRouter(), (navigate) => navigate.to(OtherRoute));

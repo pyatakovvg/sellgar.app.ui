@@ -30,7 +30,10 @@ const moduleOwner = (parent: ApplicationScope, title: string) => {
   return {
     ...events,
     getSnapshot: () => ({ phase: 'active' }),
-    getModuleRuntimeOrNull: () => ({ getActiveModuleOrNull: () => ({ scope }) }),
+    getModuleRuntimeOrNull: () => ({
+      getSnapshot: () => ({ phase: 'active' }),
+      getActiveModuleOrNull: () => ({ scope }),
+    }),
     metadata: scope.get(MetadataServiceInterface),
     scope,
   };
@@ -99,6 +102,29 @@ describe('RouterMetadata committed projection', () => {
     retained.scope.dispose();
     frame.scope.dispose();
     innerFrame.scope.dispose();
+    app.dispose();
+  });
+
+  it('keeps ancestor metadata without reading a disposed failed module or its descendants', () => {
+    const app = new ApplicationScope();
+    const parent = moduleOwner(app, 'Page');
+    const failed = moduleOwner(app, 'Broken');
+    const frame = moduleOwner(app, 'Frame');
+    const accessDisposedModule = vi.fn(() => {
+      throw new Error('Failed module scope was disposed');
+    });
+    vi.spyOn(failed, 'getModuleRuntimeOrNull').mockReturnValue({
+      getSnapshot: () => ({ phase: 'failed' }),
+      getActiveModuleOrNull: accessDisposedModule,
+    });
+    failed.scope.dispose();
+    const root = routerOwner([parent, failed]);
+    root.state.child = routerOwner([frame]).runtime;
+    const projection = new RouterMetadata(root.runtime, new MetadataService({ title: 'Application' }));
+    expect(composeMetadata(projection.getSnapshot()).title).toBe('Application: Page');
+    expect(accessDisposedModule).not.toHaveBeenCalled();
+    parent.scope.dispose();
+    frame.scope.dispose();
     app.dispose();
   });
 

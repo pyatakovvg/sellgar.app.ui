@@ -424,6 +424,14 @@ scope есть одна локальная Route-ветка и не более �
 owner Route. Поэтому Router, объявленный на ancestor Route, создаётся именно под
 её `RouteScope`, не заменяет продолжающуюся main-ветку того же scope и может
 жить одновременно с её ModuleRuntime. Общий prefix RouteRuntime сохраняется.
+При навигации пригодность общего prefix проверяется последовательно по Route и
+её params, до первого непригодного узла. Ошибка дочерней Route/Module не запрещает
+повторное использование исправных ancestor Route и RouterScope. Собственная ошибка
+Router providers либо его refresh boundary остаётся границей этого Router.
+Переход сохраняет layout общего prefix и помещает pending presentation только
+в изменяемую часть. Упавший Module не переводится в retained при уходе с экрана:
+его failure сохраняется для истории, повторное открытие создаёт новую activation.
+Проекция metadata останавливается перед failed Module и не читает его освобождённый scope.
 Core resolver также единолично вычисляет `active/pending` navigation control:
 active использует branch semantics, а pending — точный target с той же
 identity инициатора, иерархией Router scopes, params и query. Renderer не интерпретирует logical
