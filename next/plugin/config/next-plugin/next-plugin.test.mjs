@@ -31,7 +31,7 @@ test('registers bootstrap without editing layouts and preserves existing Next co
     assert.equal(result.reactStrictMode, true);
     assert.equal(result.turbopack.resolveAlias.existing, './existing.ts');
     assert.equal(result.instrumentationClientInject[0], 'existing-instrumentation');
-    assert.equal(result.instrumentationClientInject.length, 2);
+    assert.deepEqual(result.instrumentationClientInject, ['existing-instrumentation']);
     assert.equal(result.turbopack.rules['*'][0], existingRule);
     assert.equal(result.turbopack.rules['*'].length, 6);
     assert.equal(await readFile(path.join(projectDir, 'src/app/layout.tsx'), 'utf8'), layout);
@@ -69,6 +69,7 @@ test('resolves framework aliases from the client directory inside a monorepo', a
       fileURLToPath(new URL('../../../application/rendering/root-layout/index.ts', import.meta.url)),
     );
     assert.ok(result.turbopack.rules['*'][0].condition.path.test('clients/site/src/app/layout.tsx'));
+    assert.equal(result.instrumentationClientInject, undefined);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

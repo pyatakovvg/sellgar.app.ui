@@ -37,8 +37,6 @@ export function withApp(config = {}, options = {}) {
     : resolve('../../../application/config/application-entry/index.ts');
   if (!existsSync(application)) throw new Error(`Файл фабрики приложения для withApp() не найден: ${application}`);
 
-  const instrumentation =
-    './' + normalize(path.relative(projectDir, resolve('../../../instrumentation/client/index.ts')));
   const nodeEntry = resolve('../../../entry/node/index.mjs');
   const existingRules = config.turbopack?.rules ?? {};
   const wildcardRules = existingRules['*'];
@@ -75,7 +73,6 @@ export function withApp(config = {}, options = {}) {
 
   const result = {
     ...config,
-    instrumentationClientInject: [...new Set([...(config.instrumentationClientInject ?? []), instrumentation])],
     turbopack: {
       ...config.turbopack,
       root,

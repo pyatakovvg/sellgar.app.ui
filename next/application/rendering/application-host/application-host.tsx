@@ -20,7 +20,7 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
   const [failure, setFailure] = React.useState<{ readonly error: unknown } | null>(null);
 
   React.useEffect(() => {
-    const lease = acquireBrowserApplication(props.snapshot);
+    const lease = acquireBrowserApplication(props.snapshot ?? EMPTY_SNAPSHOT);
     let active = true;
 
     void lease.ready.then(
@@ -38,7 +38,7 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
     };
   }, [props.snapshot]);
 
-  const ready = React.useCallback(() => startBrowserApplication(props.snapshot), [props.snapshot]);
+  const ready = React.useCallback(() => startBrowserApplication(props.snapshot ?? EMPTY_SNAPSHOT), [props.snapshot]);
 
   if (failure) throw failure.error;
 

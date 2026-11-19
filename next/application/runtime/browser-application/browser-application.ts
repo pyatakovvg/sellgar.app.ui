@@ -16,11 +16,11 @@ export interface BrowserApplicationLease {
 
 let current: BrowserApplicationEntry | null = null;
 
-export function startBrowserApplication(snapshot?: ApplicationSnapshot): Promise<Application> {
+export function startBrowserApplication(snapshot: ApplicationSnapshot): Promise<Application> {
   return getEntry(snapshot).ready;
 }
 
-export function acquireBrowserApplication(snapshot?: ApplicationSnapshot): BrowserApplicationLease {
+export function acquireBrowserApplication(snapshot: ApplicationSnapshot): BrowserApplicationLease {
   const entry = getEntry(snapshot);
   entry.leases += 1;
   let released = false;
@@ -48,7 +48,7 @@ export function acquireBrowserApplication(snapshot?: ApplicationSnapshot): Brows
   };
 }
 
-function getEntry(snapshot?: ApplicationSnapshot): BrowserApplicationEntry {
+function getEntry(snapshot: ApplicationSnapshot): BrowserApplicationEntry {
   if (current) return current;
 
   const ready = Promise.resolve()
