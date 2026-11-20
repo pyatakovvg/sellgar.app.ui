@@ -14,6 +14,8 @@ import type { ModuleExports } from '../../../../core/module/resolution/module-ex
 import type { ModuleSnapshot } from '../../contract/module-snapshot';
 import { ClientModule } from '../../runtime/client-module';
 import { ModuleContext } from '../../runtime/module-context';
+import { NavigationContext } from '../../../router/runtime/navigation-context';
+import { ModuleNavigationContent } from '../module-navigation-content';
 
 interface IProps {
   readonly children?: React.ReactNode;
@@ -24,6 +26,7 @@ interface IProps {
 export function ModuleHost(props: IProps) {
   const [module] = React.useState(() => new ClientModule(props.moduleExports, props.snapshot));
   const app = useApplication();
+  const navigation = React.useContext(NavigationContext);
   const parent = React.useContext(ModuleContext);
   const parentReady = React.useSyncExternalStore(
     parent?.subscribe ?? EMPTY_SUBSCRIBE,
@@ -48,6 +51,11 @@ export function ModuleHost(props: IProps) {
     return lease.release;
   }, [app, module, parent, parentReady]);
 
+  React.useEffect(() => {
+    if (ready && module.definition.presentation.kind === 'module')
+      navigation?.commitPage(window.location.pathname + window.location.search);
+  }, [ready, module, navigation]);
+
   if (error !== null) throw error;
   const presentation = module.definition.presentation;
   let content: React.ReactNode;
@@ -56,7 +64,11 @@ export function ModuleHost(props: IProps) {
       ? React.cloneElement(presentation.metadata.view, { children: props.children, kind: 'layout' })
       : renderView(presentation.metadata.view, { children: props.children, kind: 'layout' });
   } else {
-    content = renderLayouts(presentation.metadata.layouts ?? [], renderView(presentation.metadata.view, {}), 'module');
+    content = (
+      <ModuleNavigationContent>
+        {renderLayouts(presentation.metadata.layouts ?? [], renderView(presentation.metadata.view, {}), 'module')}
+      </ModuleNavigationContent>
+    );
   }
 
   return (
@@ -69,7 +81,7 @@ export function ModuleHost(props: IProps) {
         />
       ) : null}
       <ControllerRuntimeProvider value={module}>
-        {ready && module.scope ? <RuntimeScopeProvider scope={module.scope}>{content}</RuntimeScopeProvider> : content}
+        <RuntimeScopeProvider scope={ready ? module.scope : null}>{content}</RuntimeScopeProvider>
       </ControllerRuntimeProvider>
     </ModuleContext.Provider>
   );

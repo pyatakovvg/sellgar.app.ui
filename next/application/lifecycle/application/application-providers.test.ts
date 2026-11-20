@@ -17,6 +17,25 @@ function deferred() {
   return { promise, resolve };
 }
 
+test('Next application retains configured components without exposing runtime access on its public facade', async () => {
+  const components = { fallback: 'Preparing page' };
+  class TestApplication extends Application {
+    protected configure(config: ApplicationConfiguratorInterface): void {
+      config.components(components);
+    }
+  }
+  const app = await startApplication(() => new TestApplication());
+  try {
+    const configured = getApplicationRuntime(app).getComponents();
+    components.fallback = 'Changed outside configuration';
+    assert.equal(configured.fallback, 'Preparing page');
+    assert.equal(Object.isFrozen(configured), true);
+    assert.equal('getComponents' in app, false);
+  } finally {
+    await app.dispose();
+  }
+});
+
 test('Next startup waits for application-provider preload and retains one widget independently of modules', async () => {
   const loading = deferred(),
     entered = deferred();

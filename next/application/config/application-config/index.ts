@@ -1,1 +1,5 @@
-export { ApplicationConfig, type ApplicationConfiguratorInterface } from './application-config';
+export {
+  ApplicationConfig,
+  type ApplicationConfiguratorInterface,
+  type ApplicationComponents,
+} from './application-config';

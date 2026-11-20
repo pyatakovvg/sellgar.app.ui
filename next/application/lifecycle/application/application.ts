@@ -7,13 +7,18 @@ import type { ApplicationScope } from '../../../../core/runtime/scope/kind/appli
 import { ContextRouterBridge } from '../../../router/bridge/context-router-bridge';
 import type { ApplicationSnapshot } from '../../state/application-state';
 
-import { ApplicationConfig, type ApplicationConfiguratorInterface } from '../../config/application-config';
+import {
+  ApplicationConfig,
+  type ApplicationConfiguratorInterface,
+  type ApplicationComponents,
+} from '../../config/application-config';
 
 interface ApplicationRuntimeAccess {
   readonly scope: ApplicationScope;
   captureSnapshot(): ApplicationSnapshot;
   hydrateSnapshot(snapshot: ApplicationSnapshot): void;
   getFeatures(): ApplicationFeaturesRuntime;
+  getComponents(): ApplicationComponents;
   retainModule(module: { dispose(): Promise<void> }): () => void;
 }
 
@@ -48,6 +53,7 @@ export class Application extends CoreApplication<never, ApplicationConfig> {
         }
       },
       getFeatures: () => this.getFeaturesRuntime(),
+      getComponents: () => config.componentsValue,
       retainModule: (module) => {
         if (this.disposal) throw new Error('Нельзя активировать модуль при освобождении приложения Next.');
         this.modules.add(module);

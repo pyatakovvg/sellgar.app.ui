@@ -1,0 +1,7 @@
+.content {
+  display: contents;
+}
+
+.content[hidden] {
+  display: none;
+}

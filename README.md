@@ -278,9 +278,7 @@ Application. API наследуется React/Native/FSM и доступен в 
 ```ts
 @Provider()
 class StartupProvider implements ProviderInterface {
-  constructor(
-    @Inject(WidgetPreloaderInterface) private readonly widgets: WidgetPreloaderInterface,
-  ) {}
+  constructor(@Inject(WidgetPreloaderInterface) private readonly widgets: WidgetPreloaderInterface) {}
 
   prepare(context: ProviderPrepareContextInterface) {
     return this.widgets.preload(context, GlobalWidget);
@@ -312,6 +310,34 @@ Host переиспользует виджет при совпадении owner
 для вкладки; browser-only работу провайдер определяет в своих hooks.
 
 ## Подготовленное состояние Next
+
+### Загрузка страниц
+
+Навигация принадлежит App Router. Серверный `withModule()` ожидает подготовку
+модуля и возвращает готовый snapshot без дополнительной Suspense-границы.
+Не добавляйте `app/loading.tsx` для общего индикатора: он включает потоковую
+выдачу layout с fallback и на первом запросе. Первое открытие должно отдавать
+HTML страницы с подготовленными данными, пригодный для чтения без JavaScript.
+
+Индикатор браузерных переходов задаётся через
+`app.components({ fallback: <PageLoader /> })`. Для ссылок используйте `Link`
+из `@sellgar/app/next`: он сохраняет native props/ref и выполняет переход через
+`next/link`, сообщая начало только из публичного `onNavigate`. Отмена через
+`preventDefault()`, открытие новой вкладки, внешние ссылки и скачивания сохраняют
+поведение Next. Next остаётся владельцем URL, prefetch, загрузки и отмены переходов.
+Прямой `next/link` и программные вызовы `next/navigation` обходят этот UI-сигнал;
+адаптер не подменяет API Next и не отслеживает их через приватные внутренности.
+
+ApplicationHost хранит browser-only NavigationActivity и подписку на `popstate`
+для Back/Forward. ModuleHost завершает ожидание после активации страницы.
+Общий layout остаётся видимым; содержимое текущего модуля временно скрывается
+без размонтирования, затем заменяется готовой страницей. Это также работает,
+если ссылка находится в закрывающемся popover и размонтируется сразу после клика.
+Сервер и гидратация всегда начинают без pending navigation; HTTP-заголовки и
+таймеры для различения SSR и перехода не используются. Ошибки остаются в штатных
+error boundaries Next.
+
+### Сериализация состояния
 
 Next `app.states([StateAdapter])` регистрирует request-scoped адаптеры
 `ApplicationStateInterface<T>`. Токен задаёт уникальный `key` и
@@ -689,3 +715,11 @@ callback, накапливает массив и предоставляет от
 - [Универсальное ядро, renderers и router bridge](docs/rfc/universal-core-renderers-router-bridge.md) — accepted, in-progress; целевая архитектура и оставшиеся границы переноса.
 - [FSM Application и Router](docs/rfc/fsm-application-and-router.md) — accepted, partial; основа FSM-среза реализована, документ сохраняет границы решения.
 - [Операции навигации и ревалидация](docs/rfc/navigation-operation-revalidation.md) — accepted, partial; контекст, планирование и Collector реализованы, оценка общего executor остаётся отдельным этапом.
+
+### Next hydration stability
+
+ApplicationHost и ModuleHost сохраняют дерево providers от SSR до активации
+браузерного runtime. Готовность обновляет значения контекстов; добавлять
+обёртки над уже показанной страницей нельзя: это повторно монтирует subtree,
+сбрасывает состояние и снова показывает Suspense fallback. Lifecycle regression
+находится рядом с ApplicationHost.

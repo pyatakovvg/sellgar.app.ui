@@ -14,7 +14,7 @@ const compile = (path) =>
     },
   }).outputText;
 
-function fixture(fail = false) {
+function fixture(fail = false, loading = Promise.resolve()) {
   const events = { load: 0, commit: 0, dispose: 0 };
   const composition = { exports: {} };
   vm.runInNewContext(
@@ -30,6 +30,7 @@ function fixture(fail = false) {
   const runtime = {
     async load() {
       events.load++;
+      await loading;
       if (fail) throw new Error('loader failed');
     },
     commit() {
@@ -103,4 +104,25 @@ test('shared preparation failure aborts and disposes the module once', async () 
   assert.equal(events.commit, 0);
   assert.equal(events.dispose, 1);
   assert.equal(session.abort.signal.aborted, true);
+});
+
+test('the server page waits for prepared module data instead of returning an empty loading shell', async () => {
+  let complete;
+  const loading = new Promise((resolve) => {
+    complete = resolve;
+  });
+  const { page, events } = fixture(false, loading);
+  let settled = false;
+  const rendering = page({}).then((element) => {
+    settled = true;
+    return element;
+  });
+  await new Promise(setImmediate);
+  assert.equal(events.load, 1);
+  assert.equal(settled, false);
+  complete();
+  const element = await rendering;
+  assert.equal(events.commit, 1);
+  assert.equal(element.type, 'ModuleClientEntry');
+  assert.ok(element.props.snapshot);
 });

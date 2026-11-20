@@ -3,9 +3,13 @@ export {
   type ApplicationFactory,
   type ApplicationFactoryContext,
 } from '../../application/lifecycle/application';
-export type { ApplicationConfiguratorInterface } from '../../application/config/application-config';
+export type {
+  ApplicationConfiguratorInterface,
+  ApplicationComponents,
+} from '../../application/config/application-config';
 export { getApplication } from '../../application/runtime/server-application';
 export { useApplication } from '../../application/hook/use-application';
+export { Link } from '../../router/link';
 export { useDependency } from '../../application/hook/use-dependency';
 export { Module } from '../../../react/module/declaration/module';
 export type { ModuleConstructor, ModuleMetadata } from '../../../react/module/declaration/module';

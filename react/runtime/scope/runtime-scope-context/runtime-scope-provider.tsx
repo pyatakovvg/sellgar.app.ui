@@ -5,7 +5,7 @@ import { RuntimeScopeContext } from './runtime-scope-context.ts';
 
 interface IProps {
   readonly children: React.ReactNode;
-  readonly scope: RuntimeScope;
+  readonly scope: RuntimeScope | null;
 }
 
 export const RuntimeScopeProvider: React.FC<IProps> = (props) => {

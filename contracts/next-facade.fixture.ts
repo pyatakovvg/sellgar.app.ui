@@ -13,4 +13,8 @@ export type NextApplicationProviders = Assert<
   'providers' extends keyof Next.ApplicationConfiguratorInterface ? true : false
 >;
 
+export type NextApplicationComponents = Assert<
+  'components' extends keyof Next.ApplicationConfiguratorInterface ? true : false
+>;
+
 export type NextWidgetDeclaration = Assert<'Widget' extends keyof typeof Next ? true : false>;

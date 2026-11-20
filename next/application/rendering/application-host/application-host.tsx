@@ -9,6 +9,8 @@ import { ApplicationContext } from '../../runtime/application-context';
 import type { ApplicationSnapshot } from '../../state/application-state';
 import { ApplicationSnapshotContext, ApplicationPreparationContext } from '../../state/application-state-context';
 import { startBrowserApplication, acquireBrowserApplication } from '../../runtime/browser-application';
+import { NavigationActivity } from '../../../router/runtime/navigation-activity';
+import { NavigationContext } from '../../../router/runtime/navigation-context';
 
 interface IProps {
   readonly children: React.ReactNode;
@@ -18,6 +20,14 @@ interface IProps {
 export const ApplicationHost: React.FC<IProps> = (props) => {
   const [app, setApp] = React.useState<Application | null>(null);
   const [failure, setFailure] = React.useState<{ readonly error: unknown } | null>(null);
+  const [navigation] = React.useState(() => new NavigationActivity());
+
+  React.useEffect(() => {
+    navigation.commitPage(window.location.pathname + window.location.search);
+    const onPopState = () => navigation.beginNavigation(window.location.pathname + window.location.search);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [navigation]);
 
   React.useEffect(() => {
     const lease = acquireBrowserApplication(props.snapshot ?? EMPTY_SNAPSHOT);
@@ -42,36 +52,34 @@ export const ApplicationHost: React.FC<IProps> = (props) => {
 
   if (failure) throw failure.error;
 
-  const content = app ? (
-    <ReadyApplicationHost app={app}>{props.children}</ReadyApplicationHost>
-  ) : (
-    <ApplicationContext.Provider value={null}>{props.children}</ApplicationContext.Provider>
-  );
-
   return (
     <ApplicationSnapshotContext.Provider value={props.snapshot ?? EMPTY_SNAPSHOT}>
-      <ApplicationPreparationContext.Provider value={ready}>{content}</ApplicationPreparationContext.Provider>
+      <ApplicationPreparationContext.Provider value={ready}>
+        <NavigationContext.Provider value={navigation}>
+          <ApplicationRuntimeHost app={app}>{props.children}</ApplicationRuntimeHost>
+        </NavigationContext.Provider>
+      </ApplicationPreparationContext.Provider>
     </ApplicationSnapshotContext.Provider>
   );
 };
 
-const ReadyApplicationHost: React.FC<IProps & { readonly app: Application }> = (props) => {
+const ApplicationRuntimeHost: React.FC<IProps & { readonly app: Application | null }> = (props) => {
   const lifecycle = React.useSyncExternalStore(
-    React.useCallback((listener) => props.app.subscribe(listener), [props.app]),
-    () => props.app.lifecycle,
-    () => props.app.lifecycle,
+    React.useCallback((listener) => props.app?.subscribe(listener) ?? (() => {}), [props.app]),
+    () => props.app?.lifecycle ?? null,
+    () => props.app?.lifecycle ?? null,
   );
 
-  if (lifecycle.phase === 'failed')
+  if (lifecycle?.phase === 'failed')
     throw lifecycle.exception?.cause ?? new Error('Приложение Next завершилось с ошибкой.');
-  if (lifecycle.phase === 'disposing' || lifecycle.phase === 'disposed') return null;
+  if (lifecycle?.phase === 'disposing' || lifecycle?.phase === 'disposed') return null;
 
-  const runtime = getApplicationRuntime(props.app);
+  const runtime = props.app ? getApplicationRuntime(props.app) : null;
 
   return (
     <ApplicationContext.Provider value={props.app}>
-      <RuntimeScopeProvider scope={runtime.scope}>
-        <ApplicationFeaturesHost runtime={runtime.getFeatures()} fallback={props.children}>
+      <RuntimeScopeProvider scope={runtime?.scope ?? null}>
+        <ApplicationFeaturesHost runtime={runtime?.getFeatures() ?? null} fallback={props.children}>
           {props.children}
         </ApplicationFeaturesHost>
       </RuntimeScopeProvider>

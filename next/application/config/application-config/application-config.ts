@@ -1,19 +1,34 @@
 import { ApplicationConfig as CoreApplicationConfig } from '../../../../core/application/config/application-config';
 import type { ApplicationConfiguratorInterface as CoreApplicationConfigurator } from '../../../../core/application/config/application-configurator';
 import type { ApplicationStateToken } from '../../state/application-state';
+import type React from 'react';
 
 import { Route } from '../../../../core/router/declaration/route';
 import { Router } from '../../../../core/router/declaration/router';
+
+export interface ApplicationComponents {
+  readonly fallback?: React.ReactNode;
+}
 
 export type ApplicationConfiguratorInterface = Pick<
   CoreApplicationConfigurator,
   'features' | 'providers' | 'initializers' | 'metrics' | 'metadata'
 > & {
   states(states: readonly ApplicationStateToken<any>[]): void;
+  components(components: ApplicationComponents): void;
 };
 
 export class ApplicationConfig extends CoreApplicationConfig {
   private stateTokens: readonly ApplicationStateToken<any>[] = [];
+  private applicationComponents: ApplicationComponents = {};
+
+  get componentsValue(): ApplicationComponents {
+    return this.applicationComponents;
+  }
+
+  components(components: ApplicationComponents): void {
+    this.applicationComponents = Object.freeze({ ...components });
+  }
 
   get statesValue(): readonly ApplicationStateToken<any>[] {
     return this.stateTokens;

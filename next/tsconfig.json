@@ -4,6 +4,6 @@
     "rootDir": "..",
     "types": ["reflect-metadata", "node"]
   },
-  "files": ["./index.ts", "../contracts/next-facade.fixture.ts"],
+  "files": ["./index.ts", "../contracts/next-facade.fixture.ts", "../env.d.ts"],
   "include": []
 }

@@ -5,8 +5,9 @@ export {
   type ApplicationFactory,
   type ApplicationFactoryContext,
 } from './application/lifecycle/application';
-export type { ApplicationConfiguratorInterface } from './application/config/application-config';
+export type { ApplicationConfiguratorInterface, ApplicationComponents } from './application/config/application-config';
 export { useApplication } from './application/hook/use-application';
+export { Link } from './router/link';
 export { getApplication } from './application/runtime/server-application';
 export { useDependency } from './application/hook/use-dependency';
 export { withApp, type NextAppOptions } from './plugin/config/next-plugin/index.mjs';
