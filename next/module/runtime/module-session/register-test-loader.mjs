@@ -8,10 +8,15 @@ registerHooks({
     try {
       return nextResolve(specifier, context);
     } catch (error) {
-      if (!specifier.startsWith('.')) throw error;
-      for (const suffix of ['.ts', '.tsx', '/index.ts', '/index.tsx']) {
-        const url = new URL(specifier + suffix, context.parentURL);
-        if (existsSync(fileURLToPath(url))) return { url: url.href, shortCircuit: true };
+      if (specifier.startsWith('.')) {
+        for (const suffix of ['.ts', '.tsx', '/index.ts', '/index.tsx']) {
+          const url = new URL(specifier + suffix, context.parentURL);
+          if (existsSync(fileURLToPath(url))) return { url: url.href, shortCircuit: true };
+        }
+      }
+      if (error.code === 'ERR_MODULE_NOT_FOUND' && error.url?.startsWith('file:')) {
+        const url = new URL(error.url + '.js');
+        if (existsSync(fileURLToPath(url))) return nextResolve(url.href, context);
       }
       throw error;
     }
