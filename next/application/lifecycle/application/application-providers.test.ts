@@ -8,9 +8,7 @@ import { WidgetRuntimeRegistry } from '../../../../core/widget/runtime/widget-ru
 import { Widget, WidgetDefinition } from '../../../../react/widget/declaration/widget';
 import { NotificationServiceInterface } from '../../../../core/features/notification/contract/notification-service';
 import { NotificationRuntimeInterface } from '../../../../core/features/notification/runtime/notification-runtime';
-import { NotificationBindings } from '../../../../core/features/notification/binding/notification-bindings';
-import { UseBindings } from '../../../../core/di/composition/use-bindings';
-import { Feature } from '../../../../shared/application/feature/application-feature';
+import { NotificationFeature, NotificationPresentation } from '../../../entry/client';
 import type { ApplicationConfiguratorInterface } from '../../config/application-config';
 import { Application, getApplicationRuntime, startApplication } from './application';
 
@@ -23,17 +21,19 @@ function deferred() {
 }
 
 test('Next registers notification bindings and retains the configured feature token for its presentation layer', async () => {
-  @UseBindings(NotificationBindings)
-  @Feature({ presentation: { layer: 'notification', view: 'Notification view' } })
-  class TestNotificationFeature {}
+  const feature = NotificationFeature.configure({
+    presentation: NotificationPresentation.define((registry) => {
+      registry.destructive(() => null);
+    }),
+  });
   class TestApplication extends Application {
     protected configure(config: ApplicationConfiguratorInterface): void {
-      config.features([TestNotificationFeature]);
+      config.features([feature]);
     }
   }
   const app = await startApplication(() => new TestApplication());
   try {
-    assert.deepEqual(getApplicationRuntime(app).getFeatureTokens(), [TestNotificationFeature]);
+    assert.deepEqual(getApplicationRuntime(app).getFeatureTokens(), [feature]);
     const handle = app
       .getDependency(NotificationServiceInterface)
       .show({ status: 'destructive', description: 'Failure' });

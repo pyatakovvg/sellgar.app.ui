@@ -22,6 +22,9 @@ registerHooks({
     }
   },
   load(url, context, nextLoad) {
+    if (/\.module\.(css|scss)$/.test(url)) {
+      return { format: 'module', source: 'export default {};', shortCircuit: true };
+    }
     if (!/\.[cm]?tsx?$/.test(url) || url.includes('/node_modules/')) return nextLoad(url, context);
     const source = ts.transpileModule(readFileSync(fileURLToPath(url), 'utf8'), {
       fileName: fileURLToPath(url),
