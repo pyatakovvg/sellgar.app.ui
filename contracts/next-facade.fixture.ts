@@ -18,3 +18,6 @@ export type NextApplicationComponents = Assert<
 >;
 
 export type NextWidgetDeclaration = Assert<'Widget' extends keyof typeof Next ? true : false>;
+
+export type NextNotificationFeature = Assert<'NotificationFeature' extends keyof typeof Next ? true : false>;
+export type NextNotificationPresentation = Assert<'NotificationPresentation' extends keyof typeof Next ? true : false>;

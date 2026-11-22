@@ -4,6 +4,9 @@ import React from 'react';
 
 import { RuntimeScopeProvider } from '../../../../react/runtime/scope/runtime-scope-context';
 import { ApplicationFeaturesHost } from '../../../../shared/application/feature/application-features-host';
+import { renderApplicationFeatures } from '../../../../shared/application/feature/application-feature-renderer';
+import { OverlayHost } from '../../../../shared/application/rendering/overlay-host';
+import { PresentationLayer } from '../../../../shared/application/rendering/presentation-layer';
 import { getApplicationRuntime, type Application } from '../../lifecycle/application';
 import { ApplicationContext } from '../../runtime/application-context';
 import type { ApplicationSnapshot } from '../../state/application-state';
@@ -75,12 +78,22 @@ const ApplicationRuntimeHost: React.FC<IProps & { readonly app: Application | nu
   if (lifecycle?.phase === 'disposing' || lifecycle?.phase === 'disposed') return null;
 
   const runtime = props.app ? getApplicationRuntime(props.app) : null;
+  const features = runtime?.getFeatureTokens() ?? [];
 
   return (
     <ApplicationContext.Provider value={props.app}>
       <RuntimeScopeProvider scope={runtime?.scope ?? null}>
         <ApplicationFeaturesHost runtime={runtime?.getFeatures() ?? null} fallback={props.children}>
           {props.children}
+          {runtime && lifecycle?.phase === 'ready' ? (
+            <OverlayHost
+              frame={null}
+              modal={renderApplicationFeatures(features, PresentationLayer.Modal)}
+              notification={renderApplicationFeatures(features, PresentationLayer.Notification)}
+            >
+              {renderApplicationFeatures(features, PresentationLayer.Application)}
+            </OverlayHost>
+          ) : null}
         </ApplicationFeaturesHost>
       </RuntimeScopeProvider>
     </ApplicationContext.Provider>

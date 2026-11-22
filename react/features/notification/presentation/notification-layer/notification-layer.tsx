@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 
 import { NotificationRuntimeInterface } from '../../../../../core/features/notification/runtime/notification-runtime';

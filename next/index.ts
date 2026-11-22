@@ -41,3 +41,10 @@ export type { WidgetConstructor, WidgetMetadata, WidgetProps } from '../react/wi
 export { ApplicationStateInterface } from './application/state/application-state';
 export type { ApplicationSnapshot, ApplicationStateToken } from './application/state/application-state';
 export { useApplicationState, useReadyApplication } from './application/state/application-state-context';
+
+export {
+  NotificationFeature,
+  type NotificationFeatureOptions,
+} from '../react/features/notification/notification-feature';
+export { NotificationPresentation } from '../react/features/notification/declaration/notification-presentation';
+export type { NotificationViewProps } from '../react/features/notification/presentation/notification-view-props';

@@ -31,6 +31,7 @@ it('preserves hydrated DOM, local state and effects when application bootstrap f
     runtime: {
       scope: {},
       getFeatures: () => ({ requiresPreparation: true, subscribe, getSnapshot: () => featuresSnapshot }),
+      getFeatureTokens: () => [],
     },
   };
   const Probe = () => {

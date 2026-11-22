@@ -2,6 +2,7 @@ import 'reflect-metadata';
 
 import { Application as CoreApplication } from '../../../../core/application/lifecycle/application';
 import type { ApplicationFeaturesRuntime } from '../../../../core/application/feature/application-features-runtime';
+import type { ApplicationFeatureToken } from '../../../../core/application/feature/application-feature';
 import type { DependencyToken } from '../../../../core/di/token/dependency-token';
 import type { ApplicationScope } from '../../../../core/runtime/scope/kind/application-scope';
 import { ContextRouterBridge } from '../../../router/bridge/context-router-bridge';
@@ -18,6 +19,7 @@ interface ApplicationRuntimeAccess {
   captureSnapshot(): ApplicationSnapshot;
   hydrateSnapshot(snapshot: ApplicationSnapshot): void;
   getFeatures(): ApplicationFeaturesRuntime;
+  getFeatureTokens(): readonly ApplicationFeatureToken[];
   getComponents(): ApplicationComponents;
   retainModule(module: { dispose(): Promise<void> }): () => void;
 }
@@ -53,6 +55,7 @@ export class Application extends CoreApplication<never, ApplicationConfig> {
         }
       },
       getFeatures: () => this.getFeaturesRuntime(),
+      getFeatureTokens: () => config.featuresValue,
       getComponents: () => config.componentsValue,
       retainModule: (module) => {
         if (this.disposal) throw new Error('Нельзя активировать модуль при освобождении приложения Next.');

@@ -6,6 +6,11 @@ import { Provider, type ProviderPrepareContextInterface } from '../../../../core
 import { WidgetPreloaderInterface } from '../../../../core/widget/service/widget-preloader';
 import { WidgetRuntimeRegistry } from '../../../../core/widget/runtime/widget-runtime-registry';
 import { Widget, WidgetDefinition } from '../../../../react/widget/declaration/widget';
+import { NotificationServiceInterface } from '../../../../core/features/notification/contract/notification-service';
+import { NotificationRuntimeInterface } from '../../../../core/features/notification/runtime/notification-runtime';
+import { NotificationBindings } from '../../../../core/features/notification/binding/notification-bindings';
+import { UseBindings } from '../../../../core/di/composition/use-bindings';
+import { Feature } from '../../../../shared/application/feature/application-feature';
 import type { ApplicationConfiguratorInterface } from '../../config/application-config';
 import { Application, getApplicationRuntime, startApplication } from './application';
 
@@ -16,6 +21,31 @@ function deferred() {
   });
   return { promise, resolve };
 }
+
+test('Next registers notification bindings and retains the configured feature token for its presentation layer', async () => {
+  @UseBindings(NotificationBindings)
+  @Feature({ presentation: { layer: 'notification', view: 'Notification view' } })
+  class TestNotificationFeature {}
+  class TestApplication extends Application {
+    protected configure(config: ApplicationConfiguratorInterface): void {
+      config.features([TestNotificationFeature]);
+    }
+  }
+  const app = await startApplication(() => new TestApplication());
+  try {
+    assert.deepEqual(getApplicationRuntime(app).getFeatureTokens(), [TestNotificationFeature]);
+    const handle = app
+      .getDependency(NotificationServiceInterface)
+      .show({ status: 'destructive', description: 'Failure' });
+    const runtime = app.getDependency(NotificationRuntimeInterface);
+    assert.equal(runtime.getSnapshot().length, 1);
+    assert.equal(runtime.getSnapshot()[0].description, 'Failure');
+    handle.close();
+    assert.equal(runtime.getSnapshot().length, 0);
+  } finally {
+    await app.dispose();
+  }
+});
 
 test('Next application retains configured components without exposing runtime access on its public facade', async () => {
   const components = { fallback: 'Preparing page' };

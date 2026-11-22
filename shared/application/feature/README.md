@@ -73,6 +73,14 @@ app.features([
 DI и lifecycle остаются в core. Настройки задаются при конфигурации приложения,
 а не при render. Отдельные функции `create…Feature` не экспортируются.
 
+Next экспортирует `NotificationFeature`, `NotificationPresentation` и
+`NotificationViewProps` через `@sellgar/app/next`. Декларация feature и DI доступны
+при серверной подготовке приложения; `NotificationLayer` имеет клиентскую границу
+и использует тот же runtime уведомлений после запуска браузерного приложения.
+Next-host отображает presentation-слои application/modal/notification после
+готовности приложения через общий renderer и OverlayHost. Эти слои добавляются
+рядом с серверной страницей, не меняя её дерево обёрток при запуске в браузере.
+
 ### Статус UserRequest
 
 `alert`, `confirm` и `prompt` принимают необязательный `status`:
