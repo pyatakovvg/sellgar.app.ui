@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { Controller } from '../../../controller/contract/controller';
-import { Collector } from '../../../collection/runtime/collector';
+import { InjectCollector } from '../../../collection/declaration/inject-collector';
+import { CollectorServiceInterface } from '../../../collection/service/collector-service';
+import { RouteQueryServiceInterface } from '../../../router/service/route-query-service';
+import { Query } from '../../../router/declaration/query';
+
+import { CollectorInterface } from '../../../collection/runtime/collector';
 import type { BindingModuleInterface } from '../../../di/binding/binding-module';
 import type { BindingRegistryInterface } from '../../../di/binding/binding-registry';
 import { UseBindings } from '../../../di/composition/use-bindings';
@@ -24,6 +29,11 @@ import type { ApplicationConfiguratorInterface } from '../../config/application-
 import { RequestExecutorInterface } from '../../request/request-executor';
 
 import { Application } from './application.ts';
+
+@Query()
+class SearchDto {
+  search = '';
+}
 
 abstract class ListRoute {}
 abstract class FrameRoute {}
@@ -62,8 +72,15 @@ const createFixture = async (retention: RouterBridgeRuntimeRetention = 'retain',
   class ListController {
     constructor(
       @Inject(Source) private readonly source: Source,
-      @Inject(Collector) readonly collector: Collector<number, { position: number | null }>,
+      @InjectCollector('list') readonly collector: CollectorInterface<number, { position: number | null }>,
+      @Inject(CollectorServiceInterface) readonly collections: CollectorServiceInterface,
+      @Inject(RouteQueryServiceInterface) readonly query: RouteQueryServiceInterface,
     ) {}
+
+    async changeSearch(search: string): Promise<void> {
+      this.collections.reset('list');
+      await this.query.set(SearchDto, { search });
+    }
 
     loader(): Promise<number[]> {
       return this.collector.execute(async (collection, state) => {
@@ -82,8 +99,7 @@ const createFixture = async (retention: RouterBridgeRuntimeRetention = 'retain',
     class Bindings implements BindingModuleInterface {
       register(registry: BindingRegistryInterface): void {
         registry.bind(Source).toConstantValue(new Source(read));
-        registry.bind(Collector).toSelf().inSingletonScope();
-        registry.bind(ListController).toSelf().inSingletonScope();
+        registry.bind(ListController).toSelf();
       }
     }
 
@@ -413,8 +429,8 @@ describe('Collector navigation ownership', () => {
     expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([1, 2, 3]);
   });
 
-  it('blocks reentry while a loader runs and permits an explicit replacement after completion', async () => {
-    const { app, list, ListController, read } = await createFixture();
+  it('replaces a pending append from the first page on explicit reentry without waiting for the old response', async () => {
+    const { app, list, controller, ListController, read } = await createFixture();
     const started = deferred();
     const finish = deferred();
     read.mockImplementationOnce(async () => {
@@ -422,24 +438,168 @@ describe('Collector navigation ownership', () => {
       await finish.promise;
       return { entries: [99], following: 99 };
     });
-    const append = list.revalidate();
-    await started.promise;
-    const calls = vi.spyOn(list.getModuleRuntime(), 'revalidate');
-    const restart = app.navigate.to(ListRoute);
-    await vi.waitFor(() => expect(calls).toHaveBeenCalledOnce());
-    finish.resolve();
-    await Promise.all([append, restart]);
-    expect(read).toHaveBeenCalledTimes(2);
-    expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([1, 99]);
-    read.mockResolvedValueOnce({ entries: [3], following: 30 });
-    await app.navigate.to(ListRoute);
-    expect(read).toHaveBeenLastCalledWith(undefined);
-    expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([3]);
+    try {
+      const append = list.revalidate();
+      await started.promise;
+      read.mockResolvedValueOnce({ entries: [3], following: 30 });
+      await app.navigate.to(ListRoute);
+      expect(read).toHaveBeenCalledTimes(3);
+      expect(read).toHaveBeenLastCalledWith(undefined);
+      expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([3]);
+      finish.resolve();
+      await append;
+      expect(controller.collector.state.get('position')).toBe(30);
+      expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([3]);
+    } finally {
+      finish.resolve();
+    }
+  });
+
+  it('loads the first page of a changed query when its previous page is still pending', async () => {
+    const { list, controller, ListController, read } = await createFixture();
+    const started = deferred();
+    const finish = deferred();
+    try {
+      read.mockImplementationOnce(async () => {
+        started.resolve();
+        await finish.promise;
+        return { entries: [99], following: 99 };
+      });
+      const paging = list.revalidate({ controllerToken: ListController });
+      await started.promise;
+      read.mockResolvedValueOnce({ entries: [3], following: null });
+      const changed = controller.changeSearch('new');
+      finish.resolve();
+      await Promise.all([paging, changed]);
+      expect(controller.query.get(SearchDto).search).toBe('new');
+      expect(read).toHaveBeenCalledTimes(3);
+      expect(read).toHaveBeenLastCalledWith(undefined);
+      expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([3]);
+    } finally {
+      finish.resolve();
+    }
   });
 
   it('does not treat an unclassified external restore as an explicit reentry', async () => {
     const { bridge, read } = await createFixture();
     await bridge.restore({ address: ['list'], nested: null, query: {}, state: undefined });
     expect(read).toHaveBeenLastCalledWith(10);
+  });
+
+  it('accepts the latest search before obsolete paging and an earlier search respond', async () => {
+    const { list, controller, ListController, read } = await createFixture();
+    const pagingStarted = deferred();
+    const finishPaging = deferred();
+    const searchStarted = deferred();
+    const finishSearch = deferred();
+    const requests: { position: number | null | undefined; search: string }[] = [];
+    const capture = (position: number | null | undefined) => {
+      requests.push({ position, search: controller.query.get(SearchDto).search });
+    };
+    read.mockImplementationOnce(async (position) => {
+      capture(position);
+      pagingStarted.resolve();
+      await finishPaging.promise;
+      return { entries: [99], following: 99 };
+    });
+    read.mockImplementationOnce(async (position) => {
+      capture(position);
+      searchStarted.resolve();
+      await finishSearch.promise;
+      return { entries: [2], following: 20 };
+    });
+    read.mockImplementationOnce(async (position) => {
+      capture(position);
+      return { entries: [3], following: 30 };
+    });
+    try {
+      const paging = list.revalidate({ controllerToken: ListController });
+      await pagingStarted.promise;
+      const earlier = controller.changeSearch('B');
+      await searchStarted.promise;
+      expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([1]);
+      const latest = controller.changeSearch('C');
+      await latest;
+      expect(controller.query.get(SearchDto).search).toBe('C');
+      expect(requests).toEqual([
+        { position: 10, search: '' },
+        { position: undefined, search: 'B' },
+        { position: undefined, search: 'C' },
+      ]);
+      expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([3]);
+      expect(controller.collector.state.get('position')).toBe(30);
+      finishSearch.resolve();
+      finishPaging.resolve();
+      await Promise.all([paging, earlier]);
+      expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([3]);
+      read.mockResolvedValueOnce({ entries: [4], following: null });
+      await list.revalidate({ controllerToken: ListController });
+      expect(read).toHaveBeenLastCalledWith(30);
+      expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([3, 4]);
+    } finally {
+      finishSearch.resolve();
+      finishPaging.resolve();
+    }
+  });
+
+  it('loads only the latest search when query changes supersede each other before a replacement starts', async () => {
+    const { list, controller, ListController, read } = await createFixture();
+    const pagingStarted = deferred();
+    const finishPaging = deferred();
+    const searches: string[] = [];
+    read.mockImplementationOnce(async () => {
+      pagingStarted.resolve();
+      await finishPaging.promise;
+      return { entries: [99], following: 99 };
+    });
+    read.mockImplementation(async () => {
+      searches.push(controller.query.get(SearchDto).search);
+      return { entries: [3], following: null };
+    });
+    try {
+      const paging = list.revalidate({ controllerToken: ListController });
+      await pagingStarted.promise;
+      const earlier = controller.changeSearch('B');
+      const latest = controller.changeSearch('C');
+      await Promise.all([earlier, latest]);
+      expect(controller.query.get(SearchDto).search).toBe('C');
+      expect(searches).toEqual(['C']);
+      expect(read).toHaveBeenLastCalledWith(undefined);
+      expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([3]);
+      finishPaging.resolve();
+      await paging;
+      expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([3]);
+    } finally {
+      finishPaging.resolve();
+    }
+  });
+
+  it('retries the latest failed search from the first page after superseding an unfinished search', async () => {
+    const { list, controller, ListController, read } = await createFixture();
+    const earlierStarted = deferred();
+    const finishEarlier = deferred();
+    read.mockImplementationOnce(async () => {
+      earlierStarted.resolve();
+      await finishEarlier.promise;
+      return { entries: [2], following: 20 };
+    });
+    try {
+      const earlier = controller.changeSearch('B');
+      await earlierStarted.promise;
+      read.mockRejectedValueOnce(new Error('latest search failed'));
+      await expect(controller.changeSearch('C')).rejects.toThrow('latest search failed');
+      expect(controller.query.get(SearchDto).search).toBe('C');
+      expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([1]);
+      expect(controller.collector.state.get('position')).toBe(10);
+      read.mockResolvedValueOnce({ entries: [3], following: null });
+      await list.revalidate({ controllerToken: ListController });
+      expect(read).toHaveBeenLastCalledWith(undefined);
+      expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([3]);
+      finishEarlier.resolve();
+      await earlier;
+      expect(list.getModuleRuntime().getLoaderData(ListController)).toEqual([3]);
+    } finally {
+      finishEarlier.resolve();
+    }
   });
 });

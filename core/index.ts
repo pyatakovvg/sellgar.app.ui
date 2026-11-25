@@ -85,7 +85,9 @@ export { ApplicationMetricInterface } from './application/metric/service/applica
 export type { MetricTrackOptions } from './application/metric/service/application-metric';
 
 export { Controller } from './controller/contract/controller';
-export { Collector, type Collection, type CollectionState } from './collection/runtime/collector';
+export { Collector, CollectorInterface, type Collection, type CollectionState } from './collection/runtime/collector';
+export { InjectCollector } from './collection/declaration/inject-collector';
+export { CollectorServiceInterface } from './collection/service/collector-service';
 export type {
   ControllerActionPayload,
   ControllerActionResult,

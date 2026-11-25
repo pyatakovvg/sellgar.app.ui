@@ -2153,11 +2153,37 @@ await navigate.query({ tab: 'history' }, { revalidate: false });
   renderer adapters только подписываются на это состояние. Например, кнопка
   «Повторить» отображает `exception.recovery.retry.inProcess`, но не создаёт
   локальный processing state и не делает выводов о происхождении recovery.
-- Navigation-boundary может предоставить `retry` текущей navigation operation,
-  `back`, `root`, а вложенный Router также `close`. Widget failure предоставляет
-  локальный `retry`, который повторяет только его загрузку. Application
-  initialization failure не объявляет `retry`, пока lifecycle не гарантирует
-  безопасный rollback частично выполненных initializers.
+- Navigation-boundary может предоставить `retry`, `back`, `root`, а вложенный
+  Router также `close`. Retry восстанавливает упавшую operation в пределах
+  владеющего runtime, сохраняя здоровые ancestors и соседние runtime. Public
+  контракт `RuntimeException.recovery.retry` не меняется.
+- Контекст retry хранится приватно у owner: тип operation, controller token,
+  исходные payload/arguments, params и props. Исполняемые callbacks и payload
+  не входят в сериализуемые failure metadata или propagation trace.
+- Автомат owner разрешает retry только для текущего failed exception. Успех
+  возвращает owner в рабочее состояние, повторная ошибка создаёт новый exception,
+  dispose/закрытие прерывает попытку и запрещает применение позднего результата.
+  Пока operation выполняется, presentation сохраняет exception и состояние
+  `retry.inProcess`; рабочий view не монтируется до окончания восстановления.
+- Ошибка controller loader повторяет loaders. Успешно подготовленные providers
+  и controllers сохраняются; незакоммиченные loader transactions откатываются.
+  При initial load незавершённые activate/commit выполняются после успешного retry.
+  Ошибки initialize/prepare/import сохраняют прежний rollback: пересоздаётся
+  затронутая часть ветки, а здоровый prefix навигации переиспользуется.
+- Explicit escalation action повторяет action с исходным payload и новым
+  AbortSignal, сохраняя controllers/providers и данные loaders. Revalidation
+  повторяет loaders соответствующего owner/controller. Если action уже завершился,
+  а последующая revalidation упала, retry не отправляет action повторно, в том
+  числе когда ошибку revalidation эскалирует внешний controller method.
+- Render failure пересоздаёт runtime, принадлежащий упавшей boundary, после
+  cleanup предыдущего экземпляра. Module failure не пересоздаёт Route, parent
+  Module, вложенный Router или Application. Widget использует тот же core
+  lifecycle восстановления loaders/actions/render.
+- Routed retry повторно проверяет canMatch и соответствующие canAction либо
+  canActivate. Потеря scope/session или выход из активной ветки отменяет попытку.
+  История, URL, back и close сохраняют прежнюю семантику.
+- Application initialization failure не объявляет `retry`, пока lifecycle не
+  гарантирует безопасный rollback частично выполненных initializers.
 - Recoverable action/revalidation error остаётся в observable state своей
   операции и не становится `RuntimeException` presentation. Explicit escalation
   переводит owner runtime в `failed` и только тогда разрешается через exception

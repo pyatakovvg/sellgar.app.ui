@@ -33,6 +33,14 @@ export class ControllerOwnerStateMachine {
     return ++this.revision;
   }
 
+  resumeFailed(): boolean {
+    if (this.phase !== 'failed') return false;
+    this.exception = null;
+    this.phase = 'ready';
+    this.revision++;
+    return true;
+  }
+
   toDisposed(): void {
     if (this.phase !== 'disposing') {
       throw new Error('Runtime владельца controllers должен перейти в disposing перед disposed.');

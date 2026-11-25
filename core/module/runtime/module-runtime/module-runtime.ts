@@ -52,6 +52,11 @@ import {
   settleLoaderTasks,
 } from '../../../controller/runtime/loader-transaction';
 import { resolveRuntimeRevalidateState } from '../../../revalidate/runtime/revalidate-state';
+import {
+  isLoaderFailure,
+  RuntimeRetryOperations,
+  type RuntimeRetryOperation,
+} from '../../../runtime/operation/runtime-retry';
 import { WidgetRuntimeRegistry } from '../../../widget/runtime/widget-runtime-registry';
 
 export type ModuleRuntimeLoader = () => Promise<ModuleExports>;
@@ -131,6 +136,7 @@ interface ModuleCleanupTask<TPresentation> {
 }
 
 interface ModuleRevalidateTask<TPresentation> {
+  readonly result: Promise<boolean>;
   readonly controllerToken: DependencyToken<unknown> | undefined;
   readonly moduleRuntime: ActiveModuleRuntime<TPresentation>;
   readonly promise: Promise<void>;
@@ -138,12 +144,20 @@ interface ModuleRevalidateTask<TPresentation> {
 
 export class ModuleRuntime<TPresentation = unknown> {
   private readonly actionStates = new Map<DependencyToken<unknown>, ModuleRuntimeActionState>();
-  private readonly activeActions = new Set<DependencyToken<unknown>>();
+  private readonly activeActions = new Map<DependencyToken<unknown>, symbol>();
   private readonly cleanupTasks = new Set<ModuleCleanupTask<TPresentation>>();
   private readonly disposedModules = new WeakSet<LoadedModuleRuntime<TPresentation>>();
   private readonly listeners = new Set<ModuleRuntimeListener>();
   private readonly revalidateStates = new Map<DependencyToken<unknown>, ModuleRuntimeRevalidateState>();
   private readonly revalidateTasks = new Set<ModuleRevalidateTask<TPresentation>>();
+  private failedLoad: {
+    readonly runtime: ActiveModuleRuntime<TPresentation>;
+    readonly args: LoadedModuleControllerContext;
+  } | null = null;
+  private invocationRevision = 0;
+  private readonly retryOperations = new RuntimeRetryOperations();
+  private retryPresentation: ModuleRuntimeSnapshot | null = null;
+  private retryAbortController: AbortController | null = null;
   private loadPromise: Promise<ControllerLoaderData> | null = null;
   private revalidateAbortController: AbortController | null = null;
   private revalidateOperationCounter = 0;
@@ -159,6 +173,10 @@ export class ModuleRuntime<TPresentation = unknown> {
     private readonly exportResolver: ModuleExportResolverInterface<TPresentation>,
     private readonly routeOwner: RuntimeOwner,
     private readonly recovery: RuntimeExceptionRecoveryOperations = {},
+    private readonly executeRetry: (
+      execute: () => Promise<void>,
+      kind: RuntimeRetryOperation['kind'],
+    ) => Promise<void> = async (execute) => execute(),
   ) {}
 
   async activate(signal: AbortSignal): Promise<ActiveModuleRuntime<TPresentation>> {
@@ -276,7 +294,16 @@ export class ModuleRuntime<TPresentation = unknown> {
     return this.getActiveModuleOrNull() ?? this.getPendingModuleOrNull();
   }
 
+  get hasRetryableLoad(): boolean {
+    return (
+      this.failedLoad !== null &&
+      this.getBoundaryModuleOrNull() === this.failedLoad.runtime &&
+      this.failedLoad.runtime.providerPipeline.hasPendingPreparation
+    );
+  }
+
   getSnapshot(): ModuleRuntimeSnapshot {
+    if (this.state.phase !== 'failed' && this.retryPresentation) return this.retryPresentation;
     return this.state.phase === 'failed' ? this.state.snapshot : MODULE_RUNTIME_SNAPSHOTS[this.state.phase];
   }
 
@@ -318,6 +345,7 @@ export class ModuleRuntime<TPresentation = unknown> {
       throw new Error('Контроллер модуля недоступен.');
     }
 
+    const revision = this.invocationRevision;
     const source = {
       operation: `controller.${String(method)}`,
       owner: moduleRuntime.owner,
@@ -337,13 +365,19 @@ export class ModuleRuntime<TPresentation = unknown> {
 
       if (isPromiseLike(value)) {
         return value.catch((error) => {
-          return this.handleControllerInvocationError(error, moduleRuntime, source);
+          return this.handleControllerInvocationError(error, moduleRuntime, revision, source, {
+            kind: 'controller',
+            run: () => this.invoke(controllerToken, method, args),
+          });
         }) as TValue;
       }
 
       return value;
     } catch (error) {
-      return this.handleControllerInvocationError(error, moduleRuntime, source);
+      return this.handleControllerInvocationError(error, moduleRuntime, revision, source, {
+        kind: 'controller',
+        run: () => this.invoke(controllerToken, method, args),
+      });
     }
   }
 
@@ -372,7 +406,8 @@ export class ModuleRuntime<TPresentation = unknown> {
       throw new Error('Действие контроллера уже выполняется.');
     }
 
-    this.activeActions.add(controllerToken);
+    const actionId = Symbol('action');
+    this.activeActions.set(controllerToken, actionId);
     this.setActionState(controllerToken, {
       data: undefined,
       error: undefined,
@@ -396,7 +431,7 @@ export class ModuleRuntime<TPresentation = unknown> {
         },
       });
 
-      if (!this.isActiveModule(activeModule)) {
+      if (!this.isActiveModule(activeModule) || this.activeActions.get(controllerToken) !== actionId) {
         return undefined;
       }
 
@@ -433,7 +468,14 @@ export class ModuleRuntime<TPresentation = unknown> {
           );
           return undefined;
         case 'escalated':
-          this.transitionToFailed(activeModule, result.failure);
+          this.transitionToFailed(activeModule, result.failure, {
+            kind: 'action',
+            run: async (signal) => {
+              await this.action(controllerToken, payload, { ...args, signal });
+              const error = this.getActionState(controllerToken).error;
+              if (error !== undefined) throw error;
+            },
+          });
           await reportRuntimeFailure(
             this.ownerScope.get(ApplicationReportDispatcherInterface),
             result.failure,
@@ -444,7 +486,7 @@ export class ModuleRuntime<TPresentation = unknown> {
           return undefined;
       }
     } finally {
-      this.activeActions.delete(controllerToken);
+      if (this.activeActions.get(controllerToken) === actionId) this.activeActions.delete(controllerToken);
 
       if (this.isRetainedModule(activeModule) && this.getActionState(controllerToken).inProcess) {
         this.setActionState(controllerToken, DEFAULT_ACTION_STATE);
@@ -469,6 +511,10 @@ export class ModuleRuntime<TPresentation = unknown> {
     if (options.signal?.aborted) return Promise.resolve();
     if (this.loadPromise) return this.loadPromise.then(() => undefined);
 
+    const requestSignal = moduleRuntime.scope.getRequestSignal();
+    const operationId = this.revalidateOperationCounter;
+    const operationGuard = this.createCompletionGuard();
+
     const pending = [...this.revalidateTasks].filter(
       (task) =>
         task.moduleRuntime === moduleRuntime &&
@@ -477,24 +523,43 @@ export class ModuleRuntime<TPresentation = unknown> {
           task.controllerToken === undefined ||
           task.controllerToken === options.controllerToken),
     );
-    if (pending.length === 1) return pending[0]!.promise;
-    if (pending.length > 1) return settleLoaderTasks(pending.map((task) => task.promise)).then(() => undefined);
-
     if (options.restartCollections) {
       moduleRuntime.scope.get(LoaderTransactionService).restartCollections();
     }
 
-    const operationId = this.revalidateOperationCounter;
-    const operationGuard = this.createCompletionGuard();
+    if (pending.length > 0) {
+      return settleLoaderTasks(pending.map((task) => task.result)).then((results) => {
+        if (
+          (!options.restartCollections && results.every(Boolean)) ||
+          options.signal?.aborted ||
+          requestSignal.aborted ||
+          operationId !== this.revalidateOperationCounter ||
+          operationGuard?.isInterrupted() ||
+          !this.isActiveModule(moduleRuntime)
+        )
+          return;
 
-    const promise = this.revalidateQueue.then(() => {
-      if (operationId !== this.revalidateOperationCounter) {
-        return;
-      }
+        const remaining =
+          !options.restartCollections && options.controllerToken === undefined && results.some(Boolean)
+            ? pending.filter((_, index) => !results[index]).map((task) => task.controllerToken)
+            : [options.controllerToken];
+        return settleLoaderTasks(
+          remaining.map((controllerToken) =>
+            this.revalidate({ ...options, controllerToken, restartCollections: false }),
+          ),
+        ).then(() => undefined);
+      });
+    }
 
-      return this.executeRevalidate(moduleRuntime, options, operationId, operationGuard);
+    const result = this.revalidateQueue.then(() => {
+      if (operationId !== this.revalidateOperationCounter || requestSignal.aborted) return false;
+      return this.executeRevalidate(moduleRuntime, options, operationId, operationGuard, () =>
+        this.revalidateTasks.delete(task),
+      );
     });
+    const promise = result.then(() => undefined);
     const task: ModuleRevalidateTask<TPresentation> = {
+      result,
       controllerToken: options.controllerToken,
       moduleRuntime,
       promise,
@@ -593,6 +658,7 @@ export class ModuleRuntime<TPresentation = unknown> {
       return;
     }
 
+    moduleRuntime.resources.beginRelease();
     await reportRuntimeFailure(
       this.ownerScope.get(ApplicationReportDispatcherInterface),
       failure,
@@ -635,6 +701,10 @@ export class ModuleRuntime<TPresentation = unknown> {
   }
 
   async dispose(): Promise<void> {
+    this.invocationRevision++;
+    this.retryAbortController?.abort();
+    this.retryPresentation = null;
+    this.failedLoad = null;
     const activeModule = this.getActiveModuleOrNull();
     const pendingModule = this.getPendingModuleOrNull();
     const loadPromise = this.loadPromise;
@@ -734,6 +804,14 @@ export class ModuleRuntime<TPresentation = unknown> {
       });
 
       if (result.type !== 'completed') moduleRuntime.scope.get(LoaderTransactionService).discardCurrent();
+      this.failedLoad =
+        (result.type === 'failed' || result.type === 'escalated') && isLoaderFailure(result.failure)
+          ? { runtime: moduleRuntime, args: { ...args, params: { ...args.params }, props: args.props } }
+          : result.type === 'rejected' &&
+              result.source.operation === 'loader' &&
+              result.source.participant.kind === 'controller'
+            ? { runtime: moduleRuntime, args: { ...args, params: { ...args.params }, props: args.props } }
+            : null;
 
       switch (result.type) {
         case 'completed':
@@ -770,13 +848,14 @@ export class ModuleRuntime<TPresentation = unknown> {
     options: ModuleRuntimeRevalidateOptions,
     operationId: number,
     operationGuard: RuntimeOperationGuard | null,
-  ): Promise<void> {
+    finish: () => void,
+  ): Promise<boolean> {
     if (!this.isActiveModule(moduleRuntime)) {
       throw new Error('Runtime модуля не готов.');
     }
 
     if (options.signal?.aborted || operationGuard?.isInterrupted()) {
-      return;
+      return false;
     }
 
     const controllerToken = options.controllerToken;
@@ -828,6 +907,9 @@ export class ModuleRuntime<TPresentation = unknown> {
         },
       });
 
+      if (result.type !== 'completed') finish();
+      if (result.type === 'interrupted') abortController.abort();
+
       if (result.type !== 'completed') moduleRuntime.scope.get(LoaderTransactionService).discardCurrent();
 
       if (!this.isCurrentRevalidate(operationId, moduleRuntime, abortController)) {
@@ -836,14 +918,22 @@ export class ModuleRuntime<TPresentation = unknown> {
           this.setRevalidateState(controllerToken, DEFAULT_REVALIDATE_STATE);
         }
 
-        return;
+        return false;
       }
 
-      await this.applyRevalidateOperationResult(moduleRuntime, result, controllerToken, params, props);
+      const committed = await this.applyRevalidateOperationResult(
+        moduleRuntime,
+        result,
+        controllerToken,
+        params,
+        props,
+        options,
+      );
 
       if (this.ownsRevalidate(operationId, moduleRuntime, abortController)) {
         this.setRevalidateState(controllerToken, DEFAULT_REVALIDATE_STATE);
       }
+      return committed;
     } catch (error) {
       if (this.isCurrentRevalidate(operationId, moduleRuntime, abortController)) {
         this.setRevalidateState(controllerToken, {
@@ -868,10 +958,17 @@ export class ModuleRuntime<TPresentation = unknown> {
     controllerToken: DependencyToken<unknown> | undefined,
     params: Record<string, unknown>,
     props: object,
-  ): Promise<void> {
+    options: ModuleRuntimeRevalidateOptions,
+  ): Promise<boolean> {
+    const operation: RuntimeRetryOperation = {
+      kind: 'loaders',
+      run: (signal) => this.revalidate({ ...options, params, props, signal }),
+    };
+    if (result.type === 'rejected') this.retryOperations.remember(result.error, operation);
+    if (result.type === 'failed') this.retryOperations.remember(result.failure.cause, operation);
     switch (result.type) {
       case 'completed':
-        if (!commitLoaderData(result.value)) return;
+        if (!commitLoaderData(result.value)) return false;
         moduleRuntime.loaderData =
           controllerToken === undefined
             ? result.value
@@ -879,9 +976,9 @@ export class ModuleRuntime<TPresentation = unknown> {
         moduleRuntime.loaderParams = params;
         moduleRuntime.loaderProps = props;
         this.emit();
-        return;
+        return true;
       case 'interrupted':
-        return;
+        return false;
       case 'rejected':
         throw result.error;
       case 'failed':
@@ -894,7 +991,10 @@ export class ModuleRuntime<TPresentation = unknown> {
         );
         throw result.failure.cause;
       case 'escalated':
-        this.transitionToFailed(moduleRuntime, result.failure);
+        this.transitionToFailed(moduleRuntime, result.failure, {
+          kind: 'loaders',
+          run: (signal) => this.revalidate({ ...options, params, props, signal }),
+        });
         await reportRuntimeFailure(
           this.ownerScope.get(ApplicationReportDispatcherInterface),
           result.failure,
@@ -902,7 +1002,7 @@ export class ModuleRuntime<TPresentation = unknown> {
           'module.failed',
           'failed',
         );
-        return;
+        return false;
     }
   }
 
@@ -942,7 +1042,9 @@ export class ModuleRuntime<TPresentation = unknown> {
   private handleControllerInvocationError(
     error: unknown,
     moduleRuntime: ActiveModuleRuntime<TPresentation>,
+    revision: number,
     source: RuntimeFailureSource,
+    operation: RuntimeRetryOperation,
   ): never {
     if (!isRuntimeExceptionSignal(error)) {
       throw error;
@@ -950,7 +1052,10 @@ export class ModuleRuntime<TPresentation = unknown> {
 
     const failure = captureRuntimeFailure(error, source);
 
-    if (this.transitionToFailed(moduleRuntime, failure)) {
+    if (
+      revision === this.invocationRevision &&
+      this.transitionToFailed(moduleRuntime, failure, this.retryOperations.resolve(failure.cause, operation))
+    ) {
       void reportRuntimeFailure(
         this.ownerScope.get(ApplicationReportDispatcherInterface),
         failure,
@@ -977,11 +1082,16 @@ export class ModuleRuntime<TPresentation = unknown> {
     );
   }
 
-  private transitionToFailed(moduleRuntime: ActiveModuleRuntime<TPresentation>, failure: RuntimeFailure): boolean {
+  private transitionToFailed(
+    moduleRuntime: ActiveModuleRuntime<TPresentation>,
+    failure: RuntimeFailure,
+    operation?: RuntimeRetryOperation,
+  ): boolean {
     if (!this.isActiveModule(moduleRuntime)) {
       return false;
     }
 
+    this.invocationRevision++;
     this.interruptRevalidation();
     this.resetRevalidateState(false);
     this.activeActions.clear();
@@ -990,7 +1100,7 @@ export class ModuleRuntime<TPresentation = unknown> {
       active: moduleRuntime,
       phase: 'failed',
       snapshot: {
-        exception: this.createException(failure, moduleRuntime.owner),
+        exception: this.createException(failure, moduleRuntime.owner, operation),
         phase: 'failed',
       },
     };
@@ -999,13 +1109,86 @@ export class ModuleRuntime<TPresentation = unknown> {
     return true;
   }
 
-  private createException(failure: RuntimeFailure, owner: RuntimeOwner): RuntimeException {
-    return createRuntimeException(failure, {
+  private createException(
+    failure: RuntimeFailure,
+    owner: RuntimeOwner,
+    operation?: RuntimeRetryOperation,
+  ): RuntimeException {
+    const exception: RuntimeException = createRuntimeException(failure, {
       disposition: 'module.failed',
       owner,
       phase: 'failed',
-      recovery: this.recovery,
+      recovery: {
+        ...this.recovery,
+        retry: () => this.executeRetry(() => this.retry(failure, exception, operation), operation?.kind ?? 'render'),
+      },
     });
+    return exception;
+  }
+
+  private async retry(
+    failure: RuntimeFailure,
+    exception: RuntimeException,
+    operation?: RuntimeRetryOperation,
+  ): Promise<void> {
+    const failed = this.state;
+    if (failed.phase !== 'failed' || failed.snapshot.exception !== exception || this.retryAbortController) return;
+    const signal = this.ownerScope.getRequestSignal();
+    if (signal.aborted) return;
+    const abortController = new AbortController();
+    this.retryAbortController = abortController;
+    const retrySignal = AbortSignal.any([signal, abortController.signal]);
+    this.retryPresentation = failed.snapshot;
+    let runtime = failed.active;
+    try {
+      if (operation) {
+        this.state = { active: runtime, phase: 'active' };
+        await operation.run(retrySignal);
+      } else {
+        this.scheduleModuleDispose(runtime);
+        await this.waitForCleanup();
+        if (retrySignal.aborted || this.state !== failed) return;
+        this.state = { phase: 'empty' };
+        await this.load({ params: { ...runtime.loaderParams }, props: runtime.loaderProps, signal: retrySignal });
+        if (retrySignal.aborted) return;
+        this.commit();
+      }
+    } catch (error) {
+      if (retrySignal.aborted) return;
+      const nextFailure = captureRuntimeFailure(error, failure.source);
+      const pending = this.getPendingModuleOrNull();
+      let nextOperation = operation;
+      if (pending && this.hasRetryableLoad && this.failedLoad) {
+        runtime = pending;
+        const args = this.failedLoad.args;
+        nextOperation = {
+          kind: 'loaders',
+          run: async (signal) => {
+            await this.load({ ...args, signal });
+            if (!runtime.providerPipeline.isCommitted) runtime.providerPipeline.commit();
+          },
+        };
+      } else if (!operation) {
+        this.discardPending();
+      }
+      if (this.state.phase !== 'failed') {
+        this.state = { active: runtime, phase: 'active' };
+        this.transitionToFailed(runtime, nextFailure, nextOperation);
+        await reportRuntimeFailure(
+          this.ownerScope.get(ApplicationReportDispatcherInterface),
+          nextFailure,
+          runtime.owner,
+          'module.failed',
+          'failed',
+        );
+      }
+    } finally {
+      if (this.retryAbortController === abortController) {
+        this.retryAbortController = null;
+        this.retryPresentation = null;
+        this.emit();
+      }
+    }
   }
 
   private interruptRevalidation(): void {
@@ -1079,6 +1262,7 @@ export class ModuleRuntime<TPresentation = unknown> {
     }
 
     this.disposedModules.add(moduleRuntime);
+    moduleRuntime.resources.beginRelease();
     moduleRuntime.scope.suspendRequests();
     const loadPromise = this.loadPromise;
 

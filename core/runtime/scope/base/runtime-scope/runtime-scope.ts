@@ -24,6 +24,7 @@ export interface RuntimeScopeBindingsLease {
 
 export abstract class RuntimeScope {
   private readonly controllerTokens = new Set<DependencyToken<unknown>>();
+  private readonly controllerConstructors = new Map<DependencyToken<unknown>, DependencyConstructor<unknown>>();
   private readonly disposeListeners = new Set<() => void>();
   private readonly retainedModules = new Map<BindingModuleConstructor, RetainedBindingModule>();
   private readonly retainedOrder: BindingModuleConstructor[] = [];
@@ -137,6 +138,32 @@ export abstract class RuntimeScope {
     this.assertActive();
 
     return [...this.controllerTokens];
+  }
+
+  getControllerConstructors(): readonly Function[] {
+    this.assertActive();
+    return [...new Set(this.controllerConstructors.values())];
+  }
+
+  getControllerConstructor(token: DependencyToken<unknown>): Function {
+    this.assertActive();
+    const constructor = this.controllerConstructors.get(token);
+    if (!constructor) throw new Error('Конструктор runtime-контроллера не зарегистрирован.');
+    return constructor;
+  }
+
+  installDependencyModule(module: ContainerModule): () => void {
+    this.assertActive();
+    this.container.load(module);
+    let active = true;
+    const removeListener = this.onDispose(() => release());
+    const release = (): void => {
+      if (!active) return;
+      active = false;
+      removeListener();
+      this.container.unload(module);
+    };
+    return release;
   }
 
   protected register(registerBindings: (registry: BindingRegistryInterface) => void): void {
@@ -272,5 +299,6 @@ export abstract class RuntimeScope {
     }
 
     this.controllerTokens.add(token);
+    this.controllerConstructors.set(token, constructor);
   }
 }

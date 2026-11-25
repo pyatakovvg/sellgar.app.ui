@@ -41,6 +41,12 @@ core processing/error state. Query принадлежит `RouteQueryServiceInte
 Operations используют инжектируемый Collector. Он возвращает накопленный массив,
 а формат API, фильтры, сортировка и cursor остаются у прикладного потребителя.
 Сброс выборки сохраняет принятые данные до успешной загрузки замены.
+`@InjectCollector('operations')` объявляет отдельный накопитель списка;
+варианты терминалов загружаются обычным запросом с `limit: 50`, без Collector.
+Search/Filter/Range controllers сбрасывают список через
+`CollectorServiceInterface.reset('operations')`. Коллектор терминалов объявлен
+ключом `terminals` в собственном runtime и сбрасывается его filter controller.
+Регистрации освобождаются вместе с владельцем, без singleton накопителей.
 
 Application features подключают session expiration, service worker, navigation
 blocker, notifications и user requests. Providers связывают прикладные ресурсы

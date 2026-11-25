@@ -93,6 +93,10 @@ export class ProviderPipeline<TProps extends object = object> {
     return this.pendingPreparationCleanups !== undefined && this.pendingActivationCleanups !== undefined;
   }
 
+  get hasPendingPreparation(): boolean {
+    return !this.disposed && this.pendingPreparationCleanups !== undefined;
+  }
+
   initialize(context: Pick<ProviderPipelineContext<TProps>, 'scope' | 'signal'>): Promise<void> {
     this.assertActive();
 

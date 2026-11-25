@@ -7,7 +7,8 @@ import {
   discardLoaderData,
 } from '../../../controller/runtime/loader-transaction';
 import { isRuntimeInterruption } from '../../../runtime/operation/runtime-interruption';
-import { Collector, type Collection } from './collector.ts';
+import { Collector } from './collector.ts';
+import type { Collection } from './collector.interface.ts';
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;

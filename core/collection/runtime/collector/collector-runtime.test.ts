@@ -23,6 +23,7 @@ import {
   getWidgetRuntimeDefinition,
 } from '../../../widget/declaration/widget';
 import { Collector } from './collector.ts';
+import { CollectorInterface } from './collector.interface.ts';
 
 const deferred = () => {
   let resolve!: () => void;
@@ -41,7 +42,7 @@ class ListController {
   static transactions: LoaderTransaction[] = [];
 
   constructor(
-    @Inject(Collector) readonly collector: Collector<number, { position: number }>,
+    @Inject(CollectorInterface) readonly collector: CollectorInterface<number, { position: number }>,
     @Inject(LoaderTransactionService) private readonly transactions: LoaderTransactionService,
   ) {
     ListController.instance = this;
@@ -83,7 +84,7 @@ class ListProvider implements ProviderInterface {
 
 class ListBindings implements BindingModuleInterface {
   register(registry: BindingRegistryInterface): void {
-    registry.bind(Collector).toSelf().inSingletonScope();
+    registry.bind(CollectorInterface).to(Collector);
     registry.bind(ListController).toSelf().inSingletonScope();
     registry.bind(OtherController).toSelf().inSingletonScope();
   }
@@ -170,6 +171,28 @@ describe.each(['module', 'widget'] as const)('Collector in %s runtime', (kind) =
     expect(ListController.instance.collector.state.get('position')).toBe(20);
     await runtime.dispose();
     scope.dispose();
+  });
+
+  it('coalesces a refresh requested synchronously while publishing successful loader data', async () => {
+    const { runtime, scope } = await setup(kind);
+    let joined: Promise<void> | undefined;
+    const unsubscribe = runtime.subscribe(() => {
+      if (!joined && runtime.getLoaderData(ListController)?.length === 2) {
+        joined = runtime.revalidate({ controllerToken: ListController });
+      }
+    });
+    try {
+      ListController.read.mockResolvedValueOnce({ entries: [2], following: 20 });
+      await runtime.revalidate({ controllerToken: ListController });
+      expect(joined).toBeDefined();
+      await joined;
+      expect(ListController.read).toHaveBeenCalledTimes(2);
+      expect(runtime.getLoaderData(ListController)).toEqual([1, 2]);
+    } finally {
+      unsubscribe();
+      await runtime.dispose();
+      scope.dispose();
+    }
   });
 
   it('does not advance state when the provider fails after a successful request', async () => {
@@ -563,7 +586,7 @@ describe.each(['module', 'widget'] as const)('Loader admission in %s', (kind) =>
     }
   });
 
-  it('unlocks a cancelled loader after completion and permits a new explicit call', async () => {
+  it('fulfils a new explicit call after the loader it joined is cancelled', async () => {
     const { runtime, scope } = await setup(kind);
     const ready = deferred();
     const finish = deferred();
@@ -577,13 +600,11 @@ describe.each(['module', 'widget'] as const)('Loader admission in %s', (kind) =>
       const first = runtime.revalidate({ controllerToken: ListController, signal: abort.signal });
       await ready.promise;
       abort.abort();
+      ListController.read.mockResolvedValueOnce({ entries: [2], following: 20 });
       const repeated = runtime.revalidate({ controllerToken: ListController });
       finish.resolve();
       await Promise.all([first, repeated]);
-      expect(ListController.read).toHaveBeenCalledTimes(2);
-      expect(runtime.getLoaderData(ListController)).toEqual([1]);
-      ListController.read.mockResolvedValueOnce({ entries: [2], following: 20 });
-      await runtime.revalidate({ controllerToken: ListController });
+      expect(ListController.read).toHaveBeenCalledTimes(3);
       expect(ListController.read).toHaveBeenLastCalledWith(10);
       expect(runtime.getLoaderData(ListController)).toEqual([1, 2]);
     } finally {

@@ -710,6 +710,15 @@ callback, накапливает массив и предоставляет от
 прежние данные до успешной замены; injection в runtime связывает фиксацию
 накоплений с принятием loader data.
 
+Для controller `@InjectCollector('operations')` совмещает внедрение
+`CollectorInterface<TItem, TState>` и ключ отдельного накопителя. Framework
+управляет регистрацией и очисткой вместе с экземпляром controller; ручной
+binding накопителя не требуется. Другой controller этого же runtime получает
+`CollectorServiceInterface` через обычный `@Inject` и вызывает
+`reset('operations')` перед изменением условий. Сервис не запускает загрузку.
+При настоящей выгрузке доступ и регистрации отзываются до ожидания cleanup;
+retained/retry runtime сохраняет свои ресурсы.
+
 ## Архитектурные решения
 
 - [Универсальное ядро, renderers и router bridge](docs/rfc/universal-core-renderers-router-bridge.md) — accepted, in-progress; целевая архитектура и оставшиеся границы переноса.

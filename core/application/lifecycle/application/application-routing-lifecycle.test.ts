@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createModuleRuntimeDefinition } from '../../../module/contract/module-runtime-definition';
 import type { ModuleExportResolverInterface } from '../../../module/resolution/module-export-resolver';
+import type { ControllerArgs, WithPayload } from '../../../controller/contract/controller';
+import { createRuntimeExceptionSignal } from '../../../runtime/exception/runtime-exception';
+import { RevalidateServiceInterface } from '../../../revalidate/contract/revalidate-service';
 import { Controller } from '../../../controller/contract/controller';
 import type { BindingModuleInterface } from '../../../di/binding/binding-module';
 import type { BindingRegistryInterface } from '../../../di/binding/binding-registry';
@@ -942,6 +945,192 @@ describe('Application routing lifecycle', () => {
     await app.dispose();
   });
 
+  it('retries initial loaders without reconstructing prepared dependencies or the healthy parent', async () => {
+    const fixture = createRecoveryFixture();
+    fixture.state.loaderError = new Error('load failed');
+    const app = await createApplication(fixture.router, (navigate) =>
+      navigate.through(QueryModuleRoute).to(QueryFrameRoute),
+    );
+    const [parent, leaf] = app.activeRoutes;
+    const parentController = parent!.getModuleRuntime().getController(BackControllerInterface);
+    const history = app.historyEntries;
+    const exception = leaf!.getSnapshot().exception!;
+    expect(fixture.state.loads).toBe(1);
+    expect(fixture.state.created).toBe(1);
+    fixture.state.loaderError = null;
+    await exception.recovery.retry!();
+    expect(app.activeRoutes[0]).toBe(parent);
+    expect(app.activeRoutes[1]).toBe(leaf);
+    expect(parent!.getModuleRuntime().getController(BackControllerInterface)).toBe(parentController);
+    expect(leaf!.getModuleRuntime().getSnapshot().phase).toBe('active');
+    expect(fixture.state.loads).toBe(2);
+    expect(fixture.state.created).toBe(1);
+    expect(fixture.state.events).toEqual(['initialize', 'prepare', 'activate']);
+    expect(app.historyEntries).toEqual(history);
+    await exception.recovery.retry!();
+    expect(fixture.state.loads).toBe(2);
+    await app.dispose();
+    expect(fixture.state.disposed).toBe(1);
+    expect(fixture.state.events.filter((event) => event === 'dispose')).toHaveLength(1);
+  });
+
+  it('retries an escalated action with its original payload and keeps loaders and parent untouched', async () => {
+    const fixture = createRecoveryFixture();
+    const app = await createApplication(fixture.router, (navigate) =>
+      navigate.through(QueryModuleRoute).to(QueryFrameRoute),
+    );
+    const [parent, leaf] = app.activeRoutes;
+    const module = leaf!.getModuleRuntime();
+    const controller = module.getController(fixture.Controller);
+    const payload = { value: 'submitted' };
+    fixture.state.actionError = new Error('action failed');
+    await leaf!.action(fixture.Controller, payload);
+    const first = module.getSnapshot().exception!;
+    expect(first.origin.phase).toBe('action');
+    await first.recovery.retry!();
+    expect(fixture.state.payloads).toEqual([payload, payload]);
+    const second = module.getSnapshot().exception!;
+    expect(second).not.toBe(first);
+    fixture.state.actionError = null;
+    await second.recovery.retry!();
+    expect(module.getSnapshot().phase).toBe('active');
+    expect(module.getController(fixture.Controller)).toBe(controller);
+    expect(app.activeRoutes[0]).toBe(parent);
+    expect(fixture.state.payloads).toEqual([payload, payload, payload]);
+    expect(fixture.state.loads).toBe(1);
+    expect(fixture.state.created).toBe(1);
+    await first.recovery.retry!();
+    expect(fixture.state.payloads).toHaveLength(3);
+    await app.dispose();
+  });
+
+  it('retries the failed revalidation after a successful action without submitting the action again', async () => {
+    const fixture = createRecoveryFixture();
+    const app = await createApplication(fixture.router, (navigate) =>
+      navigate.through(QueryModuleRoute).to(QueryFrameRoute),
+    );
+    const leaf = app.activeRoutes.at(-1)!;
+    const module = leaf.getModuleRuntime();
+    fixture.state.loaderError = new Error('refresh failed');
+    await expect(leaf.invoke(fixture.Controller, 'submitAndRefresh', [{ value: 'saved' }])).rejects.toThrow(
+      'refresh failed',
+    );
+    fixture.state.loaderError = null;
+    await module.getSnapshot().exception!.recovery.retry!();
+    expect(fixture.state.payloads).toEqual([{ value: 'saved' }]);
+    expect(fixture.state.loads).toBe(3);
+    expect(fixture.state.created).toBe(1);
+    expect(module.getSnapshot().phase).toBe('active');
+    await app.dispose();
+  });
+
+  it('recreates only the failed module after render failure and keeps the route, parent and history', async () => {
+    const fixture = createRecoveryFixture();
+    const app = await createApplication(fixture.router, (navigate) =>
+      navigate.through(QueryModuleRoute).to(QueryFrameRoute),
+    );
+    const [parent, leaf] = app.activeRoutes;
+    const module = leaf!.getModuleRuntime();
+    const controller = module.getController(fixture.Controller);
+    const history = app.historyEntries;
+    await module.failRender(new Error('render failed'));
+    const exception = module.getSnapshot().exception!;
+    expect(fixture.state.disposed).toBe(1);
+    await exception.recovery.retry!();
+    expect(module.getSnapshot().phase).toBe('active');
+    expect(module.getController(fixture.Controller)).not.toBe(controller);
+    expect(app.activeRoutes).toEqual([parent, leaf]);
+    expect(fixture.state.created).toBe(2);
+    expect(fixture.state.loads).toBe(2);
+    expect(app.historyEntries).toEqual(history);
+    await app.dispose();
+    expect(fixture.state.disposed).toBe(2);
+  });
+
+  it('checks canAction again before retrying a captured action', async () => {
+    const fixture = createRecoveryFixture();
+    const app = await createApplication(fixture.router, (navigate) =>
+      navigate.through(QueryModuleRoute).to(QueryFrameRoute),
+    );
+    const leaf = app.activeRoutes.at(-1)!;
+    fixture.state.actionError = new Error('action failed');
+    await leaf.action(fixture.Controller, { value: 'submitted' });
+    const exception = leaf.getModuleRuntime().getSnapshot().exception!;
+    fixture.state.actionAllowed = false;
+    await expect(exception.recovery.retry!()).rejects.toThrow();
+    expect(fixture.state.actionPolicyChecks).toBe(2);
+    expect(fixture.state.payloads).toHaveLength(1);
+    expect(leaf.getModuleRuntime().getSnapshot().exception).toBe(exception);
+    await app.dispose();
+  });
+
+  it('does not revive a child route closed during loader retry', async () => {
+    const fixture = createRecoveryFixture();
+    fixture.state.loaderError = new Error('load failed');
+    const app = await createApplication(
+      fixture.router,
+      (navigate) => navigate.through(QueryModuleRoute).to(QueryFrameRoute),
+      'release',
+    );
+    const [parent, leaf] = app.activeRoutes;
+    const exception = leaf!.getSnapshot().exception!;
+    fixture.state.loaderError = null;
+    const deferred = createDeferred<void>();
+    fixture.state.loaderDeferred = deferred.promise;
+    const retry = exception.recovery.retry!();
+    for (let attempt = 0; attempt < 100 && fixture.state.loads < 2; attempt++) await Promise.resolve();
+    expect(fixture.state.loads).toBe(2);
+    await app.navigate.to(QueryModuleRoute);
+    deferred.resolve();
+    await retry;
+    expect(app.activeRoutes).toEqual([parent]);
+    expect(leaf!.getSnapshot().phase).toBe('disposed');
+    expect(fixture.state.disposed).toBe(1);
+    await exception.recovery.retry!();
+    expect(fixture.state.loads).toBe(2);
+    await app.dispose();
+  });
+
+  it('can retry a loader failure encountered while recreating a render-failed module', async () => {
+    const fixture = createRecoveryFixture();
+    const app = await createApplication(fixture.router, (navigate) =>
+      navigate.through(QueryModuleRoute).to(QueryFrameRoute),
+    );
+    const module = app.activeRoutes.at(-1)!.getModuleRuntime();
+    await module.failRender(new Error('render failed'));
+    fixture.state.loaderError = new Error('reload failed');
+    await module.getSnapshot().exception!.recovery.retry!();
+    expect(module.getSnapshot().phase).toBe('failed');
+    expect(fixture.state.created).toBe(2);
+    fixture.state.loaderError = null;
+    await module.getSnapshot().exception!.recovery.retry!();
+    expect(module.getSnapshot().phase).toBe('active');
+    expect(fixture.state.created).toBe(2);
+    expect(fixture.state.loads).toBe(3);
+    await app.dispose();
+  });
+
+  it('recovers a nested Router render failure while preserving its owner module', async () => {
+    const fixture = createRecoveryFixture();
+    const app = await createApplication(fixture.router, (navigate) =>
+      navigate.through(QueryModuleRoute).to(QueryFrameRoute),
+    );
+    const owner = app.activeRoutes[0]!;
+    const controller = owner.getModuleRuntime().getController(BackControllerInterface);
+    const child = app.routerRuntime.getActiveChildRouterRuntimeOrNull()!.runtime;
+    const historyKeys = app.historyEntries.map((entry) => entry.key);
+    await child.failRender(new Error('router shell failed'));
+    const exception = child.getSnapshot().exception!;
+    expect(fixture.state.disposed).toBe(1);
+    await exception.recovery.retry!();
+    expect(app.activeRoutes[0]).toBe(owner);
+    expect(owner.getModuleRuntime().getController(BackControllerInterface)).toBe(controller);
+    expect(app.activeRoutes.at(-1)!.getModuleRuntime().getSnapshot().phase).toBe('active');
+    expect(fixture.state.created).toBe(2);
+    expect(app.historyEntries.map((entry) => entry.key)).toEqual(historyKeys);
+    await app.dispose();
+  });
+
   it('resolves index, explicit default and first available routes deterministically', async () => {
     const indexApp = await createApplication(createIndexRouter(), (navigate) => navigate.to(IndexParentRoute));
 
@@ -1438,4 +1627,102 @@ const createDeferred = <TValue>(): Deferred<TValue> => {
   });
 
   return { promise, reject, resolve };
+};
+
+const createRecoveryFixture = () => {
+  const state = {
+    loaderError: null as Error | null,
+    actionError: null as Error | null,
+    loads: 0,
+    created: 0,
+    disposed: 0,
+    actionAllowed: true,
+    actionPolicyChecks: 0,
+    loaderDeferred: null as Promise<void> | null,
+    payloads: [] as unknown[],
+    events: [] as string[],
+  };
+  @Controller()
+  class RecoveryController {
+    constructor(@Inject(RevalidateServiceInterface) private readonly revalidation: RevalidateServiceInterface) {
+      state.created++;
+    }
+    async loader(): Promise<string> {
+      state.loads++;
+      await state.loaderDeferred;
+      if (state.loaderError) throw state.loaderError;
+      return 'loaded';
+    }
+    action(args: ControllerArgs<WithPayload<unknown>>): string {
+      state.payloads.push(args.payload);
+      if (state.actionError) throw createRuntimeExceptionSignal(state.actionError);
+      return 'saved';
+    }
+    async submitAndRefresh(payload: unknown): Promise<void> {
+      this.action({ payload, signal: new AbortController().signal });
+      try {
+        await this.revalidation.revalidate();
+      } catch (error) {
+        throw createRuntimeExceptionSignal(error);
+      }
+    }
+    dispose(): void {
+      state.disposed++;
+    }
+  }
+  @Provider()
+  class RecoveryProvider implements ProviderInterface {
+    initialize(): void {
+      state.events.push('initialize');
+    }
+    prepare(): void {
+      state.events.push('prepare');
+    }
+    activate(): void {
+      state.events.push('activate');
+    }
+    revalidate(): void {
+      state.events.push('revalidate');
+    }
+    dispose(): void {
+      state.events.push('dispose');
+    }
+  }
+  class RecoveryBindings implements BindingModuleInterface {
+    register(registry: BindingRegistryInterface): void {
+      registry.bind(RecoveryController).toSelf().inSingletonScope();
+    }
+  }
+  @UseBindings(RecoveryBindings)
+  class RecoveryModule {}
+  @Policy()
+  class RecoveryActionPolicy extends RoutePolicyInterface {
+    execute(): PolicyResult {
+      state.actionPolicyChecks++;
+      return state.actionAllowed ? { type: 'pass' } : { type: 'fail', reason: 'denied' };
+    }
+  }
+  const router = new Router({
+    routes: [
+      new Route({
+        token: QueryModuleRoute,
+        address: segments('parent'),
+        load: loadTestModule,
+        routing: [
+          new Router({
+            routes: [
+              new Route({
+                token: QueryFrameRoute,
+                address: segments('child'),
+                load: async () => ({ module: RecoveryModule }),
+                providers: [RecoveryProvider],
+                canAction: [RecoveryActionPolicy],
+              }),
+            ],
+          }),
+        ],
+      }),
+    ],
+  });
+  return { state, router, Controller: RecoveryController };
 };

@@ -1,14 +1,7 @@
 import { Inject, Injectable, Optional } from '../../../di/injection/decorators';
 import { LoaderTransaction, LoaderTransactionService } from '../../../controller/runtime/loader-transaction';
-
-export interface CollectionState<TState extends object> {
-  get<TKey extends keyof TState>(key: TKey): TState[TKey] | undefined;
-  set<TKey extends keyof TState>(key: TKey, value: TState[TKey]): void;
-}
-
-export interface Collection<TItem> {
-  append(items: readonly TItem[]): TItem[];
-}
+import { CollectorContext } from '../collector-context';
+import type { Collection, CollectionState, CollectorInterface } from './collector.interface.ts';
 
 interface CollectionTask<TItem> {
   readonly revision: number;
@@ -17,31 +10,70 @@ interface CollectionTask<TItem> {
 }
 
 @Injectable()
-export class Collector<TItem, TState extends object = Record<string, never>> {
+export class Collector<TItem, TState extends object = Record<string, never>> implements CollectorInterface<
+  TItem,
+  TState
+> {
   private values: Partial<TState> = {};
   private items: readonly TItem[] = [];
   private acceptedRevision = 0;
   private acceptedCollectionVersion: symbol | undefined;
   private revision = 0;
   private task: CollectionTask<TItem> | undefined;
+  private disposed = false;
+  private unregister: (() => void) | undefined;
 
+  constructor(execution?: LoaderTransactionService);
   constructor(
     @Inject(LoaderTransactionService)
     @Optional()
     private readonly execution?: LoaderTransactionService,
-  ) {}
+    @Inject(CollectorContext)
+    @Optional()
+    context?: CollectorContext,
+  ) {
+    if (context) {
+      context.owner.own({ revoke: () => this.dispose() });
+      if (context.key === undefined) throw new Error('A controller-owned collector requires a key.');
+      this.unregister = context.registry.register(context.key, this);
+    }
+  }
 
   readonly state: Pick<CollectionState<TState>, 'get'> = {
-    get: (key) => (Object.hasOwn(this.values, key) ? this.values[key] : undefined),
+    get: (key) => {
+      this.assertActive();
+      return Object.hasOwn(this.values, key) ? this.values[key] : undefined;
+    },
   };
 
   reset(): void {
+    this.assertActive();
     this.revision++;
+    this.task?.transaction.cancel();
+  }
+
+  private dispose(): void {
+    if (this.disposed) return;
+
+    this.disposed = true;
+    this.revision++;
+    this.unregister?.();
+    this.unregister = undefined;
+    this.task?.transaction.cancel();
+    this.task = undefined;
+    this.items = [];
+    this.values = {};
+    this.acceptedCollectionVersion = undefined;
+  }
+
+  private assertActive(): void {
+    if (this.disposed) throw new Error('Collector owner has been released.');
   }
 
   execute(
     request: (collection: Collection<TItem>, state: CollectionState<TState>) => Promise<TItem[]>,
   ): Promise<TItem[]> {
+    this.assertActive();
     const runtimeTransaction = this.execution?.requireCurrent();
 
     if (
@@ -56,17 +88,19 @@ export class Collector<TItem, TState extends object = Record<string, never>> {
     const collectionVersion = transaction.collection?.version;
     const continuing = this.acceptedRevision === revision && this.acceptedCollectionVersion === collectionVersion;
     let items = continuing ? this.items : [];
-    const values: Partial<TState> = continuing ? { ...this.values } : {};
+    let values: Partial<TState> = continuing ? { ...this.values } : {};
     let open = true;
     let task: CollectionTask<TItem>;
 
     const release = (): void => {
       open = false;
       if (this.task === task) this.task = undefined;
+      items = [];
+      values = {};
     };
 
     transaction.enlist({
-      current: () => this.revision === revision,
+      current: () => !this.disposed && this.revision === revision,
       commit: () => {
         this.items = items;
         this.values = values;

@@ -1526,7 +1526,7 @@ export abstract class Application<
         historyTargetId: null,
         replaceCurrent: true,
         sessionBoundary: null,
-        allowActivationReuse: false,
+        allowActivationReuse: true,
         trigger: 'recovery',
       },
     );

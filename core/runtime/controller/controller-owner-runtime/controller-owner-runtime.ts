@@ -1,3 +1,4 @@
+import { isLoaderFailure, RuntimeRetryOperations, type RuntimeRetryOperation } from '../../operation/runtime-retry';
 import { SessionRuntimeStateInterface } from '../../../application/session/session-runtime-state';
 import { ApplicationReportDispatcherInterface } from '../../../application/reporting/application-report';
 import type {
@@ -51,6 +52,7 @@ import type { BindingRegistryInterface } from '../../../di/binding/binding-regis
 import type { ProviderToken } from '../../provider/provider-token';
 
 import { ControllerOwnerStateMachine, type ControllerOwnerPhase } from '../controller-owner-state-machine';
+import { createControllerResourceRuntime, type ControllerResourceRuntime } from '../controller-resources';
 
 export interface ControllerOwnerDefinition<TProps extends object> {
   readonly providers: readonly ProviderToken<TProps>[];
@@ -63,6 +65,7 @@ export interface ActiveControllerOwnerRuntime<TProps extends object = object> {
   readonly owner: RuntimeOwner;
   readonly providerPipeline: ProviderPipeline<TProps>;
   readonly scope: RuntimeScope;
+  readonly resources: ControllerResourceRuntime;
 }
 
 export interface ControllerOwnerRuntimeLoadOptions {
@@ -98,6 +101,7 @@ export interface ControllerOwnerRuntimeSnapshot {
 type ControllerOwnerRuntimeListener = () => void;
 
 interface WidgetRevalidateTask<TProps extends object> {
+  readonly result: Promise<boolean>;
   readonly controllerToken: DependencyToken<unknown> | undefined;
   readonly runtime: ActiveControllerOwnerRuntime<TProps>;
   readonly promise: Promise<void>;
@@ -114,6 +118,11 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
   private readonly revalidateTasks = new Set<WidgetRevalidateTask<TProps>>();
   private readonly stateMachine = new ControllerOwnerStateMachine();
 
+  private failedLoad: { readonly runtime: ActiveControllerOwnerRuntime<TProps>; readonly props: TProps } | null = null;
+  private invocationRevision = 0;
+  private readonly retryOperations = new RuntimeRetryOperations();
+  private retryPresentation: ControllerOwnerRuntimeSnapshot | null = null;
+  private retryAbortController: AbortController | null = null;
   private activeRuntime: ActiveControllerOwnerRuntime<TProps> | null = null;
   private disposePromise: Promise<void> | null = null;
   private loadAbortController: AbortController | null = null;
@@ -149,9 +158,18 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     payload: TPayload,
     options: ControllerOwnerRuntimeActionOptions = {},
   ): Promise<unknown> {
+    return this.runAction(controllerToken, payload, options, this.props);
+  }
+
+  private runAction<TPayload>(
+    controllerToken: DependencyToken<unknown>,
+    payload: TPayload,
+    options: ControllerOwnerRuntimeActionOptions,
+    props: TProps,
+  ): Promise<unknown> {
     const task = this.ownerScope
       .get(RuntimeOperationCoordinator)
-      .run(() => this.executeAction(controllerToken, payload, options));
+      .run(() => this.executeAction(controllerToken, payload, options, props));
 
     this.actionTasks.add(task);
     void task.then(
@@ -163,11 +181,12 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
   }
 
   async dispose(): Promise<void> {
+    this.invocationRevision++;
     if (this.disposePromise) {
       return this.disposePromise;
     }
 
-    if (this.getSnapshot().phase === 'disposed') {
+    if (this.stateMachine.getSnapshot().phase === 'disposed') {
       return;
     }
 
@@ -177,8 +196,11 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     this.abortActions();
     this.activeRuntime?.scope.suspendRequests();
 
-    const runtime = this.activeRuntime;
-
+    const runtime = this.activeRuntime ?? this.failedLoad?.runtime ?? null;
+    runtime?.resources.beginRelease();
+    this.retryAbortController?.abort();
+    this.retryPresentation = null;
+    this.failedLoad = null;
     this.activeRuntime = null;
     this.emit();
 
@@ -248,7 +270,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
   }
 
   getSnapshot(): ControllerOwnerRuntimeSnapshot {
-    return this.snapshot;
+    return this.snapshot.phase !== 'failed' && this.retryPresentation ? this.retryPresentation : this.snapshot;
   }
 
   invoke<TValue>(controllerToken: DependencyToken<unknown>, method: string | symbol, args: readonly unknown[]): TValue {
@@ -259,6 +281,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
       throw new Error('Контроллер владельца controllers недоступен.');
     }
 
+    const revision = this.invocationRevision;
     const source: RuntimeFailureSource = {
       operation: `controller.${String(method)}`,
       owner: this.owner,
@@ -277,17 +300,25 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
       );
 
       if (isPromiseLike(value)) {
-        return value.catch((error) => this.handleInvocationError(error, runtime, source)) as TValue;
+        return value.catch((error) =>
+          this.handleInvocationError(error, runtime, revision, source, {
+            kind: 'controller',
+            run: () => this.invoke(controllerToken, method, args),
+          }),
+        ) as TValue;
       }
 
       return value;
     } catch (error) {
-      return this.handleInvocationError(error, runtime, source);
+      return this.handleInvocationError(error, runtime, revision, source, {
+        kind: 'controller',
+        run: () => this.invoke(controllerToken, method, args),
+      });
     }
   }
 
   load(options: ControllerOwnerRuntimeLoadOptions = {}): Promise<void> {
-    const phase = this.getSnapshot().phase;
+    const phase = this.stateMachine.getSnapshot().phase;
 
     if (phase === 'ready') {
       return Promise.resolve();
@@ -329,9 +360,20 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
   }
 
   revalidate(options: ControllerOwnerRuntimeRevalidateOptions = {}): Promise<void> {
+    return this.scheduleRevalidation(options);
+  }
+
+  private scheduleRevalidation(
+    options: ControllerOwnerRuntimeRevalidateOptions,
+    capturedProps?: TProps,
+  ): Promise<void> {
     const runtime = this.getOperationalRuntime();
     if (options.signal?.aborted) return Promise.resolve();
     if (this.loadPromise) return this.loadPromise.then(() => undefined);
+
+    const requestSignal = runtime.scope.getRequestSignal();
+    const operationId = this.revalidateOperationCounter;
+    const operationGuard = this.createCompletionGuard();
 
     const pending = [...this.revalidateTasks].filter(
       (task) =>
@@ -341,24 +383,42 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
           task.controllerToken === undefined ||
           task.controllerToken === options.controllerToken),
     );
-    if (pending.length === 1) return pending[0]!.promise;
-    if (pending.length > 1) return settleLoaderTasks(pending.map((task) => task.promise)).then(() => undefined);
-
     if (options.restartCollections) {
       runtime.scope.get(LoaderTransactionService).restartCollections();
     }
 
-    const operationId = this.revalidateOperationCounter;
-    const operationGuard = this.createCompletionGuard();
+    if (pending.length > 0) {
+      return settleLoaderTasks(pending.map((task) => task.result)).then((results) => {
+        if (
+          (!options.restartCollections && results.every(Boolean)) ||
+          options.signal?.aborted ||
+          requestSignal.aborted ||
+          operationId !== this.revalidateOperationCounter ||
+          operationGuard?.isInterrupted() ||
+          !this.isActive(runtime)
+        )
+          return;
 
-    const promise = this.revalidateQueue.then(() => {
-      if (operationId !== this.revalidateOperationCounter) {
-        return;
-      }
+        const remaining =
+          !options.restartCollections && options.controllerToken === undefined && results.some(Boolean)
+            ? pending.filter((_, index) => !results[index]).map((task) => task.controllerToken)
+            : [options.controllerToken];
+        return settleLoaderTasks(
+          remaining.map((controllerToken) =>
+            this.scheduleRevalidation({ ...options, controllerToken, restartCollections: false }, capturedProps),
+          ),
+        ).then(() => undefined);
+      });
+    }
 
-      return this.executeRevalidate(runtime, options, operationId, operationGuard);
+    const result = this.revalidateQueue.then(() => {
+      if (operationId !== this.revalidateOperationCounter || requestSignal.aborted) return false;
+      return this.executeRevalidate(runtime, options, operationId, operationGuard, capturedProps, () =>
+        this.revalidateTasks.delete(task),
+      );
     });
-    const task = { controllerToken: options.controllerToken, promise, runtime };
+    const promise = result.then(() => undefined);
+    const task = { controllerToken: options.controllerToken, promise, result, runtime };
 
     this.revalidateTasks.add(task);
     this.revalidateQueue = promise.catch(() => undefined);
@@ -377,7 +437,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
   }
 
   updateProps(props: TProps): void {
-    if (this.getSnapshot().phase === 'disposing' || this.getSnapshot().phase === 'disposed') {
+    if (this.stateMachine.getSnapshot().phase === 'disposing' || this.stateMachine.getSnapshot().phase === 'disposed') {
       return;
     }
 
@@ -394,6 +454,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
       return;
     }
 
+    runtime.resources.beginRelease();
     await this.reportFailure(failure, this.failureDisposition, 'failed');
     await this.disposeActiveRuntime(runtime);
   }
@@ -402,6 +463,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     for (const abortController of this.actionAbortControllers.values()) {
       abortController.abort(new Error('Runtime владельца controllers освобождён.'));
     }
+    this.actionAbortControllers.clear();
   }
 
   private async createActiveRuntime(): Promise<ActiveControllerOwnerRuntime<TProps>> {
@@ -415,12 +477,14 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
         );
     });
     const controllers = new Map<DependencyToken<unknown>, RuntimeController>();
+    let resources: ControllerResourceRuntime | undefined;
 
     try {
       this.activateScope(scope);
 
+      resources = createControllerResourceRuntime(scope);
       for (const controllerToken of scope.getControllerTokens()) {
-        controllers.set(controllerToken, scope.get(controllerToken) as RuntimeController);
+        controllers.set(controllerToken, resources.resolve(controllerToken));
       }
 
       return {
@@ -430,9 +494,12 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
         owner: this.owner,
         providerPipeline: new ProviderPipeline(scope, this.definition.providers, this.owner),
         scope,
+        resources,
       };
     } catch (error) {
+      resources?.beginRelease();
       await this.disposeControllers(controllers);
+      await this.disposeControllerResources(resources);
       this.disposeScope(scope);
       throw error;
     }
@@ -482,11 +549,13 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     }
 
     this.disposedRuntimes.add(runtime);
+    runtime.resources.beginRelease();
     runtime.scope.suspendRequests();
     if (waitForRevalidations) {
       await this.waitForRevalidations(runtime);
     }
     await this.disposeControllers(runtime.controllers);
+    await this.disposeControllerResources(runtime.resources);
     await runtime.providerPipeline.dispose();
 
     try {
@@ -512,6 +581,14 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     );
   }
 
+  private async disposeControllerResources(resources: ControllerResourceRuntime | undefined): Promise<void> {
+    try {
+      await resources?.dispose();
+    } catch (error) {
+      await this.reportCleanupFailure(error, 'controller.resources.dispose');
+    }
+  }
+
   private emit(): void {
     this.snapshot = this.stateMachine.getSnapshot();
     this.listeners.forEach((listener) => listener());
@@ -521,6 +598,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     controllerToken: DependencyToken<unknown>,
     payload: TPayload,
     options: ControllerOwnerRuntimeActionOptions,
+    props: TProps,
   ): Promise<unknown> {
     const runtime = this.getOperationalRuntime();
     const controller = runtime.controllers.get(controllerToken);
@@ -533,7 +611,6 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
       throw new Error('Действие владельца controllers уже выполняется.');
     }
 
-    const props = this.props;
     const linkedAbortController = createLinkedAbortController(
       AbortSignal.any([runtime.scope.getRequestSignal(), ...(options.signal ? [options.signal] : [])]),
     );
@@ -579,7 +656,15 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
         source: this.createRuntimeSource('action'),
       });
 
-      return await this.applyActionResult(runtime, controllerToken, result);
+      if (this.actionAbortControllers.get(controllerToken) !== abortController) return undefined;
+      return await this.applyActionResult(runtime, controllerToken, result, {
+        kind: 'action',
+        run: async (signal) => {
+          await this.runAction(controllerToken, payload, { ...options, signal }, props);
+          const error = this.getActionState(controllerToken).error;
+          if (error !== undefined) throw error;
+        },
+      });
     } finally {
       linkedAbortController.dispose();
 
@@ -591,11 +676,14 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
 
   private async executeLoad(props: TProps, revision: number, abortController: AbortController): Promise<void> {
     let runtime: ActiveControllerOwnerRuntime<TProps> | null = null;
+    const failedLoad = this.failedLoad;
+    this.failedLoad = null;
     const result = await executeRuntimeOperation({
       guard: this.createOperationGuard(),
       operation: async () => {
         throwIfAborted(abortController.signal, 'Загрузка владельца controllers была прервана.');
-        runtime = await this.createActiveRuntime();
+        if (failedLoad && failedLoad.props !== props) await this.disposeActiveRuntime(failedLoad.runtime);
+        runtime = failedLoad?.props === props ? failedLoad.runtime : await this.createActiveRuntime();
         throwIfAborted(abortController.signal, 'Загрузка владельца controllers была прервана.');
         this.activeRuntime = runtime;
         runtime.loaderData = await this.loadRuntime(runtime, props, abortController.signal, true);
@@ -606,6 +694,20 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     });
 
     if (result.type !== 'completed') this.discardLoaderTransaction(runtime);
+    const failure =
+      result.type === 'rejected'
+        ? captureRuntimeFailure(result.error, result.source)
+        : result.type === 'failed' || result.type === 'escalated'
+          ? result.failure
+          : null;
+    const retryRuntime = this.activeRuntime;
+    const preserveLoad =
+      this.owner.kind !== 'application' &&
+      failure !== null &&
+      isLoaderFailure(failure) &&
+      retryRuntime?.providerPipeline.hasPendingPreparation === true &&
+      !abortController.signal.aborted;
+    if (preserveLoad && retryRuntime) this.failedLoad = { runtime: retryRuntime, props };
 
     switch (result.type) {
       case 'completed': {
@@ -646,7 +748,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
           this.activeRuntime = null;
           this.emit();
         }
-        await this.disposeActiveRuntime(runtime);
+        if (!preserveLoad) await this.disposeActiveRuntime(runtime);
         throw result.error;
       case 'failed':
       case 'escalated':
@@ -655,7 +757,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
           this.emit();
           await this.reportFailure(result.failure, this.failureDisposition, 'failed');
         }
-        await this.disposeActiveRuntime(runtime);
+        if (!preserveLoad) await this.disposeActiveRuntime(runtime);
         throw result.failure.cause;
     }
   }
@@ -665,12 +767,14 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     options: ControllerOwnerRuntimeRevalidateOptions,
     operationId: number,
     guard: RuntimeOperationGuard | null,
-  ): Promise<void> {
+    capturedProps: TProps | undefined,
+    finish: () => void,
+  ): Promise<boolean> {
     if (!this.isActive(runtime) || options.signal?.aborted || guard?.isInterrupted()) {
-      return;
+      return false;
     }
 
-    const props = this.props;
+    const props = capturedProps ?? this.props;
     const controllerToken = options.controllerToken;
     const linkedAbortController = createLinkedAbortController(
       AbortSignal.any([runtime.scope.getRequestSignal(), ...(options.signal ? [options.signal] : [])]),
@@ -689,6 +793,9 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
         source: this.createRuntimeSource('revalidate'),
       });
 
+      if (result.type !== 'completed') finish();
+      if (result.type === 'interrupted') abortController.abort();
+
       if (result.type !== 'completed') runtime.scope.get(LoaderTransactionService).discardCurrent();
 
       if (!this.isCurrentRevalidate(operationId, runtime, abortController)) {
@@ -696,14 +803,18 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
         if (this.ownsRevalidate(operationId, runtime, abortController)) {
           this.setRevalidateState(controllerToken, DEFAULT_REVALIDATE_STATE);
         }
-        return;
+        return false;
       }
 
-      await this.applyRevalidateResult(runtime, result, controllerToken);
+      const committed = await this.applyRevalidateResult(runtime, result, controllerToken, {
+        kind: 'loaders',
+        run: (signal) => this.scheduleRevalidation({ ...options, signal }, props),
+      });
 
       if (this.ownsRevalidate(operationId, runtime, abortController)) {
         this.setRevalidateState(controllerToken, DEFAULT_REVALIDATE_STATE);
       }
+      return committed;
     } catch (error) {
       if (this.isCurrentRevalidate(operationId, runtime, abortController)) {
         this.setRevalidateState(controllerToken, { error, inProcess: false });
@@ -719,7 +830,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
   }
 
   private getOperationalRuntime(): ActiveControllerOwnerRuntime<TProps> {
-    if (this.getSnapshot().phase !== 'ready' || !this.activeRuntime) {
+    if (this.stateMachine.getSnapshot().phase !== 'ready' || !this.activeRuntime) {
       throw new Error('Runtime владельца controllers не готов.');
     }
 
@@ -729,7 +840,9 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
   private handleInvocationError(
     error: unknown,
     runtime: ActiveControllerOwnerRuntime<TProps>,
+    revision: number,
     source: RuntimeFailureSource,
+    operation: RuntimeRetryOperation,
   ): never {
     if (!isRuntimeExceptionSignal(error)) {
       throw error;
@@ -737,9 +850,12 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
 
     const failure = captureRuntimeFailure(error, source);
 
-    if (this.transitionToFailed(runtime, failure)) {
+    if (
+      revision === this.invocationRevision &&
+      this.transitionToFailed(runtime, failure, this.retryOperations.resolve(failure.cause, operation))
+    ) {
       void this.reportFailure(failure, this.failureDisposition, 'failed');
-      void this.disposeActiveRuntime(runtime);
+      if (this.owner.kind === 'application') void this.disposeActiveRuntime(runtime, false);
     }
 
     throw failure.cause;
@@ -752,7 +868,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
   }
 
   private isActive(runtime: ActiveControllerOwnerRuntime<TProps>): boolean {
-    return this.getSnapshot().phase === 'ready' && this.activeRuntime === runtime;
+    return this.stateMachine.getSnapshot().phase === 'ready' && this.activeRuntime === runtime;
   }
 
   private isCurrentRevalidate(
@@ -856,7 +972,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
 
     const [loaderData] = await settleLoaderTasks([
       this.loadControllers(runtime, props, signal, controllerToken),
-      runtime.providerPipeline.prepare(context),
+      runtime.providerPipeline.hasPendingPreparation ? undefined : runtime.providerPipeline.prepare(context),
     ]);
 
     throwIfAborted(signal, 'Загрузка владельца controllers была прервана.');
@@ -870,6 +986,7 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     runtime: ActiveControllerOwnerRuntime<TProps>,
     controllerToken: DependencyToken<unknown>,
     result: RuntimeOperationResult<unknown>,
+    operation: RuntimeRetryOperation,
   ): Promise<unknown> {
     if (!this.isActive(runtime)) {
       return undefined;
@@ -895,9 +1012,9 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
         return undefined;
       case 'escalated':
         this.setActionState(controllerToken, DEFAULT_ACTION_STATE);
-        if (this.transitionToFailed(runtime, result.failure)) {
+        if (this.transitionToFailed(runtime, result.failure, operation)) {
           await this.reportFailure(result.failure, this.failureDisposition, 'failed');
-          await this.disposeActiveRuntime(runtime);
+          if (this.owner.kind === 'application') await this.disposeActiveRuntime(runtime, false);
         }
         return undefined;
     }
@@ -906,27 +1023,31 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
   private async applyRevalidateResult(
     runtime: ActiveControllerOwnerRuntime<TProps>,
     result: RuntimeOperationResult<ControllerLoaderData>,
-    controllerToken?: DependencyToken<unknown>,
-  ): Promise<void> {
+    controllerToken: DependencyToken<unknown> | undefined,
+    operation: RuntimeRetryOperation,
+  ): Promise<boolean> {
+    if (result.type === 'rejected') this.retryOperations.remember(result.error, operation);
+    if (result.type === 'failed') this.retryOperations.remember(result.failure.cause, operation);
     switch (result.type) {
       case 'completed':
-        if (!commitLoaderData(result.value)) return;
+        if (!commitLoaderData(result.value)) return false;
         runtime.loaderData =
           controllerToken === undefined ? result.value : mergeControllerLoaderData(runtime.loaderData, result.value);
         this.emit();
-        return;
+        return true;
       case 'interrupted':
-        return;
+        return false;
       case 'rejected':
         throw result.error;
       case 'failed':
         await this.reportFailure(result.failure, 'revalidate.failed', 'active');
         throw result.failure.cause;
       case 'escalated':
-        if (this.transitionToFailed(runtime, result.failure)) {
+        if (this.transitionToFailed(runtime, result.failure, operation)) {
           await this.reportFailure(result.failure, this.failureDisposition, 'failed');
-          await this.disposeActiveRuntime(runtime, false);
+          if (this.owner.kind === 'application') await this.disposeActiveRuntime(runtime, false);
         }
+        return false;
     }
   }
 
@@ -960,8 +1081,8 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
     return this.createException(captureRuntimeFailure(error, this.createRuntimeSource('render')));
   }
 
-  private createException(failure: RuntimeFailure): RuntimeException {
-    return createRuntimeException(failure, {
+  private createException(failure: RuntimeFailure, operation?: RuntimeRetryOperation): RuntimeException {
+    const exception: RuntimeException = createRuntimeException(failure, {
       disposition: this.failureDisposition,
       owner: this.owner,
       phase: 'failed',
@@ -969,19 +1090,70 @@ export abstract class ControllerOwnerRuntime<TProps extends object = Record<stri
         this.owner.kind === 'application'
           ? {}
           : {
-              retry: () => this.load(),
+              retry: () => this.retry(exception, failure, operation),
             },
     });
+    return exception;
   }
 
-  private transitionToFailed(runtime: ActiveControllerOwnerRuntime<TProps>, failure: RuntimeFailure): boolean {
-    if (this.activeRuntime !== runtime || !this.stateMachine.toFailed(this.createException(failure))) {
+  private async retry(
+    exception: RuntimeException,
+    failure: RuntimeFailure,
+    operation?: RuntimeRetryOperation,
+  ): Promise<void> {
+    if (this.snapshot.phase !== 'failed' || this.snapshot.exception !== exception || this.retryAbortController) return;
+    if (!operation) {
+      const abortController = new AbortController();
+      this.retryAbortController = abortController;
+      this.retryPresentation = this.snapshot;
+      try {
+        await this.load({ signal: AbortSignal.any([this.ownerScope.getRequestSignal(), abortController.signal]) });
+      } finally {
+        if (this.retryAbortController === abortController) {
+          this.retryAbortController = null;
+          this.retryPresentation = null;
+          this.emit();
+        }
+      }
+      return;
+    }
+    const runtime = this.activeRuntime;
+    if (!runtime || !this.stateMachine.resumeFailed()) return;
+    const abortController = new AbortController();
+    this.retryAbortController = abortController;
+    const signal = AbortSignal.any([runtime.scope.getRequestSignal(), abortController.signal]);
+    this.retryPresentation = this.snapshot;
+    this.emit();
+    try {
+      await operation.run(signal);
+    } catch (error) {
+      if (!signal.aborted && this.isActive(runtime)) {
+        const nextFailure = captureRuntimeFailure(error, failure.source);
+        if (this.transitionToFailed(runtime, nextFailure, operation))
+          await this.reportFailure(nextFailure, this.failureDisposition, 'failed');
+      }
+    } finally {
+      if (this.retryAbortController === abortController) {
+        this.retryAbortController = null;
+        this.retryPresentation = null;
+        this.emit();
+      }
+    }
+  }
+
+  private transitionToFailed(
+    runtime: ActiveControllerOwnerRuntime<TProps>,
+    failure: RuntimeFailure,
+    operation?: RuntimeRetryOperation,
+  ): boolean {
+    if (this.activeRuntime !== runtime || !this.stateMachine.toFailed(this.createException(failure, operation))) {
       return false;
     }
 
+    this.invocationRevision++;
     this.interruptRevalidation();
     this.abortActions();
-    this.activeRuntime = null;
+    if (!operation || this.owner.kind === 'application') this.activeRuntime = null;
     this.resetRevalidateState(false);
     this.actionStates.clear();
     this.emit();

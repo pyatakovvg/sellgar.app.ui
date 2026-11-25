@@ -41,6 +41,8 @@ import {
   executeRuntimeOperation,
   type RuntimeOperationResult,
 } from '../../../runtime/operation/runtime-operation';
+import type { RuntimeRetryOperation } from '../../../runtime/operation/runtime-retry';
+import { settleLoaderTasks } from '../../../controller/runtime/loader-transaction';
 import { ProviderPipeline } from '../../../runtime/provider/provider-pipeline';
 import type { RuntimeScope } from '../../../runtime/scope/base/runtime-scope';
 import type { NavigationOperation } from '../navigation-operation';
@@ -80,6 +82,11 @@ export interface RouteRuntimeCallbacks<TPresentation = unknown> {
   readonly executeAction?: (execution: RouteRuntimeActionExecution<TPresentation>) => Promise<unknown>;
   readonly onRenderFailure?: (runtime: RouteActivationRuntime<TPresentation>, error: unknown) => Promise<void>;
   readonly recovery?: RuntimeExceptionRecoveryOperations;
+  readonly executeRetry?: (
+    runtime: RouteActivationRuntime<TPresentation>,
+    kind: RuntimeRetryOperation['kind'],
+    execute: () => Promise<void>,
+  ) => Promise<void>;
 }
 
 export interface RouteRuntimeRevalidateOptions {
@@ -141,6 +148,7 @@ export class RouteActivationRuntime<TPresentation = unknown> {
   private prepareAbortController: AbortController | null = null;
   private preparePromise: Promise<void> | null = null;
   private providerPipeline: ProviderPipeline | null = null;
+  private retryPresentation: RouteRuntimeSnapshot | null = null;
   private refreshBoundary: RouteRuntimeSnapshot | null = null;
   private snapshot: RouteRuntimeSnapshot = ROUTE_RUNTIME_SNAPSHOTS.empty;
   private snapshotState: RouteRuntimeState | null = null;
@@ -208,7 +216,14 @@ export class RouteActivationRuntime<TPresentation = unknown> {
 
       this.policyRunner = new PolicyRunner(this.routeScope, this.owner);
       this.moduleRuntime = this.definition.load
-        ? new ModuleRuntime(this.routeScope, this.definition.load, exportResolver, this.owner, callbacks.recovery)
+        ? new ModuleRuntime(
+            this.routeScope,
+            this.definition.load,
+            exportResolver,
+            this.owner,
+            callbacks.recovery,
+            (execute, kind) => this.executeRetry(execute, kind),
+          )
         : null;
     } catch (error) {
       this.routeScope.dispose();
@@ -219,6 +234,8 @@ export class RouteActivationRuntime<TPresentation = unknown> {
   }
 
   getSnapshot(): RouteRuntimeSnapshot {
+    if (this.retryPresentation && this.state.phase !== 'failed' && this.state.phase !== 'disposed')
+      return this.retryPresentation;
     if (this.refreshBoundary !== null) {
       return this.refreshBoundary;
     }
@@ -387,8 +404,10 @@ export class RouteActivationRuntime<TPresentation = unknown> {
 
     const { failure, params } = this.state;
 
-    if (failure === null) this.providerPipeline?.commit();
-    this.moduleRuntime?.commit();
+    if (failure === null) {
+      this.providerPipeline?.commit();
+      this.moduleRuntime?.commit();
+    }
     this.state =
       failure === null ? { params, phase: 'active' } : { exception: failure.exception, params, phase: 'failed' };
     this.emit();
@@ -680,8 +699,8 @@ export class RouteActivationRuntime<TPresentation = unknown> {
         await providerPipeline.initialize(providerContext);
         throwIfPreparationAborted(abortController.signal);
 
-        await Promise.all([
-          providerPipeline.prepare(providerContext),
+        await settleLoaderTasks([
+          providerPipeline.hasPendingPreparation ? undefined : providerPipeline.prepare(providerContext),
           this.moduleRuntime?.load(
             {
               params: { ...params },
@@ -725,8 +744,10 @@ export class RouteActivationRuntime<TPresentation = unknown> {
         this.emit();
         return;
       case 'rejected':
-        this.moduleRuntime?.discardPending();
-        await this.disposeProviderPipeline();
+        if (!this.canRetryLoaders()) {
+          this.moduleRuntime?.discardPending();
+          await this.disposeProviderPipeline();
+        }
         this.state = {
           failure: {
             exception: this.createException(
@@ -741,8 +762,10 @@ export class RouteActivationRuntime<TPresentation = unknown> {
         return;
       case 'failed':
       case 'escalated':
-        this.moduleRuntime?.discardPending();
-        await this.disposeProviderPipeline();
+        if (!this.canRetryLoaders()) {
+          this.moduleRuntime?.discardPending();
+          await this.disposeProviderPipeline();
+        }
         this.state = {
           failure: {
             exception: this.createException(
@@ -811,12 +834,58 @@ export class RouteActivationRuntime<TPresentation = unknown> {
   }
 
   private createException(failure: RuntimeFailure, disposition: RuntimeFailureDisposition): RuntimeException {
-    return createRuntimeException(failure, {
+    const canRetryLoaders = this.canRetryLoaders();
+    const exception: RuntimeException = createRuntimeException(failure, {
       disposition,
       owner: this.owner,
       phase: 'failed',
-      recovery: this.callbacks.recovery,
+      recovery: {
+        ...this.callbacks.recovery,
+        retry: canRetryLoaders
+          ? () => this.executeRetry(() => this.retryLoaders(exception), 'loaders')
+          : this.callbacks.recovery?.retry
+            ? () =>
+                this.state.phase === 'failed' &&
+                this.state.exception === exception &&
+                !this.lifecycleAbortController.signal.aborted
+                  ? this.callbacks.recovery!.retry!()
+                  : Promise.resolve()
+            : undefined,
+      },
     });
+    return exception;
+  }
+
+  private canRetryLoaders(): boolean {
+    return this.moduleRuntime?.hasRetryableLoad === true && this.providerPipeline?.hasPendingPreparation === true;
+  }
+
+  private executeRetry(execute: () => Promise<void>, kind: RuntimeRetryOperation['kind']): Promise<void> {
+    return this.callbacks.executeRetry ? this.callbacks.executeRetry(this, kind, execute) : execute();
+  }
+
+  private async retryLoaders(exception: RuntimeException): Promise<void> {
+    if (
+      this.state.phase !== 'failed' ||
+      this.state.exception !== exception ||
+      this.retryPresentation ||
+      !this.canRetryLoaders()
+    )
+      return;
+    const params = this.state.params;
+    const signal = this.lifecycleAbortController.signal;
+    if (signal.aborted) return;
+    this.retryPresentation = this.getSnapshot();
+    try {
+      this.state = { phase: 'empty' };
+      await this.prepare({ params, signal });
+      if (signal.aborted) return;
+      this.commit();
+    } finally {
+      this.retryPresentation = null;
+      this.emit();
+    }
+    if (this.getSnapshot().phase === 'active') await this.callbacks.recovery?.retry?.();
   }
 
   private getOrCreateProviderPipeline(): ProviderPipeline {

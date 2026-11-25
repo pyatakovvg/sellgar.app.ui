@@ -19,6 +19,10 @@ import { ModuleScope } from '../../../runtime/scope/kind/module-scope';
 import { LoaderTransactionService, settleLoaderTasks } from '../../../controller/runtime/loader-transaction';
 import type { NavigationOperation } from '../../../router/runtime/navigation-operation';
 import { createRuntimeExecution } from '../../../runtime/operation/runtime-execution';
+import {
+  createControllerResourceRuntime,
+  type ControllerResourceRuntime,
+} from '../../../runtime/controller/controller-resources';
 
 export type LoadedModuleControllerContext = ControllerArgs<WithParams<Record<string, unknown>, WithProps<object>>>;
 
@@ -30,6 +34,7 @@ export interface LoadedModuleRuntime<TPresentation = unknown> {
   readonly owner: RuntimeOwner;
   readonly providerPipeline: ProviderPipeline;
   readonly scope: ModuleScope;
+  readonly resources: ControllerResourceRuntime;
 }
 
 export const createLoadedModuleRuntime = async <TPresentation>(
@@ -39,6 +44,7 @@ export const createLoadedModuleRuntime = async <TPresentation>(
 ): Promise<LoadedModuleRuntime<TPresentation>> => {
   const controllers = new Map<DependencyToken<unknown>, RuntimeController>();
   const reporter = scope.get(ApplicationReportDispatcherInterface);
+  let resources: ControllerResourceRuntime | undefined;
 
   scope.bindMetadata(getMetadataDefaults(definition.token));
 
@@ -49,8 +55,9 @@ export const createLoadedModuleRuntime = async <TPresentation>(
       scope.activate(bindingOwner);
     }
 
+    resources = createControllerResourceRuntime(scope);
     for (const controllerToken of scope.getControllerTokens()) {
-      controllers.set(controllerToken, scope.get(controllerToken) as RuntimeController);
+      controllers.set(controllerToken, resources.resolve(controllerToken));
     }
 
     return {
@@ -61,9 +68,12 @@ export const createLoadedModuleRuntime = async <TPresentation>(
       owner,
       providerPipeline: new ProviderPipeline(scope, definition.providers, owner),
       scope,
+      resources,
     };
   } catch (error) {
+    resources?.beginRelease();
     await disposeControllers(controllers, reporter, owner);
+    await disposeControllerResources(resources, reporter, owner);
     await disposeModuleScope(scope, reporter, owner);
     throw error;
   }
@@ -118,7 +128,7 @@ const loadModuleData = async (
 
   const [loaderData] = await settleLoaderTasks([
     loadControllers(runtime, args, options.controllerToken),
-    runtime.providerPipeline.prepare(context),
+    runtime.providerPipeline.hasPendingPreparation ? undefined : runtime.providerPipeline.prepare(context),
   ]);
 
   throwIfAborted(args.signal, abortMessage);
@@ -166,9 +176,23 @@ export const executeLoadedModuleAction = async <TPayload>(
 };
 
 export const disposeLoadedModuleRuntime = async (runtime: LoadedModuleRuntime): Promise<void> => {
+  runtime.resources.beginRelease();
   await disposeControllers(runtime.controllers, runtime.reporter, runtime.owner);
+  await disposeControllerResources(runtime.resources, runtime.reporter, runtime.owner);
   await runtime.providerPipeline.dispose();
   await disposeModuleScope(runtime.scope, runtime.reporter, runtime.owner);
+};
+
+const disposeControllerResources = async (
+  resources: ControllerResourceRuntime | undefined,
+  reporter: ApplicationReportDispatcherInterface,
+  owner: RuntimeOwner,
+): Promise<void> => {
+  try {
+    await resources?.dispose();
+  } catch (error) {
+    await reportCleanupFailure(reporter, owner, error, 'controller.resources.dispose');
+  }
 };
 
 const loadControllers = async (

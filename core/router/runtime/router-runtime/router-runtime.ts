@@ -1,3 +1,4 @@
+import type { RuntimeRetryOperation } from '../../../runtime/operation/runtime-retry';
 import { RequestExecutor } from '../../../application/request/request-executor';
 import type { ApplicationControllerInterface } from '../../../application/lifecycle/application-lifecycle';
 import { ApplicationReportDispatcherInterface } from '../../../application/reporting/application-report';
@@ -596,7 +597,7 @@ export class RouterRuntime<TPresentation = unknown> {
       phase: 'failed',
     };
     this.setSnapshot(this.committedBoundary);
-    await this.disposeBranch(branch);
+    await this.disposeBranch(branch, true);
     await this.reportFailure(failure, 'router.failed');
   }
 
@@ -709,6 +710,62 @@ export class RouterRuntime<TPresentation = unknown> {
     }
 
     return await execution.execute();
+  }
+
+  private async executeRetry(
+    runtime: RouteActivationRuntime<TPresentation>,
+    kind: RuntimeRetryOperation['kind'],
+    execute: () => Promise<void>,
+  ): Promise<void> {
+    const root = this.environment.rootRuntime;
+    if (root && root !== this) return root.executeRetry(runtime, kind, execute);
+    const signal = runtime.getRouteScope().getRequestSignal();
+    if (signal.aborted) return;
+    await this.routerScope.get(RuntimeOperationCoordinator).run(async () => {
+      const boundaries: ActivePolicyBoundary<TPresentation>[] = [];
+      if (!this.collectActionPolicyPath(runtime, boundaries)) return;
+      const context: RouterRuntimePrepareContext = {
+        app: this.environment.execution.app,
+        session: this.environment.execution.session,
+        signal,
+      };
+      const sessionRevision = context.session.revision;
+      for (const boundary of boundaries) {
+        if (signal.aborted || context.session.revision !== sessionRevision) return;
+        const decision =
+          boundary.kind === 'router'
+            ? await boundary.runtime.policyRunner.execute(
+                boundary.runtime.definition.canMatch,
+                createPolicyContext(EMPTY_PARAMS, context, signal),
+              )
+            : await boundary.entry.runtime.executePolicyBoundary(
+                'canMatch',
+                createPolicyContext(boundary.entry.runtime.getParams(), context, signal),
+              );
+        if (signal.aborted || context.session.revision !== sessionRevision) return;
+        if (decision.type !== 'continue') {
+          await this.applyActionPolicyDecision(boundary, decision);
+          return;
+        }
+        if (
+          boundary.kind === 'route' &&
+          (kind === 'action' || kind === 'controller' || boundary.entry.runtime === runtime)
+        ) {
+          const decision = await boundary.entry.runtime.executePolicyBoundary(
+            kind === 'action' || kind === 'controller' ? 'canAction' : 'canActivate',
+            createPolicyContext(boundary.entry.runtime.getParams(), context, signal),
+          );
+          if (decision.type !== 'continue') {
+            await this.applyActionPolicyDecision(boundary, decision);
+            return;
+          }
+        }
+      }
+      if (signal.aborted || context.session.revision !== sessionRevision) return;
+      const current: ActivePolicyBoundary<TPresentation>[] = [];
+      if (!this.collectActionPolicyPath(runtime, current)) return;
+      await execute();
+    });
   }
 
   private collectActionPolicyPath(
@@ -2648,19 +2705,24 @@ export class RouterRuntime<TPresentation = unknown> {
     this.listeners.clear();
   }
 
-  private async disposeBranch(branch: RouterRuntimeBranch<TPresentation> | null): Promise<void> {
+  private async disposeBranch(branch: RouterRuntimeBranch<TPresentation> | null, force = false): Promise<void> {
     if (branch?.child) {
       await branch.child.runtime.dispose();
     }
 
     for (const entry of [...(branch?.routes ?? [])].reverse()) {
-      await this.disposeRouteEntry(entry, 'route.dispose');
+      await this.disposeRouteEntry(entry, 'route.dispose', force);
     }
   }
 
-  private async disposeRouteEntry(entry: RuntimeRouteEntry<TPresentation>, operation: string): Promise<void> {
+  private async disposeRouteEntry(
+    entry: RuntimeRouteEntry<TPresentation>,
+    operation: string,
+    force = false,
+  ): Promise<void> {
     try {
-      await entry.ownerRuntime.discard(entry.runtime);
+      if (force) await entry.runtime.dispose();
+      else await entry.ownerRuntime.discard(entry.runtime);
     } catch (error) {
       await this.reportCleanupFailure(error, operation);
     }
@@ -2775,6 +2837,7 @@ export class RouterRuntime<TPresentation = unknown> {
         executeAction: (execution) => this.executeRouteAction(execution),
         onRenderFailure: (failedRuntime, error) => this.trimCommittedRouteBranch(failedRuntime, error),
         recovery: this.getExceptionRecovery(),
+        executeRetry: (runtime, kind, execute) => this.executeRetry(runtime, kind, execute),
       },
     );
 

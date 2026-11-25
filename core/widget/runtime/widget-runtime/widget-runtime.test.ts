@@ -8,6 +8,8 @@ import type { BindingRegistryInterface } from '../../../di/binding/binding-regis
 import { BindingModuleInterface } from '../../../di/binding/binding-module';
 import { UseBindings } from '../../../di/composition/use-bindings';
 import { Inject } from '../../../di/injection/decorators';
+import { createRuntimeExceptionSignal } from '../../../runtime/exception/runtime-exception';
+import { RevalidateServiceInterface } from '../../../revalidate/contract/revalidate-service';
 import { UnauthorizedException } from '../../../http/exception/http-exception';
 import {
   Provider,
@@ -124,7 +126,6 @@ describe('WidgetRuntime', () => {
     runtime.updateProps({ value: 'latest' });
     TestController.loaderDeferred = null;
     const repeated = runtime.revalidate();
-    expect(repeated).toBe(first);
     deferred.resolve();
     await Promise.all([first, repeated]);
     expect(TestController.loadCount).toBe(2);
@@ -185,6 +186,135 @@ describe('WidgetRuntime', () => {
     expect(runtime.getSnapshot().phase).toBe('ready');
     expect(runtime.getRevalidateState(TestController).inProcess).toBe(false);
     expect(runtime.getRevalidateState().inProcess).toBe(false);
+    await runtime.dispose();
+  });
+
+  it('retries failed initial loaders with the same controllers and prepared providers', async () => {
+    const { runtime, state, Controller } = createRecoveryWidget();
+    state.loaderError = new Error('initial failed');
+    await expect(runtime.load()).rejects.toThrow('initial failed');
+    const exception = runtime.getSnapshot().exception!;
+    state.loaderError = null;
+    await exception.recovery.retry!();
+    expect(runtime.getSnapshot().phase).toBe('ready');
+    expect(runtime.getController(Controller)).toBe(state.instances[0]);
+    expect(state.loads).toBe(2);
+    expect(state.events).toEqual(['initialize', 'prepare', 'activate']);
+    await runtime.dispose();
+    expect(state.disposed).toBe(1);
+    expect(state.events.filter((event) => event === 'dispose')).toHaveLength(1);
+  });
+
+  it('retries only the escalated action with its captured payload and props', async () => {
+    const { runtime, state, Controller } = createRecoveryWidget();
+    await runtime.load();
+    state.actionError = new Error('action failed');
+    const payload = { suffix: 'submitted' };
+    await runtime.action(Controller, payload);
+    const first = runtime.getSnapshot().exception!;
+    runtime.updateProps({ value: 'changed' });
+    await first.recovery.retry!();
+    const second = runtime.getSnapshot().exception!;
+    expect(second).not.toBe(first);
+    state.actionError = null;
+    await second.recovery.retry!();
+    expect(runtime.getSnapshot().phase).toBe('ready');
+    expect(state.actions).toEqual([
+      { payload, props: { value: 'initial' } },
+      { payload, props: { value: 'initial' } },
+      { payload, props: { value: 'initial' } },
+    ]);
+    expect(state.loads).toBe(1);
+    expect(state.instances).toHaveLength(1);
+    expect(state.disposed).toBe(0);
+    await first.recovery.retry!();
+    expect(state.actions).toHaveLength(3);
+    await runtime.dispose();
+  });
+
+  it('retries an escalated revalidation without disposing or recreating the widget', async () => {
+    const { runtime, state } = createRecoveryWidget();
+    await runtime.load();
+    state.loaderError = new Error('revalidation failed');
+    state.escalateLoader = true;
+    await runtime.revalidate();
+    const exception = runtime.getSnapshot().exception!;
+    state.loaderError = null;
+    await exception.recovery.retry!();
+    expect(runtime.getSnapshot().phase).toBe('ready');
+    expect(state.loads).toBe(3);
+    expect(state.instances).toHaveLength(1);
+    expect(state.disposed).toBe(0);
+    await runtime.dispose();
+  });
+
+  it('does not repeat a successful operation when its later revalidation is escalated', async () => {
+    const { runtime, state, Controller } = createRecoveryWidget();
+    await runtime.load();
+    state.loaderError = new Error('refresh failed');
+    await expect(runtime.invoke(Controller, 'submitAndRefresh', [{ suffix: 'saved' }])).rejects.toThrow(
+      'refresh failed',
+    );
+    const exception = runtime.getSnapshot().exception!;
+    state.loaderError = null;
+    await exception.recovery.retry!();
+    expect(runtime.getSnapshot().phase).toBe('ready');
+    expect(state.loads).toBe(3);
+    expect(state.actions).toHaveLength(1);
+    expect(state.instances).toHaveLength(1);
+    await runtime.dispose();
+  });
+
+  it('recreates the widget runtime only for a render failure', async () => {
+    const { runtime, state, Controller } = createRecoveryWidget();
+    await runtime.load();
+    const controller = runtime.getController(Controller);
+    await runtime.failRender(new Error('render failed'));
+    await runtime.getSnapshot().exception!.recovery.retry!();
+    expect(runtime.getSnapshot().phase).toBe('ready');
+    expect(runtime.getController(Controller)).not.toBe(controller);
+    expect(state.instances).toHaveLength(2);
+    expect(state.disposed).toBe(1);
+    await runtime.dispose();
+    expect(state.disposed).toBe(2);
+  });
+
+  it('deduplicates retry and discards completion after disposal', async () => {
+    const { runtime, state } = createRecoveryWidget();
+    state.loaderError = new Error('load failed');
+    await expect(runtime.load()).rejects.toThrow();
+    const exception = runtime.getSnapshot().exception!;
+    state.loaderError = null;
+    state.deferred = createDeferred<void>();
+    const first = exception.recovery.retry!();
+    expect(exception.recovery.retry!()).toBe(first);
+    await waitFor(() => state.loads === 2);
+    expect(runtime.getSnapshot().exception).toBe(exception);
+    expect(exception.recovery.retry!.inProcess).toBe(true);
+    await runtime.dispose();
+    state.deferred.resolve();
+    await first;
+    expect(runtime.getSnapshot().phase).toBe('disposed');
+    expect(state.disposed).toBe(1);
+    await exception.recovery.retry!();
+    expect(state.loads).toBe(2);
+  });
+
+  it('ignores failure from an older controller invocation after successful recovery', async () => {
+    const { runtime, state, Controller } = createRecoveryWidget();
+    await runtime.load();
+    state.deferred = createDeferred<void>();
+    const invocation = runtime.invoke<Promise<void>>(Controller, 'delayedFailure', []);
+    const rejected = expect(invocation).rejects.toThrow('old invocation failed');
+    state.actionError = new Error('action failed');
+    await runtime.action(Controller, { suffix: 'submitted' });
+    const exception = runtime.getSnapshot().exception!;
+    state.actionError = null;
+    await exception.recovery.retry!();
+    state.deferred.resolve();
+    await rejected;
+    expect(runtime.getSnapshot().phase).toBe('ready');
+    expect(state.instances).toHaveLength(1);
     await runtime.dispose();
   });
 
@@ -352,4 +482,84 @@ const waitFor = async (predicate: () => boolean): Promise<void> => {
   }
 
   throw new Error('Ожидаемое состояние теста не достигнуто.');
+};
+
+const createRecoveryWidget = () => {
+  const state = {
+    loaderError: null as Error | null,
+    actionError: null as Error | null,
+    escalateLoader: false,
+    deferred: null as Deferred<void> | null,
+    loads: 0,
+    disposed: 0,
+    instances: [] as unknown[],
+    actions: [] as unknown[],
+    events: [] as string[],
+  };
+  @Controller()
+  class RecoveryController {
+    constructor(@Inject(RevalidateServiceInterface) private readonly revalidation: RevalidateServiceInterface) {
+      state.instances.push(this);
+    }
+    async loader(): Promise<string> {
+      state.loads++;
+      await state.deferred?.promise;
+      if (state.loaderError)
+        throw state.escalateLoader ? createRuntimeExceptionSignal(state.loaderError) : state.loaderError;
+      return 'loaded';
+    }
+    action(args: ControllerArgs<WithPayload<TestActionPayload, WithProps<TestWidgetProps>>>): string {
+      state.actions.push({ payload: args.payload, props: args.props });
+      if (state.actionError) throw createRuntimeExceptionSignal(state.actionError);
+      return 'saved';
+    }
+    async delayedFailure(): Promise<void> {
+      await state.deferred?.promise;
+      throw createRuntimeExceptionSignal(new Error('old invocation failed'));
+    }
+    async submitAndRefresh(payload: TestActionPayload): Promise<void> {
+      this.action({ payload, props: { value: 'initial' }, signal: new AbortController().signal });
+      try {
+        await this.revalidation.revalidate();
+      } catch (error) {
+        throw createRuntimeExceptionSignal(error);
+      }
+    }
+    dispose(): void {
+      state.disposed++;
+    }
+  }
+  @Provider()
+  class RecoveryProvider implements ProviderInterface<TestWidgetProps> {
+    initialize(): void {
+      state.events.push('initialize');
+    }
+    prepare(): void {
+      state.events.push('prepare');
+    }
+    activate(): void {
+      state.events.push('activate');
+    }
+    revalidate(): void {
+      state.events.push('revalidate');
+    }
+    dispose(): void {
+      state.events.push('dispose');
+    }
+  }
+  class RecoveryBindings implements BindingModuleInterface {
+    register(registry: BindingRegistryInterface): void {
+      registry.bind(RecoveryController).toSelf().inSingletonScope();
+    }
+  }
+  @UseBindings(RecoveryBindings)
+  class RecoveryWidget extends WidgetDefinition<TestWidgetProps> {}
+  configureWidgetRuntimeDefinition(RecoveryWidget, { providers: [RecoveryProvider] });
+  const scope = new ApplicationScope();
+  scope.bindSession(new SessionRuntimeState());
+  return {
+    runtime: new WidgetRuntime(scope, getWidgetRuntimeDefinition(RecoveryWidget), { value: 'initial' }),
+    state,
+    Controller: RecoveryController,
+  };
 };
