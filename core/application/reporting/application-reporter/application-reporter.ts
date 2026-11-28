@@ -1,5 +1,4 @@
 import { Injectable } from '../../../di/injection/decorators';
-import type { RuntimeContextInterface } from '../../../runtime/context/runtime-context';
 import {
   ApplicationReporterInterface,
   ApplicationReportDispatcherInterface,
@@ -9,17 +8,18 @@ import {
   type ApplicationReportHandlerInterface,
   type ApplicationReportInput,
   type ApplicationReportLevel,
+  type ApplicationReporterContextInterface,
 } from '../application-report';
 
 @Injectable()
 export class ApplicationReporter extends ApplicationReporterInterface implements ApplicationReportDispatcherInterface {
   private active = false;
-  private context: RuntimeContextInterface | null = null;
+  private context: ApplicationReporterContextInterface | null = null;
   private readonly deliveries = new Set<Promise<void>>();
   private handlers: readonly ApplicationReportHandlerInterface[] = [];
   private readonly pendingReports: ApplicationReport[] = [];
 
-  activate(handlers: readonly ApplicationReportHandlerInterface[], context: RuntimeContextInterface): void {
+  activate(handlers: readonly ApplicationReportHandlerInterface[], context: ApplicationReporterContextInterface): void {
     this.context = context;
     this.handlers = [...handlers];
     this.active = true;
@@ -86,7 +86,7 @@ export class ApplicationReporter extends ApplicationReporterInterface implements
     }
   }
 
-  private async dispatch(report: ApplicationReport, context: RuntimeContextInterface): Promise<void> {
+  private async dispatch(report: ApplicationReport, context: ApplicationReporterContextInterface): Promise<void> {
     const results = await Promise.allSettled(
       this.handlers.map((handler) => {
         return Promise.resolve().then(() => handler.report(report, context));

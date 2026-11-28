@@ -49,8 +49,13 @@ Next Application предоставляет прикладной lifecycle и `g
 или навигации. Вложенный route scope может иметь собственный staged location,
 но `context.app.location` всегда читает корневое состояние своего приложения.
 
-Framework передаёт `RuntimeContextInterface` в `initialize(context)` и
+Framework передаёт `ApplicationReporterContextInterface` в `initialize(context)` и
 `report(report, context)` обработчика `ApplicationReportHandlerInterface`.
+Он расширяет `RuntimeContextInterface` полем `store` с полным контрактом
+`ApplicationStoreInterface`: `get`, `getMany`, `has`, `set`, `setMany`, `delete`, `clear`.
+Это тот же store application scope, доступный через DI; отдельного хранилища
+или копии данных для репортёра нет. Изменения store видны приложению и репортёру
+в обе стороны; разные приложения получают разные экземпляры store.
 Репортёр получает тот же объект приложения, что policies и initializers,
 без внедрения приложения через DI. Сигнал контекста репортёра принадлежит
 lifecycle приложения и отменяется при его освобождении. Отчёты cleanup продолжают

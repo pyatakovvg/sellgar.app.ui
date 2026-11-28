@@ -68,6 +68,7 @@ export type {
   ApplicationReportHandlerInterface,
   ApplicationReportInput,
   ApplicationReportLevel,
+  ApplicationReporterContextInterface,
   ApplicationReporterDeclaration,
 } from './application/reporting/application-report';
 export { Reporter } from './application/reporting/reporter';

@@ -5,8 +5,9 @@ import {
   ApplicationReporterInterface,
   type ApplicationReport,
   type ApplicationReportHandlerInterface,
+  type ApplicationReporterContextInterface,
 } from '../../reporting/application-report';
-import type { RuntimeContextInterface } from '../../../runtime/context/runtime-context';
+import { ApplicationStoreInterface } from '../../store/application-store';
 import { LocationServiceInterface } from '../../../router/service/location-service';
 import type { RouterBridgeInitializeContextInterface } from '../../../router/bridge/router-bridge';
 import { RouteScope } from '../../../runtime/scope/kind/route-scope';
@@ -46,11 +47,11 @@ class TestReporter implements ApplicationReportHandlerInterface {
     private readonly config: TestRuntimeConfig,
   ) {}
 
-  initialize(context: RuntimeContextInterface): void | Promise<void> {
+  initialize(context: ApplicationReporterContextInterface): void | Promise<void> {
     return TestReporter.initialize(this.config, context);
   }
 
-  report(report: ApplicationReport, context: RuntimeContextInterface): void {
+  report(report: ApplicationReport, context: ApplicationReporterContextInterface): void {
     TestReporter.report(report, context);
   }
 }
@@ -126,9 +127,10 @@ describe('Application reporters', () => {
     await app.initialize();
 
     expect(TestReporter.initialize).toHaveBeenCalledOnce();
-    const context = TestReporter.initialize.mock.calls[0]![1] as RuntimeContextInterface;
+    const context = TestReporter.initialize.mock.calls[0]![1] as ApplicationReporterContextInterface;
     expect(TestReporter.initialize).toHaveBeenCalledWith(expect.any(TestRuntimeConfig), context);
     expect(context.app).toBe(app);
+    expect(context.store).toBe(app.scope.get(ApplicationStoreInterface));
     expect(context.app.location).toBeNull();
     expect(context.signal.aborted).toBe(false);
 
@@ -146,6 +148,46 @@ describe('Application reporters', () => {
     expect(context.signal.aborted).toBe(true);
   });
 
+  it('shares the live application store with reporter initialization and delivery', async () => {
+    const app = new TestApplication();
+    app.reporter([TestReporter]);
+    app.compose();
+    await app.initialize();
+    const context = TestReporter.initialize.mock.calls[0]![1] as ApplicationReporterContextInterface;
+    const store = app.scope.get(ApplicationStoreInterface);
+    const reporter = app.scope.get(ApplicationReporterInterface);
+    const observed: (TestRuntimeConfig | undefined)[] = [];
+    TestReporter.report.mockImplementation(
+      (_report: ApplicationReport, current: ApplicationReporterContextInterface) => {
+        observed.push(current.store.get(TestRuntimeConfig));
+      },
+    );
+
+    try {
+      expect(context.store).toBe(store);
+      const first = new TestRuntimeConfig();
+      store.set(TestRuntimeConfig, first);
+      reporter.info({ event: 'store.first' });
+      await vi.waitFor(() => expect(observed).toHaveLength(1));
+      expect(observed[0]).toBe(first);
+
+      const second = new TestRuntimeConfig();
+      context.store.set(TestRuntimeConfig, second);
+      expect(store.get(TestRuntimeConfig)).toBe(second);
+      reporter.info({ event: 'store.second' });
+      await vi.waitFor(() => expect(observed).toHaveLength(2));
+      expect(observed[1]).toBe(second);
+
+      context.store.clear();
+      expect(store.has(TestRuntimeConfig)).toBe(false);
+      reporter.info({ event: 'store.cleared' });
+      await vi.waitFor(() => expect(observed).toHaveLength(3));
+      expect(observed[2]).toBeUndefined();
+    } finally {
+      await app.dispose();
+    }
+  });
+
   it('exposes current root location and changes without leaking route-local state', async () => {
     const first = { selected: 'first' };
     const second = { selected: 'second' };
@@ -154,7 +196,7 @@ describe('Application reporters', () => {
     app.reporter([TestReporter]);
     app.compose();
     await app.initialize();
-    const context = TestReporter.initialize.mock.calls[0]![1] as RuntimeContextInterface;
+    const context = TestReporter.initialize.mock.calls[0]![1] as ApplicationReporterContextInterface;
     const listener = vi.fn();
     const unsubscribe = context.app.subscribeLocation(listener);
     const child = new RouteScope(app.scope, (registry) => {
@@ -200,8 +242,17 @@ describe('Application reporters', () => {
     first.compose();
     second.compose();
     await Promise.all([first.initialize(), second.initialize()]);
-    const contexts = TestReporter.initialize.mock.calls.map((call) => call[1] as RuntimeContextInterface);
+    const contexts = TestReporter.initialize.mock.calls.map((call) => call[1] as ApplicationReporterContextInterface);
     expect(contexts.map((context) => context.app)).toEqual([first, second]);
+    expect(contexts[0]!.store).toBe(first.scope.get(ApplicationStoreInterface));
+    expect(contexts[1]!.store).toBe(second.scope.get(ApplicationStoreInterface));
+    expect(contexts[0]!.store).not.toBe(contexts[1]!.store);
+    const firstValue = new TestRuntimeConfig();
+    const secondValue = new TestRuntimeConfig();
+    contexts[0]!.store.set(TestRuntimeConfig, firstValue);
+    contexts[1]!.store.set(TestRuntimeConfig, secondValue);
+    expect(contexts[0]!.store.get(TestRuntimeConfig)).toBe(firstValue);
+    expect(contexts[1]!.store.get(TestRuntimeConfig)).toBe(secondValue);
     const listener = vi.fn();
     const unsubscribe = second.subscribeLocation(listener);
     try {
@@ -230,7 +281,7 @@ describe('Application reporters', () => {
       expect(TestReporter.report).not.toHaveBeenCalled();
       gate.resolve();
       await initialization;
-      const context = TestReporter.initialize.mock.calls[0]![1] as RuntimeContextInterface;
+      const context = TestReporter.initialize.mock.calls[0]![1] as ApplicationReporterContextInterface;
       await vi.waitFor(() =>
         expect(TestReporter.report).toHaveBeenCalledExactlyOnceWith(
           expect.objectContaining({ event: 'early.report' }),
@@ -262,7 +313,7 @@ describe('Application reporters', () => {
     app.reporter([FailedReporter, TestReporter]);
     app.compose();
     await app.initialize();
-    const context = TestReporter.initialize.mock.calls[0]![1] as RuntimeContextInterface;
+    const context = TestReporter.initialize.mock.calls[0]![1] as ApplicationReporterContextInterface;
     const failure = new Error('Bridge cleanup failed');
     source.bridge.dispose = () => {
       throw failure;

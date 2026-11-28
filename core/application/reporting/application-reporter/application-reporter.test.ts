@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ApplicationReport, ApplicationReportHandlerInterface } from '../application-report';
+import type {
+  ApplicationReport,
+  ApplicationReportHandlerInterface,
+  ApplicationReporterContextInterface,
+} from '../application-report';
 
-import type { RuntimeContextInterface } from '../../../runtime/context/runtime-context';
 import { SessionRuntimeState } from '../../session/session-runtime-state';
+import { ApplicationStore } from '../../store/application-store';
 
 import { ApplicationReporter } from './application-reporter.ts';
 
-const context: RuntimeContextInterface = {
+const context: ApplicationReporterContextInterface = {
   app: {
     lifecycle: { exception: null, phase: 'ready' },
     location: null,
@@ -16,6 +20,7 @@ const context: RuntimeContextInterface = {
   },
   session: new SessionRuntimeState(),
   signal: new AbortController().signal,
+  store: new ApplicationStore(),
 };
 
 const report: ApplicationReport = {

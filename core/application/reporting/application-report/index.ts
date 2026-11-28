@@ -7,5 +7,6 @@ export {
   type ApplicationReportHandlerInterface,
   type ApplicationReportInput,
   type ApplicationReportLevel,
+  type ApplicationReporterContextInterface,
   type ApplicationReporterDeclaration,
 } from './application-report.ts';

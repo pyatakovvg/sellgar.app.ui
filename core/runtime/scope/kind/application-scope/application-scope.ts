@@ -3,6 +3,7 @@ import type { MetadataValues } from '../../../../metadata/declaration/metadata';
 import { MetadataService } from '../../../../metadata/runtime/metadata-service';
 import { MetadataServiceInterface } from '../../../../metadata/service/metadata-service';
 import { SessionRuntimeStateInterface } from '../../../../application/session/session-runtime-state';
+import { ApplicationStoreInterface } from '../../../../application/store/application-store';
 import {
   type ApplicationFeatureInterface,
   type ApplicationFeatureToken,
@@ -12,6 +13,7 @@ import { RequestExecutor, RequestExecutorInterface } from '../../../../applicati
 import { DisposableRegistryInterface } from '../../../../application/disposable/disposable-registry';
 import {
   type ApplicationReportHandlerInterface,
+  type ApplicationReporterContextInterface,
   ApplicationReportDispatcherInterface,
   type ApplicationReporterDeclaration,
   ApplicationReporterInterface,
@@ -130,8 +132,12 @@ export class ApplicationScope extends RuntimeScope {
       }
     });
 
+    const reporterContext: ApplicationReporterContextInterface = {
+      ...context,
+      store: this.get(ApplicationStoreInterface),
+    };
     const initialization = resolvedReporters.map(({ instance }) => {
-      return Promise.resolve().then(() => instance.initialize?.(context));
+      return Promise.resolve().then(() => instance.initialize?.(reporterContext));
     });
 
     return Promise.allSettled(initialization).then((results) => {
@@ -156,7 +162,7 @@ export class ApplicationScope extends RuntimeScope {
         });
       }
 
-      this.get(ApplicationReporter).activate(instances, context);
+      this.get(ApplicationReporter).activate(instances, reporterContext);
     });
   }
 
